@@ -1909,8 +1909,7 @@
 
             while (SDL_OpenAudio(wanted_spec, spec) < 0)
             {
-                ffmpeg.av_log(null, ffmpeg.AV_LOG_WARNING, "SDL_OpenAudio (%d channels, %d Hz): %s\n",
-                       wanted_spec.channels, wanted_spec.freq, SDL_GetError());
+                ffmpeg.av_log(null, ffmpeg.AV_LOG_WARNING, $"SDL_OpenAudio ({wanted_spec.channels} channels, {wanted_spec.freq} Hz): {SDL_GetError()}\n");
                 wanted_spec.channels = next_nb_channels[Math.Min(7, wanted_spec.channels)];
                 if (wanted_spec.channels == 0)
                 {
@@ -2004,8 +2003,7 @@
             avctx->codec_id = codec->id;
             if (stream_lowres > ffmpeg.av_codec_get_max_lowres(codec))
             {
-                ffmpeg.av_log(avctx, ffmpeg.AV_LOG_WARNING, "The maximum value for lowres supported by the decoder is %d\n",
-                        ffmpeg.av_codec_get_max_lowres(codec));
+                ffmpeg.av_log(avctx, ffmpeg.AV_LOG_WARNING, $"The maximum value for lowres supported by the decoder is {ffmpeg.av_codec_get_max_lowres(codec)}\n");
                 stream_lowres = ffmpeg.av_codec_get_max_lowres(codec);
             }
             ffmpeg.av_codec_set_lowres(avctx, stream_lowres);
@@ -2113,6 +2111,8 @@
             return ret;
         }
 
+        private delegate int DecodeInterruptCallbackDelegate(VideoState vs);
+
         static int decode_interrupt_cb(VideoState vs)
         {
             return vs.abort_request;
@@ -2170,11 +2170,12 @@
 
             ic = ffmpeg.avformat_alloc_context();
 
-            ic->interrupt_callback.callback = decode_interrupt_cb;
-            fixed (void* opaque = &vs)
-            {
-                ic->interrupt_callback.opaque = opaque;
-            }
+            ic->interrupt_callback.callback = Marshal.GetFunctionPointerForDelegate(new DecodeInterruptCallbackDelegate(decode_interrupt_cb));
+            var vsHandle = GCHandle.Alloc(vs, GCHandleType.Weak);
+
+
+            ic->interrupt_callback.opaque = (void*)(IntPtr)vsHandle;
+
 
             if (ffmpeg.av_dict_get(format_opts, "scan_all_pmts", null, ffmpeg.AV_DICT_MATCH_CASE) == null)
             {

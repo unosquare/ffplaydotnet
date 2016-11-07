@@ -43,6 +43,7 @@
     <Reference Include="WindowsBase" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="FFmpeg.Autogen.Additions.cs" />
     <Compile Include="FFmpeg.Autogen\ConstCharPtrMarshaler.cs" />
     <Compile Include="FFmpeg.Autogen\FFmpeg.avcodec.g.cs" />
     <Compile Include="FFmpeg.Autogen\FFmpeg.avdevice.g.cs" />

@@ -108,20 +108,20 @@
                     throw new BadImageFormatException(
                         string.Format("Cannot load FFmpeg for architecture '{0}'", assemblyMachineType.ToString()));
 
-                MediaElement.FFmpegPaths.BasePath = ExtractFFmpegDlls(resourceFolderName);
-                MediaElement.FFmpegPaths.FFmpeg = Path.Combine(MediaElement.FFmpegPaths.BasePath, "ffmpeg.exe");
-                MediaElement.FFmpegPaths.FFplay = Path.Combine(MediaElement.FFmpegPaths.BasePath, "ffplay.exe");
-                MediaElement.FFmpegPaths.FFprobe = Path.Combine(MediaElement.FFmpegPaths.BasePath, "ffprobe.exe");
+                FFmpegPaths.BasePath = ExtractFFmpegDlls(resourceFolderName);
+                FFmpegPaths.FFmpeg = Path.Combine(FFmpegPaths.BasePath, "ffmpeg.exe");
+                FFmpegPaths.FFplay = Path.Combine(FFmpegPaths.BasePath, "ffplay.exe");
+                FFmpegPaths.FFprobe = Path.Combine(FFmpegPaths.BasePath, "ffprobe.exe");
 
-                NativeMethods.SetDllDirectory(MediaElement.FFmpegPaths.BasePath);
+                NativeMethods.SetDllDirectory(FFmpegPaths.BasePath);
 
-                //ffmpeg.avdevice_register_all();
-                //ffmpeg.avfilter_register_all();
+                ffmpeg.av_log_set_flags(ffmpeg.AV_LOG_SKIP_REPEATED);
 
-                ffmpeg.av_register_all();
                 ffmpeg.avdevice_register_all();
-                ffmpeg.avcodec_register_all();
+                ffmpeg.av_register_all();
                 ffmpeg.avformat_network_init();
+                ffmpeg.avcodec_register_all();
+                
                 
                 HasRegistered = true;
             }
@@ -156,12 +156,15 @@
         {
             get
             {
+                return false;
+                /*
                 if (!designTime.HasValue)
                 {
                     designTime = (bool)DesignerProperties.IsInDesignModeProperty.GetMetadata(
                           typeof(DependencyObject)).DefaultValue;
                 }
                 return designTime.Value;
+                */
             }
         }
 
@@ -195,10 +198,10 @@
         public static unsafe string GetFFmpegErrorMessage(int code)
         {
             var errorStrBytes = new byte[1024];
-            var errorStrPtr = Marshal.AllocHGlobal(System.Runtime.InteropServices.Marshal.SizeOf(typeof(sbyte)) * errorStrBytes.Length);
+            var errorStrPtr = Marshal.AllocHGlobal(System.Runtime.InteropServices.Marshal.SizeOf(typeof(byte)) * errorStrBytes.Length);
 
             //var errorStrPtr = &errorStr;
-            ffmpeg.av_strerror(code, errorStrPtr, (ulong)errorStrBytes.Length);
+            ffmpeg.av_strerror(code, (byte*)errorStrPtr, (ulong)errorStrBytes.Length);
             Marshal.Copy(errorStrPtr, errorStrBytes, 0, errorStrBytes.Length);
             Marshal.FreeHGlobal(errorStrPtr);
 

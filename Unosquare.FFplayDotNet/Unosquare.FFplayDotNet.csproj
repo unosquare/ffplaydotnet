@@ -45,16 +45,19 @@
   <ItemGroup>
     <Compile Include="FFmpeg.Autogen.Additions.cs" />
     <Compile Include="FFmpeg.Autogen\ConstCharPtrMarshaler.cs" />
-    <Compile Include="FFmpeg.Autogen\FFmpeg.avcodec.g.cs" />
-    <Compile Include="FFmpeg.Autogen\FFmpeg.avdevice.g.cs" />
-    <Compile Include="FFmpeg.Autogen\FFmpeg.avfilter.g.cs" />
-    <Compile Include="FFmpeg.Autogen\FFmpeg.avformat.g.cs" />
-    <Compile Include="FFmpeg.Autogen\FFmpeg.avutil.g.cs" />
-    <Compile Include="FFmpeg.Autogen\FFmpeg.postprocess.g.cs" />
-    <Compile Include="FFmpeg.Autogen\FFmpeg.swresample.g.cs" />
-    <Compile Include="FFmpeg.Autogen\FFmpeg.swscale.g.cs" />
-    <Compile Include="FFmpeg.Autogen\Unresolved.cs" />
-    <Compile Include="FFmpegMedia.cs" />
+    <Compile Include="FFmpeg.Autogen\FFmpeg.arrays.g.cs" />
+    <Compile Include="FFmpeg.Autogen\FFmpeg.delegates.g.cs" />
+    <Compile Include="FFmpeg.Autogen\FFmpeg.enums.g.cs" />
+    <Compile Include="FFmpeg.Autogen\FFmpeg.functions.g.cs" />
+    <Compile Include="FFmpeg.Autogen\FFmpeg.macros.g.cs" />
+    <Compile Include="FFmpeg.Autogen\FFmpeg.structs.g.cs" />
+    <Compile Include="FFmpeg.Autogen\FFmpeg.structs.incomplete.g.cs" />
+    <Compile Include="FFmpegPaths.cs" />
+    <Compile Include="FFplay.Classes.cs" />
+    <Compile Include="FFplay.Constants.cs" />
+    <Compile Include="FFplay.cs" />
+    <Compile Include="FFplay.Enums.cs" />
+    <Compile Include="FFplay.SDL.cs" />
     <Compile Include="Helper.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
   </ItemGroup>

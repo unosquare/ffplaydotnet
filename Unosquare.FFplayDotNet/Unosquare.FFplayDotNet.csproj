@@ -53,7 +53,6 @@
     <Compile Include="FFmpeg.Autogen\FFmpeg.postprocess.g.cs" />
     <Compile Include="FFmpeg.Autogen\FFmpeg.swresample.g.cs" />
     <Compile Include="FFmpeg.Autogen\FFmpeg.swscale.g.cs" />
-    <Compile Include="FFmpeg.Autogen\Unresolved.cs" />
     <Compile Include="FFmpegMedia.cs" />
     <Compile Include="Helper.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

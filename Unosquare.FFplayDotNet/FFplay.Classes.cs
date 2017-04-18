@@ -2,6 +2,7 @@
 {
     using FFmpeg.AutoGen;
     using System;
+    using System.Runtime.InteropServices;
 
     unsafe partial class FFplay
     {
@@ -97,6 +98,12 @@
 
         internal class VideoState
         {
+            public VideoState()
+            {
+                Handle = GCHandle.Alloc(this, GCHandleType.Pinned);
+            }
+
+            public readonly GCHandle Handle;
             public SDL_Thread read_tid;
             public AVInputFormat* iformat;
             public bool abort_request;
@@ -144,7 +151,7 @@
             public SwrContext* swr_ctx;
             public int frame_drops_early;
             public int frame_drops_late;
-            public ShowMode show_mode;
+            //public ShowMode show_mode;
             public short[] sample_array = new short[SAMPLE_ARRAY_SIZE];
             public int sample_array_index;
             public int last_i_start;

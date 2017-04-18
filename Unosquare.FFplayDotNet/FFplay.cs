@@ -10,6 +10,7 @@
 
     internal unsafe partial class FFplay
     {
+        internal delegate int InterruptCallback(void* opaque);
 
         #region Properties
         internal uint sws_flags { get; set; } = (uint)ffmpeg.SWS_BICUBIC;
@@ -38,7 +39,7 @@
         internal int loop { get; set; } = 1;
         internal int framedrop { get; set; } = -1;
         internal int infinite_buffer { get; set; } = -1;
-        internal ShowMode show_mode { get; set; } = ShowMode.SHOW_MODE_VIDEO;
+        //internal ShowMode show_mode { get; set; } = ShowMode.SHOW_MODE_VIDEO;
         internal string audio_codec_name { get; set; }
         internal string subtitle_codec_name { get; set; }
         internal string video_codec_name { get; set; }
@@ -52,7 +53,7 @@
         internal int dummy { get; set; }
         internal double rdftspeed { get; set; } = 0.02;
         internal long last_time { get; set; } = 0;
-
+        internal readonly InterruptCallback decode_interrupt_delegate = new InterruptCallback(decode_interrupt_cb);
         #endregion
 
         internal AVPacket* flush_pkt = null;
@@ -83,6 +84,13 @@
 
             var vst = stream_open(filename, inputFormat);
             event_loop(vst);
+        }
+
+        private EventAction refresh_loop_wait_ev(VideoState vst)
+        {
+            // TODO: still missing some code here
+            video_refresh(vst);
+            return EventAction.AllocatePicture;
         }
 
         #region Methods
@@ -286,7 +294,9 @@
                     case AVMediaType.AVMEDIA_TYPE_VIDEO:
                         fixed (AVPacket* pktTemp = &d.pkt_temp)
                         {
+#pragma warning disable CS0618 // Type or member is obsolete
                             ret = ffmpeg.avcodec_decode_video2(d.avctx, frame, &got_frame, pktTemp);
+#pragma warning restore CS0618 // Type or member is obsolete
                         }
                         if (got_frame != 0)
                         {
@@ -303,7 +313,9 @@
                     case AVMediaType.AVMEDIA_TYPE_AUDIO:
                         fixed (AVPacket* pktTemp = &d.pkt_temp)
                         {
+#pragma warning disable CS0618 // Type or member is obsolete
                             ret = ffmpeg.avcodec_decode_audio4(d.avctx, frame, &got_frame, pktTemp);
+#pragma warning restore CS0618 // Type or member is obsolete
                         }
                         if (got_frame != 0)
                         {
@@ -1081,6 +1093,7 @@
                 return 0.0;
             }
         }
+
         static void update_video_pts(VideoState vst, double pts, long pos, int serial)
         {
             set_clock(vst.vidclk, pts, serial);
@@ -1113,7 +1126,7 @@
             SDL_UnlockMutex(vst.pictq.mutex);
         }
 
-        private void video_refresh(VideoState vst, double* remaining_time)
+        private void video_refresh(VideoState vst, ref double remaining_time)
         {
             double time;
             var sp = new Frame();
@@ -1121,17 +1134,6 @@
 
             if (!vst.paused && get_master_sync_type(vst) == SyncMode.AV_SYNC_EXTERNAL_CLOCK && vst.realtime)
                 check_external_clock_speed(vst);
-            if (!display_disable && vst.show_mode != ShowMode.SHOW_MODE_VIDEO && vst.audio_st != null)
-            {
-                time = ffmpeg.av_gettime_relative() / 1000000.0;
-                if (vst.force_refresh || vst.last_vis_time + rdftspeed < time)
-                {
-                    video_display(vst);
-                    vst.last_vis_time = time;
-                }
-
-                *remaining_time = Math.Min(*remaining_time, vst.last_vis_time + rdftspeed - time);
-            }
 
             if (vst.video_st != null)
             {
@@ -1161,7 +1163,7 @@
                     time = ffmpeg.av_gettime_relative() / 1000000.0;
                     if (time < vst.frame_timer + delay)
                     {
-                        *remaining_time = Math.Min(vst.frame_timer + delay - time, *remaining_time);
+                        remaining_time = Math.Min(vst.frame_timer + delay - time, remaining_time);
                         goto display;
                     }
                     vst.frame_timer += delay;
@@ -1226,7 +1228,7 @@
                         stream_toggle_pause(vst);
                 }
                 display:
-                if (!display_disable && vst.force_refresh && vst.show_mode == ShowMode.SHOW_MODE_VIDEO && vst.pictq.rindex_shown != 0)
+                if (vst.force_refresh && vst.pictq.rindex_shown != 0)
                     video_display(vst);
             }
 
@@ -1706,10 +1708,10 @@
                 queue.nb_packets > MIN_FRAMES && (queue.duration == 0 || ffmpeg.av_q2d(st->time_base) * queue.duration > 1.0);
         }
 
-        static bool decode_interrupt_cb(void* opaque)
+        static int decode_interrupt_cb(void* opaque)
         {
             var vst = GCHandle.FromIntPtr(new IntPtr(opaque)).Target as VideoState;
-            return vst.abort_request;
+            return vst.abort_request ? 1 : 0;
         }
 
         private int decoder_start(Decoder d, Func<VideoState, int> fn, VideoState vst)
@@ -2014,9 +2016,11 @@
                 goto fail;
             }
 
-            var vstHandle = GCHandle.Alloc(vst, GCHandleType.Pinned);
-            ic->interrupt_callback.callback = decode_interrupt_cb;
-            ic->interrupt_callback.opaque = (void*)vstHandle.AddrOfPinnedObject();
+            
+
+            var decode_interrupt_delegate = new InterruptCallback(decode_interrupt_cb);
+            ic->interrupt_callback.callback = new AVIOInterruptCB_callback_func { Pointer = Marshal.GetFunctionPointerForDelegate(decode_interrupt_delegate) };
+            ic->interrupt_callback.opaque = (void*)vst.Handle.AddrOfPinnedObject();
 
             fixed (AVDictionary** format_opts_ref = &format_opts)
             {
@@ -2150,12 +2154,12 @@
                                          st_index[(int)AVMediaType.AVMEDIA_TYPE_VIDEO]),
                                         null, 0);
 
-            vst.show_mode = show_mode;
+            //vst.show_mode = show_mode;
             if (st_index[(int)AVMediaType.AVMEDIA_TYPE_VIDEO] >= 0)
             {
-                AVStream* st = ic->streams[st_index[(int)AVMediaType.AVMEDIA_TYPE_VIDEO]];
-                AVCodecParameters* codecpar = st->codecpar;
-                AVRational sar = ffmpeg.av_guess_sample_aspect_ratio(ic, st, null);
+                var st = ic->streams[st_index[(int)AVMediaType.AVMEDIA_TYPE_VIDEO]];
+                var codecpar = st->codecpar;
+                var sar = ffmpeg.av_guess_sample_aspect_ratio(ic, st, null);
                 if (codecpar->width != 0)
                     set_default_window_size(codecpar->width, codecpar->height, sar);
             }
@@ -2170,8 +2174,8 @@
                 ret = stream_component_open(vst, st_index[(int)AVMediaType.AVMEDIA_TYPE_VIDEO]);
             }
 
-            if (vst.show_mode == ShowMode.SHOW_MODE_NONE)
-                vst.show_mode = ret >= 0 ? ShowMode.SHOW_MODE_VIDEO : ShowMode.SHOW_MODE_NONE;
+            //if (vst.show_mode == ShowMode.SHOW_MODE_NONE)
+            //    vst.show_mode = ret >= 0 ? ShowMode.SHOW_MODE_VIDEO : ShowMode.SHOW_MODE_NONE;
 
             if (st_index[(int)AVMediaType.AVMEDIA_TYPE_SUBTITLE] >= 0)
             {
@@ -2404,215 +2408,231 @@
             return vst;
         }
 
-        private enum EventAction
+        static void seek_chapter(VideoState vst, int incr)
         {
-            Quit,
+            long pos = Convert.ToInt64(get_master_clock(vst) * ffmpeg.AV_TIME_BASE);
+            int i = 0;
 
+            if (vst.ic->nb_chapters == 0)
+                return;
+
+            for (i = 0; i < vst.ic->nb_chapters; i++)
+            {
+                AVChapter* ch = vst.ic->chapters[i];
+                if (ffmpeg.av_compare_ts(pos, ffmpeg.AV_TIME_BASE_Q, ch->start, ch->time_base) < 0)
+                {
+                    i--;
+                    break;
+                }
+            }
+
+            i += incr;
+            i = Math.Max(i, 0);
+            if (i >= vst.ic->nb_chapters)
+                return;
+
+            ffmpeg.av_log(null, ffmpeg.AV_LOG_VERBOSE, $"Seeking to chapter {i}.\n");
+            stream_seek(vst, ffmpeg.av_rescale_q(vst.ic->chapters[i]->start, vst.ic->chapters[i]->time_base,
+                                         ffmpeg.AV_TIME_BASE_Q), 0, false);
         }
 
-        private void ev_loop(VideoState cur_stream)
+        private void stream_cycle_channel(VideoState vst, AVMediaType codec_type)
         {
-            const int SDL_KEYDOWN = -1;
-            const int SDLK_ESCAPE = 0;
-            const int SDLK_q = 1;
-            const int SDLK_f = 2;
-            const int SDLK_p = 3;
-            const int SDLK_SPACE  = 4;
+            var ic = vst.ic;
+            int start_index, stream_index;
+            int old_index;
+            AVStream* st;
+            AVProgram* p = null;
+            int nb_streams = (int)vst.ic->nb_streams;
 
-
-            var ev = new SDL_Event();
-    double incr, pos, frac;
-    for (;;) {
-        double x;
-        EventAction action = refresh_loop_wait_ev(cur_stream, ev);
-        switch (action) {
-        case Quit:
-            switch (ev.key.keysym.sym) {
-            case SDLK_ESCAPE:
-            case SDLK_q:
-            do_exit(cur_stream);
-            break;
-            case SDLK_f:
-            toggle_full_screen(cur_stream);
-            cur_stream.force_refresh = true;
-            break;
-            case SDLK_p:
-            case SDLK_SPACE:
-            toggle_pause(cur_stream);
-            break;
-            case SDLK_m:
-            toggle_mute(cur_stream);
-            break;
-            case SDLK_KP_MULTIPLY:
-            case SDLK_0:
-            update_volume(cur_stream, 1, SDL_VOLUME_STEP);
-            break;
-            case SDLK_KP_DIVIDE:
-            case SDLK_9:
-            update_volume(cur_stream, -1, SDL_VOLUME_STEP);
-            break;
-            case SDLK_s: // S: Step to next frame
-            step_to_next_frame(cur_stream);
-            break;
-            case SDLK_a:
-            stream_cycle_channel(cur_stream, AVMEDIA_TYPE_AUDIO);
-            break;
-            case SDLK_v:
-            stream_cycle_channel(cur_stream, AVMEDIA_TYPE_VIDEO);
-            break;
-            case SDLK_c:
-            stream_cycle_channel(cur_stream, AVMEDIA_TYPE_VIDEO);
-            stream_cycle_channel(cur_stream, AVMEDIA_TYPE_AUDIO);
-            stream_cycle_channel(cur_stream, AVMEDIA_TYPE_SUBTITLE);
-            break;
-            case SDLK_t:
-            stream_cycle_channel(cur_stream, AVMEDIA_TYPE_SUBTITLE);
-            break;
-            case SDLK_w:
-            break;
-            case SDLK_PAGEUP:
-            if (cur_stream->ic.nb_chapters <= 1)
+            if (codec_type == AVMediaType.AVMEDIA_TYPE_VIDEO)
             {
-                incr = 600.0;
-                goto do_seek;
+                start_index = vst.last_video_stream;
+                old_index = vst.video_stream;
             }
-            seek_chapter(cur_stream, 1);
-            break;
-            case SDLK_PAGEDOWN:
-            if (cur_stream->ic.nb_chapters <= 1)
+            else if (codec_type == AVMediaType.AVMEDIA_TYPE_AUDIO)
             {
-                incr = -600.0;
-                goto do_seek;
-            }
-            seek_chapter(cur_stream, -1);
-            break;
-            case SDLK_LEFT:
-            incr = -10.0;
-            goto do_seek;
-            case SDLK_RIGHT:
-            incr = 10.0;
-            goto do_seek;
-            case SDLK_UP:
-            incr = 60.0;
-            goto do_seek;
-            case SDLK_DOWN:
-            incr = -60.0;
-            do_seek:
-            if (seek_by_bytes)
-            {
-                pos = -1;
-                if (pos < 0 && cur_stream->video_stream >= 0)
-                    pos = frame_queue_last_pos(&cur_stream->pictq);
-                if (pos < 0 && cur_stream->audio_stream >= 0)
-                    pos = frame_queue_last_pos(&cur_stream->sampq);
-                if (pos < 0)
-                    pos = avio_tell(cur_stream->ic.pb);
-                if (cur_stream->ic.bit_rate)
-                    incr *= cur_stream->ic.bit_rate / 8.0;
-                else
-                    incr *= 180000.0;
-                pos += incr;
-                stream_seek(cur_stream, pos, incr, 1);
+                start_index = vst.last_audio_stream;
+                old_index = vst.audio_stream;
             }
             else
             {
-                pos = get_master_clock(cur_stream);
-                if (double.IsNaN(pos))
-                    pos = (double)cur_stream->seek_pos / AV_TIME_BASE;
-                pos += incr;
-                if (cur_stream->ic.start_time != AV_NOPTS_VALUE && pos < cur_stream->ic.start_time / (double)AV_TIME_BASE)
-                    pos = cur_stream->ic.start_time / (double)AV_TIME_BASE;
-                stream_seek(cur_stream, (long)(pos * AV_TIME_BASE), (long)(incr * AV_TIME_BASE), 0);
+                start_index = vst.last_subtitle_stream;
+                old_index = vst.subtitle_stream;
             }
-            break;
-            default:
-                break;
-        }
-            break;
-        case SDL_MOUSEBUTTONDOWN:
-            if (exit_on_mousedown) {
-            do_exit(cur_stream);
-            break;
-        }
-            if (ev.button.button == SDL_BUTTON_LEFT) {
-            static long last_mouse_left_click = 0;
-            if (ffmpeg.av_gettime_relative() - last_mouse_left_click <= 500000)
+            stream_index = start_index;
+            if (codec_type != AVMediaType.AVMEDIA_TYPE_VIDEO && vst.video_stream != -1)
             {
-                toggle_full_screen(cur_stream);
-                cur_stream->force_refresh = 1;
-                last_mouse_left_click = 0;
+                p = ffmpeg.av_find_program_from_stream(ic, null, vst.video_stream);
+                if (p != null)
+                {
+                    nb_streams = (int)p->nb_stream_indexes;
+                    for (start_index = 0; start_index < nb_streams; start_index++)
+                        if (p->stream_index[start_index] == stream_index)
+                            break;
+                    if (start_index == nb_streams)
+                        start_index = -1;
+                    stream_index = start_index;
+                }
             }
-            else
+            while (true)
             {
-                last_mouse_left_click = ffmpeg.av_gettime_relative();
+                if (++stream_index >= nb_streams)
+                {
+                    if (codec_type == AVMediaType.AVMEDIA_TYPE_SUBTITLE)
+                    {
+                        stream_index = -1;
+                        vst.last_subtitle_stream = -1;
+                        goto the_end;
+                    }
+                    if (start_index == -1)
+                        return;
+                    stream_index = 0;
+                }
+                if (stream_index == start_index)
+                    return;
+                st = vst.ic->streams[p != null ? (int)p->stream_index[stream_index] : stream_index];
+                if (st->codecpar->codec_type == codec_type)
+                {
+                    switch (codec_type)
+                    {
+                        case AVMediaType.AVMEDIA_TYPE_AUDIO:
+                            if (st->codecpar->sample_rate != 0 &&
+                                st->codecpar->channels != 0)
+                                goto the_end;
+                            break;
+                        case AVMediaType.AVMEDIA_TYPE_VIDEO:
+                        case AVMediaType.AVMEDIA_TYPE_SUBTITLE:
+                            goto the_end;
+                        default:
+                            break;
+                    }
+                }
+            }
+            the_end:
+            if (p != null && stream_index != -1)
+                stream_index = (int)p->stream_index[stream_index];
+            ffmpeg.av_log(null, ffmpeg.AV_LOG_INFO, $"Switch {ffmpeg.av_get_media_type_string(codec_type)} stream from #{old_index} to #{stream_index}\n");
+            stream_component_close(vst, old_index);
+            stream_component_open(vst, stream_index);
+        }
+
+
+        private void event_loop(VideoState cur_stream)
+        {
+            double incr;
+            double pos;
+
+            while (true)
+            {
+                EventAction action = refresh_loop_wait_ev(cur_stream);
+                switch (action)
+                {
+                    case EventAction.Quit:
+                        do_exit(cur_stream);
+                        break;
+                    case EventAction.ToggleFullScreen:
+                        //toggle_full_screen(cur_stream);
+                        cur_stream.force_refresh = true;
+                        break;
+                    case EventAction.TogglePause:
+                        toggle_pause(cur_stream);
+                        break;
+                    case EventAction.ToggleMute:
+                        toggle_mute(cur_stream);
+                        break;
+                    case EventAction.VolumeUp:
+                        update_volume(cur_stream, 1, SDL_VOLUME_STEP);
+                        break;
+                    case EventAction.VolumeDown:
+                        update_volume(cur_stream, -1, SDL_VOLUME_STEP);
+                        break;
+                    case EventAction.StepNextFrame:
+                        step_to_next_frame(cur_stream);
+                        break;
+                    case EventAction.CycleAudio:
+                        stream_cycle_channel(cur_stream, AVMediaType.AVMEDIA_TYPE_AUDIO);
+                        break;
+                    case EventAction.CycleVideo:
+                        stream_cycle_channel(cur_stream, AVMediaType.AVMEDIA_TYPE_VIDEO);
+                        break;
+                    case EventAction.CycleAll:
+                        stream_cycle_channel(cur_stream, AVMediaType.AVMEDIA_TYPE_VIDEO);
+                        stream_cycle_channel(cur_stream, AVMediaType.AVMEDIA_TYPE_AUDIO);
+                        stream_cycle_channel(cur_stream, AVMediaType.AVMEDIA_TYPE_SUBTITLE);
+                        break;
+                    case EventAction.CycleSubtitles:
+                        stream_cycle_channel(cur_stream, AVMediaType.AVMEDIA_TYPE_SUBTITLE);
+                        break;
+                    case EventAction.NextChapter:
+                        if (cur_stream.ic->nb_chapters <= 1)
+                        {
+                            incr = 600.0;
+                            goto do_seek;
+                        }
+                        seek_chapter(cur_stream, 1);
+                        break;
+                    case EventAction.PreviousChapter:
+                        if (cur_stream.ic->nb_chapters <= 1)
+                        {
+                            incr = -600.0;
+                            goto do_seek;
+                        }
+                        seek_chapter(cur_stream, -1);
+                        break;
+                    case EventAction.SeekLeft10:
+                        incr = -10.0;
+                        goto do_seek;
+                    case EventAction.SeekRight10:
+                        incr = 10.0;
+                        goto do_seek;
+                    case EventAction.SeekLRight60:
+                        incr = 60.0;
+                        goto do_seek;
+                    case EventAction.SeekLeft60:
+                        incr = -60.0;
+                        do_seek:
+                        if (seek_by_bytes != 0)
+                        {
+                            pos = -1;
+                            if (pos < 0 && cur_stream.video_stream >= 0)
+                                pos = frame_queue_last_pos(cur_stream.pictq);
+
+                            if (pos < 0 && cur_stream.audio_stream >= 0)
+                                pos = frame_queue_last_pos(cur_stream.sampq);
+
+                            if (pos < 0)
+                                pos = ffmpeg.avio_tell(cur_stream.ic->pb);
+
+                            if (cur_stream.ic->bit_rate != 0)
+                                incr *= cur_stream.ic->bit_rate / 8.0;
+                            else
+                                incr *= 180000.0;
+
+                            pos += incr;
+                            stream_seek(cur_stream, (long)pos, (long)incr, Convert.ToBoolean(seek_by_bytes));
+                        }
+                        else
+                        {
+                            pos = get_master_clock(cur_stream);
+                            if (double.IsNaN(pos))
+                                pos = (double)cur_stream.seek_pos / ffmpeg.AV_TIME_BASE;
+                            pos += incr;
+
+                            if (cur_stream.ic->start_time != ffmpeg.AV_NOPTS_VALUE && pos < cur_stream.ic->start_time / (double)ffmpeg.AV_TIME_BASE)
+                                pos = cur_stream.ic->start_time / (double)ffmpeg.AV_TIME_BASE;
+
+                            stream_seek(cur_stream, (long)(pos * ffmpeg.AV_TIME_BASE), (long)(incr * ffmpeg.AV_TIME_BASE), Convert.ToBoolean(seek_by_bytes));
+                        }
+                        break;
+                    case EventAction.AllocatePicture:
+                        alloc_picture(cur_stream);
+                        break;
+                    default:
+                        break;
+                }
             }
         }
-        case SDL_MOUSEMOTION:
-            if (cursor_hidden) {
-            SDL_ShowCursor(1);
-            cursor_hidden = 0;
-        }
-        cursor_last_shown = ffmpeg.av_gettime_relative();
-            if (ev.type == SDL_MOUSEBUTTONDOWN) {
-            if (ev.button.button != SDL_BUTTON_RIGHT)
-                    break;
-        x = ev.button.x;
-        } else {
-                if (!(ev.motion.state & SDL_BUTTON_RMASK))
-                    break;
-        x = ev.motion.x;
-        }
-                if (seek_by_bytes || cur_stream->ic.duration <= 0) {
-                    ulong size = avio_size(cur_stream->ic.pb);
-                    stream_seek(cur_stream, size* x/cur_stream->width, 0, 1);
-    } else {
-                    long ts;
-    int ns, hh, mm, ss;
-    int tns, thh, tmm, tss;
-    tns  = cur_stream->ic.duration / 1000000LL;
-                    thh  = tns / 3600;
-                    tmm  = (tns % 3600) / 60;
-                    tss  = (tns % 60);
-                    frac = x / cur_stream->width;
-                    ns   = frac* tns;
-    hh   = ns / 3600;
-                    mm   = (ns % 3600) / 60;
-                    ss   = (ns % 60);
-                    ffmpeg.av_log(null, ffmpeg.av_log_INFO,
-                           "Seek to %2.0f%% (%2d:%02d:%02d) of total duration (%2d:%02d:%02d)       \n", frac*100,
-                            hh, mm, ss, thh, tmm, tss);
-                    ts = frac* cur_stream->ic.duration;
-                    if (cur_stream->ic.start_time != AV_NOPTS_VALUE)
-                        ts += cur_stream->ic.start_time;
-                    stream_seek(cur_stream, ts, 0, 0);
-}
-            break;
-        case SDL_WINDOWev:
-            switch (ev.window.ev) {
-                case SDL_WINDOWev_RESIZED:
-    screen_width = cur_stream->width = ev.window.data1;
-    screen_height = cur_stream->height = ev.window.data2;
-    if (cur_stream->vis_texture)
-    {
-        SDL_DestroyTexture(cur_stream->vis_texture);
-        cur_stream->vis_texture = null;
-    }
-                case SDL_WINDOWev_EXPOSED:
-    cur_stream->force_refresh = 1;
-}
-            break;
-        case SDL_QUIT:
-        case FF_QUIT_ev:
-            do_exit(cur_stream);
-            break;
-        case FF_ALLOC_ev:
-            alloc_picture(ev.user.data1);
-            break;
-        default:
-            break;
-}
-    }
-}
 
         #endregion
 

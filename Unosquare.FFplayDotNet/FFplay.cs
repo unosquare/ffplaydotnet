@@ -589,12 +589,13 @@
                         AVPixelFormat.AV_PIX_FMT_BGRA, (int)sws_flags, null, null, null);
                     if (*img_convert_ctx != null)
                     {
-                        var pixels = new byte_ptrArray4();
-                        var pitch = new int[4];
-                        if (SDL_LockTexture(tex, null, pixels, pitch) == 0)
+                        byte*[] pixels = null;
+                        int pitch = 0;
+                        if (SDL_LockTexture(tex, null, (void**)&pixels, &pitch) == 0)
                         {
-                            ffmpeg.sws_scale(*img_convert_ctx, frame->data, frame->linesize,
-                              0, frame->height, pixels, pitch);
+                            ffmpeg.sws_scale(*img_convert_ctx, 
+                                frame->data, frame->linesize, 0, frame->height,
+                                pixels, pitch);
                             SDL_UnlockTexture(tex);
                         }
                     }
@@ -1219,9 +1220,11 @@
                                     for (var i = 0; i < sp.sub.num_rects; i++)
                                     {
                                         var sub_rect = sp.sub.rects[i];
-                                        var pixels = new byte_ptrArray4();
-                                        var pitch = new int[4];
-                                        if (SDL_LockTexture(vst.sub_texture, sub_rect, pixels, pitch) == 0)
+                                        byte* pixels = null;
+
+                                        var pitch = 0;
+
+                                        if (SDL_LockTexture(vst.sub_texture, sub_rect, pixels, new int[] { pitch }) == 0)
                                         {
                                             for (var j = 0; j < sub_rect->h; j++, pixels += pitch)
                                                 ffmpeg.memset(pixels, 0, sub_rect->w << 2);

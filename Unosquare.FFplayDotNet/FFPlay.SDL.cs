@@ -57,7 +57,7 @@
         static int SDL_UpdateYUVTexture(SDL_Texture texture, object other, byte* a, int a1, byte* b, int b1, byte* c, int c1) { return 0; }
         static int SDL_UpdateTexture(SDL_Texture tex, object other, byte* a, int a1) { return 0; }
         static void SDL_UnlockTexture(SDL_Texture tex) { }
-        static int SDL_LockTexture(SDL_Texture tex, AVSubtitleRect* other, byte_ptrArray4 a, int[] b) { return 0; }
+        static int SDL_LockTexture(SDL_Texture tex, AVSubtitleRect* other, byte** pixels, int* pitch) { return 0; }
         static void SDL_SetRenderDrawColor(SDL_Renderer renderer, byte a, byte r, byte g, byte b) { }
         static void SDL_RenderCopy(SDL_Renderer renderer, SDL_Texture texture, AVSubtitleRect* a, SDL_Rect b) { }
         static void SDL_CloseAudio() { }

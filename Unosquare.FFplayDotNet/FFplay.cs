@@ -86,10 +86,26 @@
             event_loop(vst);
         }
 
+        private int PollEvent() { return 0; }
+
         private EventAction refresh_loop_wait_ev(VideoState vst)
         {
+            double remaining_time = 0.0;
+            //SDL_PumpEvents();
+            while (PollEvent() == 0) 
+            {
+
+                if (remaining_time > 0.0)
+                    Thread.Sleep(TimeSpan.FromSeconds(remaining_time * ffmpeg.AV_TIME_BASE));
+
+                remaining_time = REFRESH_RATE;
+                if (!vst.paused || vst.force_refresh)
+                    video_refresh(vst, ref remaining_time);
+
+                //SDL_PumpEvents();
+            }
+
             // TODO: still missing some code here
-            video_refresh(vst);
             return EventAction.AllocatePicture;
         }
 
@@ -2016,7 +2032,7 @@
                 goto fail;
             }
 
-            
+
 
             var decode_interrupt_delegate = new InterruptCallback(decode_interrupt_cb);
             ic->interrupt_callback.callback = new AVIOInterruptCB_callback_func { Pointer = Marshal.GetFunctionPointerForDelegate(decode_interrupt_delegate) };

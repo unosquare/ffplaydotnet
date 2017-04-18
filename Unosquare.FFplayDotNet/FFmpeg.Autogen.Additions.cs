@@ -23,6 +23,16 @@
         [DllImport("avutil-55", EntryPoint = "av_gettime_relative", CallingConvention = CallingConvention.Cdecl)]
         public static extern long av_gettime_relative();
 
+        /// <summary>Scale the image slice in srcSlice and put the resulting scaled slice in the image in dst. A slice is a sequence of consecutive rows in an image.</summary>
+        /// <param name="c">the scaling context previously created with sws_getContext()</param>
+        /// <param name="srcSlice">the array containing the pointers to the planes of the source slice</param>
+        /// <param name="srcStride">the array containing the strides for each plane of the source image</param>
+        /// <param name="srcSliceY">the position in the source image of the slice to process, that is the number (counted starting from zero) in the image of the first row of the slice</param>
+        /// <param name="srcSliceH">the height of the source slice, that is the number of rows in the slice</param>
+        /// <param name="dst">the array containing the pointers to the planes of the destination image</param>
+        /// <param name="dstStride">the array containing the strides for each plane of the destination image</param>
+        [DllImport("swscale-4", EntryPoint = "sws_scale", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        public static extern int sws_scale(SwsContext* @c, byte** @srcSlice, int* @srcStride, int @srcSliceY, int @srcSliceH, byte** @dst, int* @dstStride);
 
         /// <summary>
         /// Clips a signed integer value into the amin-amax range.

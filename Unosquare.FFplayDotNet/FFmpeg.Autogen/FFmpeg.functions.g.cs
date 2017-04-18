@@ -3654,8 +3654,8 @@ namespace FFmpeg.AutoGen
         /// <param name="srcSliceH">the height of the source slice, that is the number of rows in the slice</param>
         /// <param name="dst">the array containing the pointers to the planes of the destination image</param>
         /// <param name="dstStride">the array containing the strides for each plane of the destination image</param>
-        [DllImport("swscale-4", EntryPoint = "sws_scale", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern int sws_scale(SwsContext* @c, byte*[] @srcSlice, int[] @srcStride, int @srcSliceY, int @srcSliceH, byte*[] @dst, int[] @dstStride);
+        //[DllImport("swscale-4", EntryPoint = "sws_scale", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        //public static extern int sws_scale(SwsContext* @c, byte*[] @srcSlice, int[] @srcStride, int @srcSliceY, int @srcSliceH, byte*[] @dst, int[] @dstStride);
         
         /// <summary>Scale all the coefficients of a by the scalar value.</summary>
         [DllImport("swscale-4", EntryPoint = "sws_scaleVec", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]

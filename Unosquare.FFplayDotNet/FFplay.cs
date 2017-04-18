@@ -8,6 +8,8 @@
     using System.Threading;
     using System.Threading.Tasks;
 
+    // https://raw.githubusercontent.com/FFmpeg/FFmpeg/release/3.2/ffplay.c
+
     internal unsafe partial class FFplay
     {
         internal delegate int InterruptCallback(void* opaque);
@@ -583,19 +585,24 @@
                 case AVPixelFormat.AV_PIX_FMT_BGRA:
                     ret = SDL_UpdateTexture(tex, null, frame->data[0], frame->linesize[0]);
                     break;
+
                 default:
                     *img_convert_ctx = ffmpeg.sws_getCachedContext(*img_convert_ctx,
                         frame->width, frame->height, (AVPixelFormat)frame->format, frame->width, frame->height,
                         AVPixelFormat.AV_PIX_FMT_BGRA, (int)sws_flags, null, null, null);
                     if (*img_convert_ctx != null)
                     {
-                        byte*[] pixels = null;
+                        byte** pixels = null;
                         int pitch = 0;
-                        if (SDL_LockTexture(tex, null, (void**)&pixels, &pitch) == 0)
+                        if (SDL_LockTexture(tex, null, pixels, &pitch) == 0)
                         {
+                            var sourceData0 = frame->data[0];
+                            var sourceStride = frame->linesize[0];
+
+                            // TODO: pixels and pitch must be filled by the prior function
                             ffmpeg.sws_scale(*img_convert_ctx, 
-                                frame->data, frame->linesize, 0, frame->height,
-                                pixels, pitch);
+                                &sourceData0, &sourceStride, 0, frame->height,
+                                pixels, &pitch);
                             SDL_UnlockTexture(tex);
                         }
                     }
@@ -627,8 +634,8 @@
                         {
                             if (!sp.uploaded)
                             {
-                                var pixels = new byte_ptrArray4();
-                                var pitch = new int_array4();
+                                byte** pixels = null;
+                                int pitch = 0;
 
                                 if (sp.width == 0 || sp.height == 0)
                                 {
@@ -651,16 +658,20 @@
                                         sub_rect->w, sub_rect->h, AVPixelFormat.AV_PIX_FMT_PAL8,
                                         sub_rect->w, sub_rect->h, AVPixelFormat.AV_PIX_FMT_BGRA,
                                         0, null, null, null);
+
                                     if (vst.sub_convert_ctx == null)
                                     {
                                         ffmpeg.av_log(null, ffmpeg.AV_LOG_FATAL, "Cannot initialize the conversion context\n");
                                         return;
                                     }
 
-                                    if (SDL_LockTexture(vst.sub_texture, sub_rect, pixels, pitch) == 0)
+                                    if (SDL_LockTexture(vst.sub_texture, sub_rect, pixels, &pitch) == 0)
                                     {
-                                        ffmpeg.sws_scale(vst.sub_convert_ctx, sub_rect->data, sub_rect->linesize,
-                                              0, sub_rect->h, pixels, pitch);
+                                        var sourceData0 = sub_rect->data[0];
+                                        var sourceStride = sub_rect->linesize[0];
+
+                                        ffmpeg.sws_scale(vst.sub_convert_ctx, &sourceData0, &sourceStride,
+                                              0, sub_rect->h, pixels, &pitch);
 
                                         SDL_UnlockTexture(vst.sub_texture);
                                     }
@@ -1220,14 +1231,15 @@
                                     for (var i = 0; i < sp.sub.num_rects; i++)
                                     {
                                         var sub_rect = sp.sub.rects[i];
-                                        byte* pixels = null;
+                                        byte** pixels = null;
 
                                         var pitch = 0;
 
-                                        if (SDL_LockTexture(vst.sub_texture, sub_rect, pixels, new int[] { pitch }) == 0)
+                                        if (SDL_LockTexture(vst.sub_texture, sub_rect, pixels, &pitch) == 0)
                                         {
+
                                             for (var j = 0; j < sub_rect->h; j++, pixels += pitch)
-                                                ffmpeg.memset(pixels, 0, sub_rect->w << 2);
+                                                ffmpeg.memset(*pixels, 0, sub_rect->w << 2);
 
                                             SDL_UnlockTexture(vst.sub_texture);
                                         }

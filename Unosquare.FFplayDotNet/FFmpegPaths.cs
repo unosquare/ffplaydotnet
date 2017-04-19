@@ -1,10 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace Unosquare.FFplayDotNet
+﻿namespace Unosquare.FFplayDotNet
 {
     /// <summary>
     /// Provides access to the paths where FFmpeg binaries are extracted to

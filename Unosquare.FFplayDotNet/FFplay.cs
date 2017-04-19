@@ -6,14 +6,11 @@
     using System.Runtime.InteropServices;
     using System.Text;
     using System.Threading;
-    using System.Threading.Tasks;
 
     // https://raw.githubusercontent.com/FFmpeg/FFmpeg/release/3.2/ffplay.c
 
     internal unsafe partial class FFplay
     {
-
-
         #region Properties
         internal uint sws_flags { get; set; } = (uint)ffmpeg.SWS_BICUBIC;
         internal AVInputFormat* file_iformat { get; set; }
@@ -65,7 +62,7 @@
 
         public FFplay()
         {
-
+            Helper.RegisterFFmpeg();
         }
 
         static int lockmgr(void** mtx, AVLockOp op)
@@ -116,7 +113,6 @@
         /// <param name="fromatName">Name of the fromat. Leave null for automatic selection</param>
         public void Run(string filename, string fromatName = null)
         {
-            Helper.RegisterFFmpeg();
             ffmpeg.avformat_network_init();
             init_opts();
 
@@ -484,6 +480,7 @@
                 {
                     ffmpeg.av_frame_free(frameRef);
                 }
+
                 free_picture(vp);
             }
             SDL_DestroyMutex(f.mutex);

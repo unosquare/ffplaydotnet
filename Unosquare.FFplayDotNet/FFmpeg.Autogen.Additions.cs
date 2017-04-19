@@ -5,6 +5,8 @@
 
     public unsafe static partial class ffmpeg
     {
+        #region Interop
+
         /// <summary>
         /// Gets the current time in microseconds since Jan 1, 1970
         /// </summary>
@@ -52,13 +54,19 @@
         [DllImport("avutil-55", EntryPoint = "av_q2d", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern double av_q2d(AVRational r);
 
-        public const long AV_NOPTS_VALUE = long.MinValue;
-        public const int INT_MAX = int.MaxValue;
+        #endregion
+
+        #region Ported Methods
 
         public static int MKTAG(params byte[] buff)
         {
             //  ((a) | ((b) << 8) | ((c) << 16) | ((unsigned)(d) << 24))
             return BitConverter.ToInt32(buff, 0);
+        }
+
+        public static int MKTAG(byte a, char b, char c, char d)
+        {
+            return MKTAG(new byte[] { a, (byte)b, (byte)c, (byte)d });
         }
 
         public static void memset<T>(Array arr, T value, int repeat)
@@ -100,18 +108,19 @@
             var totalSeconds = (double)ffmpegTimestamp / ffmpeg.AV_TIME_BASE;
             return TimeSpan.FromSeconds(totalSeconds);
         }
-        public static int MKTAG(byte a, char b, char c, char d)
-        {
-            return MKTAG(new byte[] { a, (byte)b, (byte)c, (byte)d });
-        }
 
+        #endregion
+
+        #region Constant Definitions
+
+        public const long AV_NOPTS_VALUE = long.MinValue;
         public static readonly AVRational AV_TIME_BASE_Q = new AVRational { num = 1, den = AV_TIME_BASE }; // (AVRational){1, AV_TIME_BASE}
-
-
         public const int AVERROR_EOF = -32; // http://www-numi.fnal.gov/offline_software/srt_public_context/WebDocs/Errors/unix_system_errors.html
         public const int AVERROR_EAGAIN = -11;
         public const int AVERROR_ENOMEM = -12;
         public const int AVERROR_EINVAL = -22;
         public static readonly int AVERROR_OPTION_NOT_FOUND = -MKTAG(0xF8, 'O', 'P', 'T');
+
+        #endregion
     }
 }

@@ -1,11 +1,9 @@
 ﻿
 Microsoft Visual Studio Solution File, Format Version 12.00
-# Visual Studio 14
-VisualStudioVersion = 14.0.25420.1
+# Visual Studio 15
+VisualStudioVersion = 15.0.26228.9
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Unosquare.FFplayDotNet", "Unosquare.FFplayDotNet\Unosquare.FFplayDotNet.csproj", "{A6EB99A6-AAE2-4E6E-AB9E-93992CE5B84D}"
-EndProject
-Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Unosquare.FFplayDotNet.Translator", "Unosquare.FFplayDotNet.Translator\Unosquare.FFplayDotNet.Translator.csproj", "{462BC870-3AF3-4FFA-A649-0865F46AF5B5}"
 EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
@@ -17,10 +15,6 @@ Global
 		{A6EB99A6-AAE2-4E6E-AB9E-93992CE5B84D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A6EB99A6-AAE2-4E6E-AB9E-93992CE5B84D}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A6EB99A6-AAE2-4E6E-AB9E-93992CE5B84D}.Release|Any CPU.Build.0 = Release|Any CPU
-		{462BC870-3AF3-4FFA-A649-0865F46AF5B5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
-		{462BC870-3AF3-4FFA-A649-0865F46AF5B5}.Debug|Any CPU.Build.0 = Debug|Any CPU
-		{462BC870-3AF3-4FFA-A649-0865F46AF5B5}.Release|Any CPU.ActiveCfg = Release|Any CPU
-		{462BC870-3AF3-4FFA-A649-0865F46AF5B5}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

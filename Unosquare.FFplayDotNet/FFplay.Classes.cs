@@ -21,63 +21,66 @@
         public class PacketQueue
         {
             internal static readonly AVPacket* FlushPacket = null;
+
             static PacketQueue()
             {
                 ffmpeg.av_init_packet(FlushPacket);
                 FlushPacket->data = (byte*)FlushPacket;
             }
 
-            public PacketSequenceNode FirstNode { get; internal set; }
-            public PacketSequenceNode LastNode { get; internal set; }
+            public PacketSequenceNode FirstNode { get; private set; }
+            public PacketSequenceNode LastNode { get; private set; }
 
-            public int Length { get; internal set; }
-            public int ByteLength { get; internal set; }
-            public long Duration { get; internal set; }
-            public bool IsPendingAbort { get; internal set; }
-            public int Serial { get; internal set; }
+            public int Length { get; private set; }
+            public int ByteLength { get; private set; }
+            public long Duration { get; private set; }
+            public bool IsAborted { get; private set; }
+            public int Serial { get; private set; }
 
-
-
-            public SDL_mutex Mutex;
-            public SDL_cond MutexCondition;
+            private readonly object SyncRoot = new object();
 
             public PacketQueue()
             {
-                IsPendingAbort = true;
+                lock (SyncRoot)
+                {
+                    IsAborted = false;
+                    EnqueueInternal(PacketQueue.FlushPacket);
+                }
             }
 
             private int EnqueueInternal(AVPacket* packet)
             {
-                if (IsPendingAbort)
-                    return -1;
+                lock (SyncRoot)
+                {
+                    if (IsAborted)
+                        return -1;
 
-                var node = new PacketSequenceNode();
-                node.Packet = packet;
-                node.Next = null;
-                if (packet == PacketQueue.FlushPacket)
-                    Serial++;
+                    var node = new PacketSequenceNode();
+                    node.Packet = packet;
+                    node.Next = null;
+                    if (packet == PacketQueue.FlushPacket)
+                        Serial++;
 
-                node.Serial = Serial;
+                    node.Serial = Serial;
 
-                if (LastNode == null)
-                    FirstNode = node;
-                else
-                    LastNode.Next = node;
+                    if (LastNode == null)
+                        FirstNode = node;
+                    else
+                        LastNode.Next = node;
 
-                LastNode = node;
-                Length++;
-                ByteLength += node.Packet->size; // + sizeof(*pkt1); // TODO: unsure how to do this or if needed
-                Duration += node.Packet->duration;
+                    LastNode = node;
+                    Length++;
+                    ByteLength += node.Packet->size; // + sizeof(*pkt1); // TODO: unsure how to do this or if needed
+                    Duration += node.Packet->duration;
 
-                SDL_CondSignal(MutexCondition);
-                return 0;
+                    return 0;
+                }
             }
 
             public int Enqueue(AVPacket* packet)
             {
-                SDL_LockMutex(Mutex);
-                var result = EnqueueInternal(packet);
-                SDL_UnlockMutex(Mutex);
+                var result = 0;
+                result = EnqueueInternal(packet);
 
                 if (packet != PacketQueue.FlushPacket && result < 0)
                     ffmpeg.av_packet_unref(packet);
@@ -94,99 +97,76 @@
                 return Enqueue(&packet);
             }
 
-            public void Flush()
+            public void Clear()
             {
                 // port of: packet_queue_flush;
 
                 PacketSequenceNode currentNode;
                 PacketSequenceNode nextNode;
 
-                SDL_LockMutex(Mutex);
-
-                for (currentNode = FirstNode; currentNode != null; currentNode = nextNode)
+                lock (SyncRoot)
                 {
-                    nextNode = currentNode.Next;
-                    ffmpeg.av_packet_unref(currentNode.Packet);
+                    for (currentNode = FirstNode; currentNode != null; currentNode = nextNode)
+                    {
+                        nextNode = currentNode.Next;
+                        ffmpeg.av_packet_unref(currentNode.Packet);
+                    }
+
+                    LastNode = null;
+                    FirstNode = null;
+                    Length = 0;
+                    ByteLength = 0;
+                    Duration = 0;
                 }
-
-                LastNode = null;
-                FirstNode = null;
-                Length = 0;
-                ByteLength = 0;
-                Duration = 0;
-
-                SDL_UnlockMutex(Mutex);
             }
 
-            internal void Destroy()
-            {
-                Flush();
-            }
-
-            internal void Lock()
-            {
-                SDL_LockMutex(Mutex);
-                IsPendingAbort = true;
-                SDL_CondSignal(MutexCondition);
-                SDL_UnlockMutex(Mutex);
-            }
-
-            internal void Unlock()
-            {
-                SDL_LockMutex(Mutex);
-                IsPendingAbort = false;
-                EnqueueInternal(PacketQueue.FlushPacket);
-                SDL_UnlockMutex(Mutex);
-            }
-
-            public int Dequeue(AVPacket* packet, bool block, ref int serial)
+            public int Dequeue(AVPacket* packet, ref int serial)
             {
                 PacketSequenceNode node = null;
-                int result = 0;
+                int result = default(int);
 
-                SDL_LockMutex(Mutex);
-                while (true)
+                lock (SyncRoot)
                 {
-                    if (IsPendingAbort)
+                    while (true)
                     {
-                        result = -1;
-                        break;
-                    }
+                        if (IsAborted)
+                        {
+                            result = -1;
+                            break;
+                        }
 
-                    node = FirstNode;
-                    if (node != null)
-                    {
-                        FirstNode = node.Next;
-                        if (FirstNode == null)
-                            LastNode = null;
+                        node = FirstNode;
+                        if (node != null)
+                        {
+                            FirstNode = node.Next;
+                            if (FirstNode == null)
+                                LastNode = null;
 
-                        Length--;
-                        ByteLength -= node.Packet->size; // + sizeof(*pkt1); // TODO: Verify
-                        Duration -= node.Packet->duration;
+                            Length--;
+                            ByteLength -= node.Packet->size; // + sizeof(*pkt1); // TODO: Verify
+                            Duration -= node.Packet->duration;
 
-                        packet = node.Packet;
+                            packet = node.Packet;
 
-                        if (serial != 0)
-                            serial = node.Serial;
+                            if (serial != 0)
+                                serial = node.Serial;
 
-                        result = 1;
-                        break;
-                    }
-                    else if (block == false)
-                    {
-                        result = 0;
-                        break;
-                    }
-                    else
-                    {
-                        SDL_CondWait(MutexCondition, Mutex);
+                            result = 1;
+                            break;
+                        }
                     }
                 }
 
-                SDL_UnlockMutex(Mutex);
                 return result;
             }
 
+            public void Abort()
+            {
+                lock (SyncRoot)
+                {
+                    IsAborted = true;
+                }
+            }
         }
 
         public class AudioParams
@@ -239,7 +219,8 @@
 
         public class FrameQueue
         {
-            public Frame[] queue = new Frame[FRAME_QUEUE_SIZE];
+            public Frame[] Frames { get; } = new Frame[FRAME_QUEUE_SIZE];
+            public PacketQueue pktq;
             public int rindex;
             public int windex;
             public int size;
@@ -248,23 +229,156 @@
             public int rindex_shown;
             public SDL_mutex mutex;
             public SDL_cond cond;
-            public PacketQueue pktq;
+
+            private void frame_queue_unref_item(Frame vp)
+            {
+                ffmpeg.av_frame_unref(vp.DecodedFrame);
+                fixed (AVSubtitle* vpsub = &vp.Subtitle)
+                {
+                    ffmpeg.avsubtitle_free(vpsub);
+                }
+
+
+            }
+
+            public int frame_queue_init(PacketQueue queue, int maxSize, bool keepLast)
+            {
+                mutex = SDL_CreateMutex();
+                cond = SDL_CreateCond();
+
+                pktq = queue;
+                max_size = Math.Min(maxSize, FRAME_QUEUE_SIZE);
+                keep_last = keepLast;
+                for (var i = 0; i < max_size; i++)
+                    Frames[i].DecodedFrame = ffmpeg.av_frame_alloc();
+
+                return 0;
+            }
+
+            public void frame_queue_destory()
+            {
+                for (var i = 0; i < max_size; i++)
+                {
+                    var vp = Frames[i];
+                    frame_queue_unref_item(vp);
+                    fixed (AVFrame** frameRef = &vp.DecodedFrame)
+                    {
+                        ffmpeg.av_frame_free(frameRef);
+                    }
+
+                    free_picture(vp);
+                }
+                SDL_DestroyMutex(mutex);
+                SDL_DestroyCond(cond);
+            }
+
+            public void frame_queue_signal()
+            {
+                SDL_LockMutex(mutex);
+                SDL_CondSignal(cond);
+                SDL_UnlockMutex(mutex);
+            }
+
+            public Frame frame_queue_peek()
+            {
+                return Frames[(rindex + rindex_shown) % max_size];
+            }
+
+            public Frame frame_queue_peek_next()
+            {
+                return Frames[(rindex + rindex_shown + 1) % max_size];
+            }
+
+            public Frame frame_queue_peek_last()
+            {
+                return Frames[rindex];
+            }
+
+            public Frame frame_queue_peek_writable()
+            {
+                SDL_LockMutex(mutex);
+
+                while (size >= max_size && !pktq.IsAborted)
+                {
+                    SDL_CondWait(cond, mutex);
+                }
+
+                SDL_UnlockMutex(mutex);
+                if (pktq.IsAborted)
+                    return null;
+
+                return Frames[windex];
+            }
+
+            public Frame frame_queue_peek_readable()
+            {
+                SDL_LockMutex(mutex);
+                while (size - rindex_shown <= 0 &&!pktq.IsAborted)
+                {
+                    SDL_CondWait(cond, mutex);
+                }
+                SDL_UnlockMutex(mutex);
+                if (pktq.IsAborted)
+                    return null;
+                return Frames[(rindex + rindex_shown) % max_size];
+            }
+
+            public void frame_queue_push()
+            {
+                if (++windex == max_size)
+                    windex = 0;
+                SDL_LockMutex(mutex);
+                size++;
+                SDL_CondSignal(cond);
+                SDL_UnlockMutex(mutex);
+            }
+
+            public void frame_queue_next()
+            {
+                if (keep_last && !Convert.ToBoolean(rindex_shown))
+                {
+                    rindex_shown = 1;
+                    return;
+                }
+                frame_queue_unref_item(Frames[rindex]);
+                if (++rindex == max_size)
+                    rindex = 0;
+                SDL_LockMutex(mutex);
+                size--;
+                SDL_CondSignal(cond);
+                SDL_UnlockMutex(mutex);
+            }
+
+            public int frame_queue_nb_remaining()
+            {
+                return size - rindex_shown;
+            }
+
+            public long frame_queue_last_pos()
+            {
+                var fp = Frames[rindex];
+                if (rindex_shown != 0 && fp.Serial == pktq.Serial)
+                    return fp.BytePosition;
+                else
+                    return -1;
+            }
+
         }
 
         public class Decoder
         {
             public AVPacket pkt;
             public AVPacket pkt_temp;
-            public PacketQueue queue;
+            public PacketQueue PacketQueue;
             public AVCodecContext* avctx;
-            public int pkt_serial;
-            public bool finished;
+            public int PacketSerial;
+            public bool IsFinished;
             public bool IsPacketPending;
             public SDL_cond empty_queue_cond;
-            public long start_pts;
-            public AVRational start_pts_tb;
-            public long next_pts;
-            public AVRational next_pts_tb;
+            public long StartPts;
+            public AVRational StartPtsTimebase;
+            public long NextPts;
+            public AVRational NextPtsTimebase;
             public SDL_Thread DecoderThread;
         }
 

@@ -444,7 +444,7 @@
 
         static void decoder_abort(Decoder d, FrameQueue fq)
         {
-            d.queue.Abort();
+            d.queue.Lock();
             frame_queue_signal(fq);
             SDL_WaitThread(d.DecoderThread, null);
             d.DecoderThread = null;
@@ -1733,7 +1733,7 @@
 
         private int decoder_start(Decoder d, Func<MediaState, int> fn, MediaState vst)
         {
-            d.queue.Start();
+            d.queue.Unlock();
             d.DecoderThread = SDL_CreateThread(fn, vst);
             if (d.DecoderThread == null)
             {
@@ -2395,10 +2395,6 @@
             if (frame_queue_init(vst.SubtitleQueue, vst.SubtitlePackets, SUBPICTURE_QUEUE_SIZE, false) < 0)
                 goto fail;
             if (frame_queue_init(vst.AudioQueue, vst.AudioPackets, SAMPLE_QUEUE_SIZE, true) < 0)
-                goto fail;
-            if (vst.VideoPackets.Initialize() < 0 ||
-                vst.AudioPackets.Initialize() < 0 ||
-                vst.SubtitlePackets.Initialize() < 0)
                 goto fail;
 
             vst.continue_read_thread = SDL_CreateCond();

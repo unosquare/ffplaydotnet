@@ -3,6 +3,7 @@
     using FFmpeg.AutoGen;
     using System;
     using System.Runtime.InteropServices;
+    using System.Threading;
 
     unsafe partial class FFplay
     {
@@ -19,7 +20,7 @@
 
         public class PacketQueue
         {
-            static internal readonly AVPacket* FlushPacket = null;
+            internal static readonly AVPacket* FlushPacket = null;
             static PacketQueue()
             {
                 ffmpeg.av_init_packet(FlushPacket);
@@ -40,6 +41,10 @@
             public SDL_mutex Mutex;
             public SDL_cond MutexCondition;
 
+            public PacketQueue()
+            {
+                IsPendingAbort = true;
+            }
 
             private int EnqueueInternal(AVPacket* packet)
             {
@@ -68,36 +73,28 @@
                 return 0;
             }
 
-            internal int Enqueue(AVPacket* packet)
+            public int Enqueue(AVPacket* packet)
             {
                 SDL_LockMutex(Mutex);
-                var ret = EnqueueInternal(packet);
+                var result = EnqueueInternal(packet);
                 SDL_UnlockMutex(Mutex);
-                if (packet != PacketQueue.FlushPacket && ret < 0)
+
+                if (packet != PacketQueue.FlushPacket && result < 0)
                     ffmpeg.av_packet_unref(packet);
-                return ret;
+                return result;
             }
 
-            internal int EnqueueNull(int streamIndex)
+            public int EnqueueNull(int streamIndex)
             {
                 var packet = new AVPacket();
                 ffmpeg.av_init_packet(&packet);
-
                 packet.data = null;
                 packet.size = 0;
                 packet.stream_index = streamIndex;
                 return Enqueue(&packet);
             }
 
-            internal int Initialize()
-            {
-                Mutex = SDL_CreateMutex();
-                MutexCondition = SDL_CreateCond();
-                IsPendingAbort = true;
-                return 0;
-            }
-
-            internal void Flush()
+            public void Flush()
             {
                 // port of: packet_queue_flush;
 
@@ -124,11 +121,9 @@
             internal void Destroy()
             {
                 Flush();
-                SDL_DestroyMutex(Mutex);
-                SDL_DestroyCond(MutexCondition);
             }
 
-            internal void Abort()
+            internal void Lock()
             {
                 SDL_LockMutex(Mutex);
                 IsPendingAbort = true;
@@ -136,7 +131,7 @@
                 SDL_UnlockMutex(Mutex);
             }
 
-            internal void Start()
+            internal void Unlock()
             {
                 SDL_LockMutex(Mutex);
                 IsPendingAbort = false;
@@ -144,7 +139,7 @@
                 SDL_UnlockMutex(Mutex);
             }
 
-            internal int Dequeue(AVPacket* packet, bool block, ref int serial)
+            public int Dequeue(AVPacket* packet, bool block, ref int serial)
             {
                 PacketSequenceNode node = null;
                 int result = 0;

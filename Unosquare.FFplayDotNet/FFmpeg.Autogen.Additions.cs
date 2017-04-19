@@ -111,6 +111,7 @@
         public const int AVERROR_EOF = -32; // http://www-numi.fnal.gov/offline_software/srt_public_context/WebDocs/Errors/unix_system_errors.html
         public const int AVERROR_EAGAIN = -11;
         public const int AVERROR_ENOMEM = -12;
+        public const int AVERROR_EINVAL = -22;
         public static readonly int AVERROR_OPTION_NOT_FOUND = -MKTAG(0xF8, 'O', 'P', 'T');
     }
 }

@@ -59,7 +59,8 @@
         #endregion
 
         internal AVPacket* flush_pkt = null;
-        internal AVDictionary* format_opts;
+        internal AVDictionary* format_opts = null;
+        internal AVDictionary* codec_opts = null;
 
         public FFplay()
         {
@@ -76,6 +77,7 @@
             Helper.RegisterFFmpeg();
             ffmpeg.av_init_packet(flush_pkt);
             flush_pkt->data = (byte*)flush_pkt;
+            init_opts();
 
             AVInputFormat* inputFormat = null;
 
@@ -94,7 +96,7 @@
         {
             double remaining_time = 0.0;
             //SDL_PumpEvents();
-            while (PollEvent() == 0) 
+            while (PollEvent() == 0)
             {
 
                 if (remaining_time > 0.0)
@@ -600,7 +602,7 @@
                             var sourceStride = frame->linesize[0];
 
                             // TODO: pixels and pitch must be filled by the prior function
-                            ffmpeg.sws_scale(*img_convert_ctx, 
+                            ffmpeg.sws_scale(*img_convert_ctx,
                                 &sourceData0, &sourceStride, 0, frame->height,
                                 pixels, &pitch);
                             SDL_UnlockTexture(tex);
@@ -810,15 +812,114 @@
                 SDL_DestroyTexture(vst.sub_texture);
         }
 
+
+        private void init_opts()
+        {
+            var codecOpts = new AVDictionary();
+            codec_opts = &codecOpts;
+
+            var formatOpts = new AVDictionary();
+            format_opts = &formatOpts;
+        }
+
         private void uninit_opts()
         {
-            //ffmpeg.av_dict_free(&swr_opts);
-            //ffmpeg.av_dict_free(&sws_dict);
-            fixed (AVDictionary** format_opts_ref = &format_opts)
-                ffmpeg.av_dict_free(format_opts_ref);
+            fixed (AVDictionary** opts_ref = &format_opts)
+                ffmpeg.av_dict_free(opts_ref);
 
-            //ffmpeg.av_dict_free(&codec_opts);
-            //ffmpeg.av_dict_free(&resample_opts);
+            fixed (AVDictionary** opts_ref = &codec_opts)
+                ffmpeg.av_dict_free(opts_ref);
+
+        }
+
+        static int check_stream_specifier(AVFormatContext* s, AVStream* st, string spec)
+        {
+            int ret = ffmpeg.avformat_match_stream_specifier(s, st, spec);
+            if (ret < 0)
+                ffmpeg.av_log(s, ffmpeg.AV_LOG_ERROR, $"Invalid stream specifier: {spec}.\n");
+            return ret;
+        }
+
+        static AVDictionary** setup_find_stream_info_opts(AVFormatContext* s, AVDictionary* codec_opts)
+        {
+            var orginalOpts = new AVDictionary();
+            var optsReference = &orginalOpts;
+            AVDictionary** opts = &optsReference;
+
+            if (s->nb_streams == 0) return null;
+
+            for (var i = 0; i < s->nb_streams; i++)
+            {
+                opts[i] = filter_codec_opts(codec_opts, s->streams[i]->codecpar->codec_id, s, s->streams[i], null);
+            }
+
+            return opts;
+        }
+
+        // TODO: https://github.com/FFmpeg/FFmpeg/blob/d7896e9b4228e5b7ffc7ef0d0f1cf145f518c819/cmdutils.c#L2002
+        static AVDictionary* filter_codec_opts(AVDictionary* opts, AVCodecID codec_id, AVFormatContext* s, AVStream* st, AVCodec* codec)
+        {
+            AVDictionary* ret = null;
+            AVDictionaryEntry* t = null;
+            var flags = s->oformat != null ? ffmpeg.AV_OPT_FLAG_ENCODING_PARAM : ffmpeg.AV_OPT_FLAG_DECODING_PARAM;
+            char prefix = (char)0;
+            var cc = ffmpeg.avcodec_get_class();
+
+            if (codec == null)
+                codec = (s->oformat != null) ? 
+                    ffmpeg.avcodec_find_encoder(codec_id) : ffmpeg.avcodec_find_decoder(codec_id);
+
+            switch (st->codecpar->codec_type)
+            {
+                case AVMediaType.AVMEDIA_TYPE_VIDEO:
+                    prefix = 'v';
+                    flags |= ffmpeg.AV_OPT_FLAG_VIDEO_PARAM;
+                    break;
+                case AVMediaType.AVMEDIA_TYPE_AUDIO:
+                    prefix = 'a';
+                    flags |= ffmpeg.AV_OPT_FLAG_AUDIO_PARAM;
+                    break;
+                case AVMediaType.AVMEDIA_TYPE_SUBTITLE:
+                    prefix = 's';
+                    flags |= ffmpeg.AV_OPT_FLAG_SUBTITLE_PARAM;
+                    break;
+            }
+
+            //E.g. -codec:a:1 ac3 contains the a:1 stream specifier
+            //E.g. the stream specifier in -b:a 128k
+            while ((t = ffmpeg.av_dict_get(opts, "", t, ffmpeg.AV_DICT_IGNORE_SUFFIX)) != null)
+            {
+                var key = Marshal.PtrToStringAnsi(new IntPtr(t->key));
+                var value = Marshal.PtrToStringAnsi(new IntPtr(t->value));
+                var p = key.IndexOf(":");
+
+                //a:1 ac3
+                /* check stream specification in opt name */
+                switch (check_stream_specifier(s, st, key.Substring(p + 1)))
+                {
+                    case 1: key = string.Empty; break;
+                    case 0: continue;
+                    default: continue;
+                }
+
+                if (ffmpeg.av_opt_find(&cc, key, null, flags, ffmpeg.AV_OPT_SEARCH_FAKE_OBJ) != null ||
+                    codec == null ||
+                    (codec->priv_class != null &&
+                     ffmpeg.av_opt_find(&codec->priv_class, key, null, flags, ffmpeg.AV_OPT_SEARCH_FAKE_OBJ) != null))
+                {
+                    ffmpeg.av_dict_set(&ret, key, value, 0);
+                }
+                else if (t->key[0] == prefix && ffmpeg.av_opt_find(&cc, key.Substring(p + 1), null, flags, ffmpeg.AV_OPT_SEARCH_FAKE_OBJ) != null)
+                {
+                    ffmpeg.av_dict_set(&ret, key + 1, value, 0);
+                }
+
+
+                if (p)
+                    *p = ':';
+            }
+
+            return ret;
         }
 
         private void do_exit(VideoState vst)
@@ -1535,7 +1636,7 @@
                     ffmpeg.av_fast_malloc((void*)vst.audio_buf1, vst_audio_buf1_size, (ulong)out_size);
 
                 if (vst.audio_buf1 == null)
-                    return -1; // TODO: AVERROR(ENOMEM);
+                    return ffmpeg.AVERROR_ENOMEM;
 
                 len2 = ffmpeg.swr_convert(vst.swr_ctx, &out_buffer, out_count, in_buffer, af.frame->nb_samples);
                 if (len2 < 0)
@@ -1752,7 +1853,7 @@
             if (d.decoder_tid == null)
             {
                 ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, $"SDL_CreateThread(): {SDL_GetError()}\n");
-                return -1; // TODO: AVERROR(ENOMEM);
+                return ffmpeg.AVERROR_ENOMEM;
             }
 
             return 0;
@@ -1883,7 +1984,7 @@
 
             var avctx = ffmpeg.avcodec_alloc_context3(null);
             if (avctx == null)
-                return -1; // TODO: AVERROR(ENOMEM);
+                return ffmpeg.AVERROR_ENOMEM;
 
             ret = ffmpeg.avcodec_parameters_to_context(avctx, ic->streams[stream_index]->codecpar);
             if (ret < 0) goto fail;
@@ -1905,7 +2006,7 @@
                 else
                     ffmpeg.av_log(null, ffmpeg.AV_LOG_WARNING, $"No codec could be found with id {avctx->codec_id}\n");
 
-                ret = -1; // TODO: AVERROR(EINVAL);
+                ret = ffmpeg.AVERROR_EINVAL;
                 goto fail;
             }
 
@@ -1928,9 +2029,9 @@
             if ((codec->capabilities & ffmpeg.AV_CODEC_CAP_DR1) != 0)
                 avctx->flags |= ffmpeg.CODEC_FLAG_EMU_EDGE;
 
-            var opts = ffmpeg.filter_codec_opts(codec_opts, avctx->codec_id, ic, ic->streams[stream_index], codec);
+            var opts = filter_codec_opts(codec_opts, avctx->codec_id, ic, ic->streams[stream_index], codec);
 
-            if (ffmpeg.av_dict_get(opts, "threads", null, 0) == 0)
+            if (ffmpeg.av_dict_get(opts, "threads", null, 0) == null)
                 ffmpeg.av_dict_set(&opts, "threads", "auto", 0);
 
             if (stream_lowres != 0)
@@ -1944,7 +2045,7 @@
                 goto fail;
             }
 
-            if ((t = ffmpeg.av_dict_get(opts, "", null, ffmpeg.AV_DICT_IGNORE_SUFFIX)))
+            if ((t = ffmpeg.av_dict_get(opts, "", null, ffmpeg.AV_DICT_IGNORE_SUFFIX)) != null)
             {
                 ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, $"Option {Marshal.PtrToStringAnsi(new IntPtr(t->key))} not found.\n");
                 ret = ffmpeg.AVERROR_OPTION_NOT_FOUND;
@@ -2047,9 +2148,6 @@
                 goto fail;
             }
 
-
-
-            var decode_interrupt_delegate = new InterruptCallback(decode_interrupt_cb);
             ic->interrupt_callback.callback = new AVIOInterruptCB_callback_func { Pointer = Marshal.GetFunctionPointerForDelegate(decode_interrupt_delegate) };
             ic->interrupt_callback.opaque = (void*)vst.Handle.AddrOfPinnedObject();
 
@@ -2088,11 +2186,10 @@
                 ic->flags |= ffmpeg.AVFMT_FLAG_GENPTS;
 
             ffmpeg.av_format_inject_global_side_data(ic);
-            opts = setup_find_stream_info_opts(ic, codec_opts);
 
+            opts = setup_find_stream_info_opts(ic, codec_opts);
             orig_nb_streams = Convert.ToInt32(ic->nb_streams);
             err = ffmpeg.avformat_find_stream_info(ic, opts);
-
             for (i = 0; i < orig_nb_streams; i++)
                 ffmpeg.av_dict_free(&opts[i]);
 
@@ -2633,7 +2730,7 @@
                                 pos = frame_queue_last_pos(cur_stream.sampq);
 
                             if (pos < 0)
-                                pos = ffmpeg.avio_tell(cur_stream.ic->pb);
+                                pos = cur_stream.ic->pb->pos; // TODO: ffmpeg.avio_tell(cur_stream.ic->pb); avio_tell not available here
 
                             if (cur_stream.ic->bit_rate != 0)
                                 incr *= cur_stream.ic->bit_rate / 8.0;

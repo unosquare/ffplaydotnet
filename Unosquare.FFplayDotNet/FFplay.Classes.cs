@@ -35,8 +35,163 @@
             public bool IsPendingAbort { get; internal set; }
             public int Serial { get; internal set; }
 
+
+
             public SDL_mutex Mutex;
             public SDL_cond MutexCondition;
+
+
+            private int EnqueueInternal(AVPacket* packet)
+            {
+                if (IsPendingAbort)
+                    return -1;
+
+                var node = new PacketSequenceNode();
+                node.Packet = packet;
+                node.Next = null;
+                if (packet == PacketQueue.FlushPacket)
+                    Serial++;
+
+                node.Serial = Serial;
+
+                if (LastNode == null)
+                    FirstNode = node;
+                else
+                    LastNode.Next = node;
+
+                LastNode = node;
+                Length++;
+                ByteLength += node.Packet->size; // + sizeof(*pkt1); // TODO: unsure how to do this or if needed
+                Duration += node.Packet->duration;
+
+                SDL_CondSignal(MutexCondition);
+                return 0;
+            }
+
+            internal int Enqueue(AVPacket* packet)
+            {
+                SDL_LockMutex(Mutex);
+                var ret = EnqueueInternal(packet);
+                SDL_UnlockMutex(Mutex);
+                if (packet != PacketQueue.FlushPacket && ret < 0)
+                    ffmpeg.av_packet_unref(packet);
+                return ret;
+            }
+
+            internal int EnqueueNull(int streamIndex)
+            {
+                var packet = new AVPacket();
+                ffmpeg.av_init_packet(&packet);
+
+                packet.data = null;
+                packet.size = 0;
+                packet.stream_index = streamIndex;
+                return Enqueue(&packet);
+            }
+
+            internal int Initialize()
+            {
+                Mutex = SDL_CreateMutex();
+                MutexCondition = SDL_CreateCond();
+                IsPendingAbort = true;
+                return 0;
+            }
+
+            internal void Flush()
+            {
+                // port of: packet_queue_flush;
+
+                PacketSequenceNode currentNode;
+                PacketSequenceNode nextNode;
+
+                SDL_LockMutex(Mutex);
+
+                for (currentNode = FirstNode; currentNode != null; currentNode = nextNode)
+                {
+                    nextNode = currentNode.Next;
+                    ffmpeg.av_packet_unref(currentNode.Packet);
+                }
+
+                LastNode = null;
+                FirstNode = null;
+                Length = 0;
+                ByteLength = 0;
+                Duration = 0;
+
+                SDL_UnlockMutex(Mutex);
+            }
+
+            internal void Destroy()
+            {
+                Flush();
+                SDL_DestroyMutex(Mutex);
+                SDL_DestroyCond(MutexCondition);
+            }
+
+            internal void Abort()
+            {
+                SDL_LockMutex(Mutex);
+                IsPendingAbort = true;
+                SDL_CondSignal(MutexCondition);
+                SDL_UnlockMutex(Mutex);
+            }
+
+            internal void Start()
+            {
+                SDL_LockMutex(Mutex);
+                IsPendingAbort = false;
+                EnqueueInternal(PacketQueue.FlushPacket);
+                SDL_UnlockMutex(Mutex);
+            }
+
+            internal int Dequeue(AVPacket* packet, bool block, ref int serial)
+            {
+                PacketSequenceNode node = null;
+                int result = 0;
+
+                SDL_LockMutex(Mutex);
+                while (true)
+                {
+                    if (IsPendingAbort)
+                    {
+                        result = -1;
+                        break;
+                    }
+
+                    node = FirstNode;
+                    if (node != null)
+                    {
+                        FirstNode = node.Next;
+                        if (FirstNode == null)
+                            LastNode = null;
+
+                        Length--;
+                        ByteLength -= node.Packet->size; // + sizeof(*pkt1); // TODO: Verify
+                        Duration -= node.Packet->duration;
+
+                        packet = node.Packet;
+
+                        if (serial != 0)
+                            serial = node.Serial;
+
+                        result = 1;
+                        break;
+                    }
+                    else if (block == false)
+                    {
+                        result = 0;
+                        break;
+                    }
+                    else
+                    {
+                        SDL_CondWait(MutexCondition, Mutex);
+                    }
+                }
+
+                SDL_UnlockMutex(Mutex);
+                return result;
+            }
+
         }
 
         public class AudioParams
@@ -224,7 +379,7 @@
             public double frame_last_filter_delay;
             public int VideoStreamIndex { get; internal set; }
             public AVStream* video_st;
-            public PacketQueue videoq = new PacketQueue();
+            public PacketQueue VideoPackets { get; } = new PacketQueue();
 
             /// <summary>
             /// Gets the maximum duration of the frame.

@@ -33,7 +33,7 @@
         public bool IsSubtitleDisabled { get; private set; } = false;
 
         internal string[] wanted_stream_spec = new string[(int)AVMediaType.AVMEDIA_TYPE_NB];
-        
+
 
         internal bool show_status { get; set; } = true;
 
@@ -65,7 +65,7 @@
         internal readonly LockManagerCallbackDelegate lock_manager_delegate = new LockManagerCallbackDelegate(lockmgr);
         #endregion
 
-        
+
         internal AVDictionary* FormatOptions = null;
         internal AVDictionary* CodecOptions = null;
 
@@ -176,158 +176,6 @@
             //    vp->bmp = NULL;
             //}
         }
-
-        private int EnqueuePacketInternal(PacketQueue queue, AVPacket* packet)
-        {
-            if (queue.IsPendingAbort)
-                return -1;
-
-            var node = new PacketSequenceNode();
-            node.Packet = packet;
-            node.Next = null;
-            if (packet == PacketQueue.FlushPacket)
-                queue.Serial++;
-
-            node.Serial = queue.Serial;
-
-            if (queue.LastNode == null)
-                queue.FirstNode = node;
-            else
-                queue.LastNode.Next = node;
-
-            queue.LastNode = node;
-            queue.Length++;
-            queue.ByteLength += node.Packet->size; // + sizeof(*pkt1); // TODO: unsure how to do this or if needed
-            queue.Duration += node.Packet->duration;
-
-            SDL_CondSignal(queue.MutexCondition);
-            return 0;
-        }
-
-        private int EnqueuePacket(PacketQueue queue, AVPacket* packet)
-        {
-            SDL_LockMutex(queue.Mutex);
-            var ret = EnqueuePacketInternal(queue, packet);
-            SDL_UnlockMutex(queue.Mutex);
-            if (packet != PacketQueue.FlushPacket && ret < 0)
-                ffmpeg.av_packet_unref(packet);
-            return ret;
-        }
-
-        private int EnqueueNullPacket(PacketQueue q, int streamIndex)
-        {
-            var packet = new AVPacket();
-            ffmpeg.av_init_packet(&packet);
-
-            packet.data = null;
-            packet.size = 0;
-            packet.stream_index = streamIndex;
-            return EnqueuePacket(q, &packet);
-        }
-
-        static int InitializePacketQueue(PacketQueue queue)
-        {
-            queue.Mutex = SDL_CreateMutex();
-            queue.MutexCondition = SDL_CreateCond();
-            queue.IsPendingAbort = true;
-            return 0;
-        }
-
-        static void FlushPacketQueue(PacketQueue queue)
-        {
-            // port of: packet_queue_flush;
-
-            PacketSequenceNode currentNode;
-            PacketSequenceNode nextNode;
-
-            SDL_LockMutex(queue.Mutex);
-
-            for (currentNode = queue.FirstNode; currentNode != null; currentNode = nextNode)
-            {
-                nextNode = currentNode.Next;
-                ffmpeg.av_packet_unref(currentNode.Packet);
-            }
-
-            queue.LastNode = null;
-            queue.FirstNode = null;
-            queue.Length = 0;
-            queue.ByteLength = 0;
-            queue.Duration = 0;
-
-            SDL_UnlockMutex(queue.Mutex);
-        }
-
-        static void DestroyPacketQueue(PacketQueue queue)
-        {
-            FlushPacketQueue(queue);
-            SDL_DestroyMutex(queue.Mutex);
-            SDL_DestroyCond(queue.MutexCondition);
-        }
-
-        static void AbortPacketQueue(PacketQueue queue)
-        {
-            SDL_LockMutex(queue.Mutex);
-            queue.IsPendingAbort = true;
-            SDL_CondSignal(queue.MutexCondition);
-            SDL_UnlockMutex(queue.Mutex);
-        }
-
-        private void StartPacketQueue(PacketQueue queue)
-        {
-            SDL_LockMutex(queue.Mutex);
-            queue.IsPendingAbort = false;
-            EnqueuePacketInternal(queue, PacketQueue.FlushPacket);
-            SDL_UnlockMutex(queue.Mutex);
-        }
-
-        static int DequeuePacket(PacketQueue q, AVPacket* packet, bool block, ref int serial)
-        {
-            PacketSequenceNode node = null;
-            int ret = 0;
-
-            SDL_LockMutex(q.Mutex);
-            while (true)
-            {
-                if (q.IsPendingAbort)
-                {
-                    ret = -1;
-                    break;
-                }
-
-                node = q.FirstNode;
-                if (node != null)
-                {
-                    q.FirstNode = node.Next;
-                    if (q.FirstNode == null)
-                        q.LastNode = null;
-
-                    q.Length--;
-                    q.ByteLength -= node.Packet->size; // + sizeof(*pkt1); // TODO: Verify
-                    q.Duration -= node.Packet->duration;
-
-                    packet = node.Packet;
-
-                    if (serial != 0)
-                        serial = node.Serial;
-
-                    ret = 1;
-                    break;
-                }
-                else if (block == false)
-                {
-                    ret = 0;
-                    break;
-                }
-                else
-                {
-                    SDL_CondWait(q.MutexCondition, q.Mutex);
-                }
-            }
-
-            SDL_UnlockMutex(q.Mutex);
-            return ret;
-        }
-
         static void InitializeDecoder(Decoder d, AVCodecContext* avctx, PacketQueue queue, SDL_cond empty_queue_cond)
         {
             d.avctx = avctx;
@@ -351,7 +199,7 @@
                     {
                         if (d.queue.Length == 0)
                             SDL_CondSignal(d.empty_queue_cond);
-                        if (DequeuePacket(d.queue, &pkt, true, ref d.pkt_serial) < 0)
+                        if (d.queue.Dequeue(&pkt, true, ref d.pkt_serial) < 0)
                             return -1;
                         if (pkt.data == PacketQueue.FlushPacket->data)
                         {
@@ -596,11 +444,11 @@
 
         static void decoder_abort(Decoder d, FrameQueue fq)
         {
-            AbortPacketQueue(d.queue);
+            d.queue.Abort();
             frame_queue_signal(fq);
             SDL_WaitThread(d.DecoderThread, null);
             d.DecoderThread = null;
-            FlushPacketQueue(d.queue);
+            d.queue.Flush();
         }
 
         static int realloc_texture(SDL_Texture texture, uint new_format, int new_width, int new_height, uint blendmode, int init_texture) { return 0; }
@@ -857,9 +705,9 @@
                 ffmpeg.avformat_close_input(vstic);
             }
 
-            DestroyPacketQueue(vst.videoq);
-            DestroyPacketQueue(vst.AudioPackets);
-            DestroyPacketQueue(vst.SubtitlePackets);
+            vst.VideoPackets.Destroy();
+            vst.AudioPackets.Destroy();
+            vst.SubtitlePackets.Destroy();
             frame_queue_destory(vst.PictureQueue);
             frame_queue_destory(vst.AudioQueue);
             frame_queue_destory(vst.SubtitleQueue);
@@ -1154,12 +1002,12 @@
 
         static void check_external_clock_speed(MediaState vst)
         {
-            if (vst.VideoStreamIndex >= 0 && vst.videoq.Length <= EXTERNAL_CLOCK_MIN_FRAMES ||
+            if (vst.VideoStreamIndex >= 0 && vst.VideoPackets.Length <= EXTERNAL_CLOCK_MIN_FRAMES ||
                 vst.audio_stream >= 0 && vst.AudioPackets.Length <= EXTERNAL_CLOCK_MIN_FRAMES)
             {
                 set_clock_speed(vst.ExternalClock, Math.Max(EXTERNAL_CLOCK_SPEED_MIN, vst.ExternalClock.speed - EXTERNAL_CLOCK_SPEED_STEP));
             }
-            else if ((vst.VideoStreamIndex < 0 || vst.videoq.Length > EXTERNAL_CLOCK_MAX_FRAMES) &&
+            else if ((vst.VideoStreamIndex < 0 || vst.VideoPackets.Length > EXTERNAL_CLOCK_MAX_FRAMES) &&
                      (vst.audio_stream < 0 || vst.AudioPackets.Length > EXTERNAL_CLOCK_MAX_FRAMES))
             {
                 set_clock_speed(vst.ExternalClock, Math.Min(EXTERNAL_CLOCK_SPEED_MAX, vst.ExternalClock.speed + EXTERNAL_CLOCK_SPEED_STEP));
@@ -1314,7 +1162,7 @@
 
                     var lastvp = frame_queue_peek_last(vst.PictureQueue);
                     var vp = frame_queue_peek(vst.PictureQueue);
-                    if (vp.Serial != vst.videoq.Serial)
+                    if (vp.Serial != vst.VideoPackets.Serial)
                     {
                         frame_queue_next(vst.PictureQueue);
                         goto retry;
@@ -1417,7 +1265,7 @@
                     if (vst.AudioStream != null)
                         aqsize = vst.AudioPackets.ByteLength;
                     if (vst.video_st != null)
-                        vqsize = vst.videoq.ByteLength;
+                        vqsize = vst.VideoPackets.ByteLength;
                     if (vst.subtitle_st != null)
                         sqsize = vst.SubtitlePackets.ByteLength;
                     av_diff = 0;
@@ -1469,11 +1317,11 @@
                 SDL_PushEvent(ev);
                 SDL_LockMutex(vst.PictureQueue.mutex);
 
-                while (!vp.IsAllocated && !vst.videoq.IsPendingAbort)
+                while (!vp.IsAllocated && !vst.VideoPackets.IsPendingAbort)
                 {
                     SDL_CondWait(vst.PictureQueue.cond, vst.PictureQueue.mutex);
                 }
-                if (vst.videoq.IsPendingAbort && SDL_PeepEvents(ev, 1, SDL_GETEVENT, FF_ALLOC_EVENT, FF_ALLOC_EVENT) != 1)
+                if (vst.VideoPackets.IsPendingAbort && SDL_PeepEvents(ev, 1, SDL_GETEVENT, FF_ALLOC_EVENT, FF_ALLOC_EVENT) != 1)
                 {
                     while (!vp.IsAllocated && !vst.IsAbortRequested)
                     {
@@ -1481,7 +1329,7 @@
                     }
                 }
                 SDL_UnlockMutex(vst.PictureQueue.mutex);
-                if (vst.videoq.IsPendingAbort)
+                if (vst.VideoPackets.IsPendingAbort)
                     return -1;
             }
             if (vp.bmp != null)
@@ -1516,7 +1364,7 @@
                         if (!double.IsNaN(diff) && Math.Abs(diff) < AV_NOSYNC_THRESHOLD &&
                             diff - vst.frame_last_filter_delay < 0 &&
                             vst.VideoDecoder.pkt_serial == vst.VideoClock.serial &&
-                            vst.videoq.Length != 0)
+                            vst.VideoPackets.Length != 0)
                         {
                             vst.frame_drops_early++;
                             ffmpeg.av_frame_unref(frame);
@@ -1885,7 +1733,7 @@
 
         private int decoder_start(Decoder d, Func<MediaState, int> fn, MediaState vst)
         {
-            StartPacketQueue(d.queue);
+            d.queue.Start();
             d.DecoderThread = SDL_CreateThread(fn, vst);
             if (d.DecoderThread == null)
             {
@@ -2125,7 +1973,7 @@
                 case AVMediaType.AVMEDIA_TYPE_VIDEO:
                     vst.VideoStreamIndex = stream_index;
                     vst.video_st = ic->streams[stream_index];
-                    InitializeDecoder(vst.VideoDecoder, avctx, vst.videoq, vst.continue_read_thread);
+                    InitializeDecoder(vst.VideoDecoder, avctx, vst.VideoPackets, vst.continue_read_thread);
                     if ((ret = decoder_start(vst.VideoDecoder, video_thread, vst)) < 0)
                         goto final;
                     vst.queue_attachments_req = true;
@@ -2394,18 +2242,18 @@
                     {
                         if (vst.audio_stream >= 0)
                         {
-                            FlushPacketQueue(vst.AudioPackets);
-                            EnqueuePacket(vst.AudioPackets, PacketQueue.FlushPacket);
+                            vst.AudioPackets.Flush();
+                            vst.AudioPackets.Enqueue(PacketQueue.FlushPacket);
                         }
                         if (vst.SubtitleStreamIndex >= 0)
                         {
-                            FlushPacketQueue(vst.SubtitlePackets);
-                            EnqueuePacket(vst.SubtitlePackets, PacketQueue.FlushPacket);
+                            vst.SubtitlePackets.Flush();
+                            vst.SubtitlePackets.Enqueue(PacketQueue.FlushPacket);
                         }
                         if (vst.VideoStreamIndex >= 0)
                         {
-                            FlushPacketQueue(vst.videoq);
-                            EnqueuePacket(vst.videoq, PacketQueue.FlushPacket);
+                            vst.VideoPackets.Flush();
+                            vst.VideoPackets.Enqueue(PacketQueue.FlushPacket);
                         }
                         if ((vst.seek_flags & ffmpeg.AVSEEK_FLAG_BYTE) != 0)
                         {
@@ -2431,16 +2279,16 @@
                         if ((ret = ffmpeg.av_copy_packet(&copy, &vst.video_st->attached_pic)) < 0)
                             goto fail;
 
-                        EnqueuePacket(vst.videoq, &copy);
-                        EnqueueNullPacket(vst.videoq, vst.VideoStreamIndex);
+                        vst.VideoPackets.Enqueue(&copy);
+                        vst.VideoPackets.EnqueueNull(vst.VideoStreamIndex);
                     }
 
                     vst.queue_attachments_req = false;
                 }
                 if (infinite_buffer < 1 &&
-                      (vst.AudioPackets.ByteLength + vst.videoq.ByteLength + vst.SubtitlePackets.ByteLength > MAX_QUEUE_SIZE
+                      (vst.AudioPackets.ByteLength + vst.VideoPackets.ByteLength + vst.SubtitlePackets.ByteLength > MAX_QUEUE_SIZE
                     || (HasEnoughPackets(vst.AudioStream, vst.audio_stream, vst.AudioPackets) &&
-                        HasEnoughPackets(vst.video_st, vst.VideoStreamIndex, vst.videoq) &&
+                        HasEnoughPackets(vst.video_st, vst.VideoStreamIndex, vst.VideoPackets) &&
                         HasEnoughPackets(vst.subtitle_st, vst.SubtitleStreamIndex, vst.SubtitlePackets))))
                 {
                     SDL_LockMutex(wait_mutex);
@@ -2450,7 +2298,7 @@
                 }
                 if (!vst.IsPaused &&
                     (vst.AudioStream == null || (vst.AudioDecoder.finished == Convert.ToBoolean(vst.AudioPackets.Serial) && frame_queue_nb_remaining(vst.AudioQueue) == 0)) &&
-                    (vst.video_st == null || (vst.VideoDecoder.finished == Convert.ToBoolean(vst.videoq.Serial) && frame_queue_nb_remaining(vst.PictureQueue) == 0)))
+                    (vst.video_st == null || (vst.VideoDecoder.finished == Convert.ToBoolean(vst.VideoPackets.Serial) && frame_queue_nb_remaining(vst.PictureQueue) == 0)))
                 {
                     if (loop != 1 && (loop == 0 || --loop == 0))
                     {
@@ -2468,11 +2316,11 @@
                     if ((ret == ffmpeg.AVERROR_EOF || ffmpeg.avio_feof(ic->pb) != 0) && !vst.IsAtEndOfFile)
                     {
                         if (vst.VideoStreamIndex >= 0)
-                            EnqueueNullPacket(vst.videoq, vst.VideoStreamIndex);
+                            vst.VideoPackets.EnqueueNull(vst.VideoStreamIndex);
                         if (vst.audio_stream >= 0)
-                            EnqueueNullPacket(vst.AudioPackets, vst.audio_stream);
+                            vst.AudioPackets.EnqueueNull(vst.audio_stream);
                         if (vst.SubtitleStreamIndex >= 0)
-                            EnqueueNullPacket(vst.SubtitlePackets, vst.SubtitleStreamIndex);
+                            vst.SubtitlePackets.EnqueueNull(vst.SubtitleStreamIndex);
 
                         vst.IsAtEndOfFile = true;
                     }
@@ -2500,16 +2348,16 @@
 
                 if (pkt->stream_index == vst.audio_stream && pkt_in_play_range)
                 {
-                    EnqueuePacket(vst.AudioPackets, pkt);
+                    vst.AudioPackets.Enqueue(pkt);
                 }
                 else if (pkt->stream_index == vst.VideoStreamIndex && pkt_in_play_range
                          && (vst.video_st->disposition & ffmpeg.AV_DISPOSITION_ATTACHED_PIC) == 0)
                 {
-                    EnqueuePacket(vst.videoq, pkt);
+                    vst.VideoPackets.Enqueue(pkt);
                 }
                 else if (pkt->stream_index == vst.SubtitleStreamIndex && pkt_in_play_range)
                 {
-                    EnqueuePacket(vst.SubtitlePackets, pkt);
+                    vst.SubtitlePackets.Enqueue(pkt);
                 }
                 else
                 {
@@ -2542,20 +2390,20 @@
             vst.InputFormat = iformat;
             vst.ytop = 0;
             vst.xleft = 0;
-            if (frame_queue_init(vst.PictureQueue, vst.videoq, VIDEO_PICTURE_QUEUE_SIZE, true) < 0)
+            if (frame_queue_init(vst.PictureQueue, vst.VideoPackets, VIDEO_PICTURE_QUEUE_SIZE, true) < 0)
                 goto fail;
             if (frame_queue_init(vst.SubtitleQueue, vst.SubtitlePackets, SUBPICTURE_QUEUE_SIZE, false) < 0)
                 goto fail;
             if (frame_queue_init(vst.AudioQueue, vst.AudioPackets, SAMPLE_QUEUE_SIZE, true) < 0)
                 goto fail;
-            if (InitializePacketQueue(vst.videoq) < 0 ||
-                InitializePacketQueue(vst.AudioPackets) < 0 ||
-                InitializePacketQueue(vst.SubtitlePackets) < 0)
+            if (vst.VideoPackets.Initialize() < 0 ||
+                vst.AudioPackets.Initialize() < 0 ||
+                vst.SubtitlePackets.Initialize() < 0)
                 goto fail;
 
             vst.continue_read_thread = SDL_CreateCond();
 
-            init_clock(vst.VideoClock, vst.videoq.Serial);
+            init_clock(vst.VideoClock, vst.VideoPackets.Serial);
             init_clock(vst.AudioClock, vst.AudioPackets.Serial);
             init_clock(vst.ExternalClock, vst.ExternalClock.serial);
             vst.audio_clock_serial = -1;

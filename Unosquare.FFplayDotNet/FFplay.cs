@@ -12,7 +12,7 @@
 
     internal unsafe partial class FFplay
     {
-        internal delegate int InterruptCallback(void* opaque);
+
 
         #region Properties
         internal uint sws_flags { get; set; } = (uint)ffmpeg.SWS_BICUBIC;
@@ -55,7 +55,8 @@
         internal int dummy { get; set; }
         internal double rdftspeed { get; set; } = 0.02;
         internal long last_time { get; set; } = 0;
-        internal readonly InterruptCallback decode_interrupt_delegate = new InterruptCallback(decode_interrupt_cb);
+        internal readonly InterruptCallbackDelegate decode_interrupt_delegate = new InterruptCallbackDelegate(decode_interrupt_cb);
+        internal readonly LockManagerCallbackDelegate lock_manager_delegate = new LockManagerCallbackDelegate(lockmgr);
         #endregion
 
         internal AVPacket* flush_pkt = null;
@@ -67,26 +68,72 @@
 
         }
 
+        static int lockmgr(void** mtx, AVLockOp op)
+        {
+            switch (op)
+            {
+                case AVLockOp.AV_LOCK_CREATE:
+                    {
+                        var mutex = SDL_CreateMutex();
+                        var mutexHandle = GCHandle.Alloc(mutex, GCHandleType.Pinned);
+                        *mtx = (void*)mutexHandle.AddrOfPinnedObject();
+
+                        if (*mtx == null)
+                        {
+                            ffmpeg.av_log(null, ffmpeg.AV_LOG_FATAL, $"SDL_CreateMutex(): {SDL_GetError()}\n");
+                            return 1;
+                        }
+                        return 0;
+                    }
+                case AVLockOp.AV_LOCK_OBTAIN:
+                    {
+                        var mutex = GCHandle.FromIntPtr(new IntPtr(*mtx)).Target as SDL_mutex;
+                        SDL_LockMutex(mutex);
+                        return 0;
+                    }
+                case AVLockOp.AV_LOCK_RELEASE:
+                    {
+                        var mutex = GCHandle.FromIntPtr(new IntPtr(*mtx)).Target as SDL_mutex;
+                        SDL_UnlockMutex(mutex);
+                        return 0;
+                    }
+                case AVLockOp.AV_LOCK_DESTROY:
+                    {
+                        var mutexHandle = GCHandle.FromIntPtr(new IntPtr(*mtx));
+                        SDL_DestroyMutex(mutexHandle.Target as SDL_mutex);
+                        mutexHandle.Free();
+
+                        return 0;
+                    }
+            }
+            return 1;
+        }
+
         /// <summary>
         /// Port of the main method
         /// </summary>
         /// <param name="filename">The filename.</param>
-        /// <param name="fromatName">Name of the fromat.</param>
+        /// <param name="fromatName">Name of the fromat. Leave null for automatic selection</param>
         public void Run(string filename, string fromatName = null)
         {
             Helper.RegisterFFmpeg();
-            ffmpeg.av_init_packet(flush_pkt);
-            flush_pkt->data = (byte*)flush_pkt;
+            ffmpeg.avformat_network_init();
             init_opts();
 
             AVInputFormat* inputFormat = null;
 
             if (string.IsNullOrWhiteSpace(fromatName) == false)
-            {
                 inputFormat = ffmpeg.av_find_input_format(fromatName);
+
+            var lockManagerCallback = new av_lockmgr_register_cb_func { Pointer = Marshal.GetFunctionPointerForDelegate(lock_manager_delegate) };
+            if (ffmpeg.av_lockmgr_register(lockManagerCallback) != 0)
+            {
+                ffmpeg.av_log(null, ffmpeg.AV_LOG_FATAL, "Could not initialize lock manager!\n");
+                do_exit(null);
             }
 
             var vst = stream_open(filename, inputFormat);
+
             event_loop(vst);
         }
 
@@ -815,6 +862,9 @@
 
         private void init_opts()
         {
+            ffmpeg.av_init_packet(flush_pkt);
+            flush_pkt->data = (byte*)flush_pkt;
+
             var codecOpts = new AVDictionary();
             codec_opts = &codecOpts;
 
@@ -824,6 +874,8 @@
 
         private void uninit_opts()
         {
+            ffmpeg.av_packet_unref(flush_pkt);
+
             fixed (AVDictionary** opts_ref = &format_opts)
                 ffmpeg.av_dict_free(opts_ref);
 
@@ -866,7 +918,7 @@
             var cc = ffmpeg.avcodec_get_class();
 
             if (codec == null)
-                codec = (s->oformat != null) ? 
+                codec = (s->oformat != null) ?
                     ffmpeg.avcodec_find_encoder(codec_id) : ffmpeg.avcodec_find_decoder(codec_id);
 
             switch (st->codecpar->codec_type)
@@ -890,17 +942,22 @@
             while ((t = ffmpeg.av_dict_get(opts, "", t, ffmpeg.AV_DICT_IGNORE_SUFFIX)) != null)
             {
                 var key = Marshal.PtrToStringAnsi(new IntPtr(t->key));
-                var value = Marshal.PtrToStringAnsi(new IntPtr(t->value));
-                var p = key.IndexOf(":");
+                if (string.IsNullOrWhiteSpace(key)) continue;
 
-                //a:1 ac3
+                var value = Marshal.PtrToStringAnsi(new IntPtr(t->value));
+                var keyParts = key.Split(new char[] { ':' }, 2);
+
                 /* check stream specification in opt name */
-                switch (check_stream_specifier(s, st, key.Substring(p + 1)))
+                if (keyParts.Length > 1)
                 {
-                    case 1: key = string.Empty; break;
-                    case 0: continue;
-                    default: continue;
+                    switch (check_stream_specifier(s, st, keyParts[1]))
+                    {
+                        case 1: key = keyParts[0]; break;
+                        case 0: continue;
+                        default: continue;
+                    }
                 }
+
 
                 if (ffmpeg.av_opt_find(&cc, key, null, flags, ffmpeg.AV_OPT_SEARCH_FAKE_OBJ) != null ||
                     codec == null ||
@@ -909,14 +966,10 @@
                 {
                     ffmpeg.av_dict_set(&ret, key, value, 0);
                 }
-                else if (t->key[0] == prefix && ffmpeg.av_opt_find(&cc, key.Substring(p + 1), null, flags, ffmpeg.AV_OPT_SEARCH_FAKE_OBJ) != null)
+                else if (key[0] == prefix && keyParts.Length > 1 && ffmpeg.av_opt_find(&cc, keyParts[1], null, flags, ffmpeg.AV_OPT_SEARCH_FAKE_OBJ) != null)
                 {
                     ffmpeg.av_dict_set(&ret, key + 1, value, 0);
                 }
-
-
-                if (p)
-                    *p = ':';
             }
 
             return ret;
@@ -925,9 +978,7 @@
         private void do_exit(VideoState vst)
         {
             if (vst != null)
-            {
                 stream_close(vst);
-            }
 
             if (renderer != null)
                 SDL_DestroyRenderer(renderer);

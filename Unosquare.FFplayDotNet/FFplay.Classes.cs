@@ -6,6 +6,9 @@
 
     unsafe partial class FFplay
     {
+        internal delegate int InterruptCallbackDelegate(void* opaque);
+        internal delegate int LockManagerCallbackDelegate(void** mutex, AVLockOp op);
+
         #region Supporting Classes
         internal class MyAVPacketList
         {

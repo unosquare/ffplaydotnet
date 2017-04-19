@@ -3,7 +3,7 @@
     using System;
     using System.Runtime.InteropServices;
 
-    public unsafe static partial class ffmpeg
+    unsafe partial class ffmpeg
     {
         #region Interop
 

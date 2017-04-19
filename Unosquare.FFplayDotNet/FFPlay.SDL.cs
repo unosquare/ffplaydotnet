@@ -6,7 +6,7 @@
     unsafe partial class FFplay
     {
 
-        internal delegate void SDL_AudioCallback(VideoState vs, byte* stream, int len);
+        public delegate void SDL_AudioCallback(MediaState vs, byte* stream, int len);
 
         #region Dummy Constants
 
@@ -42,7 +42,7 @@
         public class SDL_Rect { public int x; public int y; public int w; public int h; }
         public class SDL_RendererInfo { }
         public class SDL_Event { public int type; public object user_data1; }
-        public class SDL_AudioSpec { public int channels; public int freq; public int format; public int silence; public int samples; public VideoState userdata; public SDL_AudioCallback callback; public int size; }
+        public class SDL_AudioSpec { public int channels; public int freq; public int format; public int silence; public int samples; public MediaState userdata; public SDL_AudioCallback callback; public int size; }
 
         static void SDL_LockMutex(SDL_mutex mutex) { }
         static void SDL_UnlockMutex(SDL_mutex mutex) { }
@@ -79,7 +79,7 @@
         static int SDL_OpenAudio(SDL_AudioSpec wanted, SDL_AudioSpec output) { return 0; }
         static string SDL_GetError() { return string.Empty; }
         static void SDL_PauseAudio(int delay) { }
-        static SDL_Thread SDL_CreateThread(Func<VideoState, int> fn, VideoState vst) { return new SDL_Thread(); }
+        static SDL_Thread SDL_CreateThread(Func<MediaState, int> fn, MediaState vst) { return new SDL_Thread(); }
         static void SDL_CondWaitTimeout(SDL_cond cond, SDL_mutex wait_mutex, int timeoutMillis) { }
         static void SDL_Delay(int millis) { }
         #endregion

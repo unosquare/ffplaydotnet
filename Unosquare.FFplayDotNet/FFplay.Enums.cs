@@ -4,14 +4,14 @@
     {
         #region Enumerations
 
-        internal enum SyncMode
+        public enum SyncMode
         {
             AV_SYNC_AUDIO_MASTER,
             AV_SYNC_VIDEO_MASTER,
             AV_SYNC_EXTERNAL_CLOCK,
         }
 
-        private enum EventAction
+        public enum EventAction
         {
             AllocatePicture,
             Quit,

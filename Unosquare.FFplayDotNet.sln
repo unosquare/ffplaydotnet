@@ -5,6 +5,8 @@ VisualStudioVersion = 15.0.26228.9
 MinimumVisualStudioVersion = 10.0.40219.1
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Unosquare.FFplayDotNet", "Unosquare.FFplayDotNet\Unosquare.FFplayDotNet.csproj", "{A6EB99A6-AAE2-4E6E-AB9E-93992CE5B84D}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "Unosquare.FFplayDotNet.Console", "Unosquare.FFplayDotNet.Console\Unosquare.FFplayDotNet.Console.csproj", "{F2063D42-1E2D-421A-A1E5-78469C677E5A}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -15,6 +17,10 @@ Global
 		{A6EB99A6-AAE2-4E6E-AB9E-93992CE5B84D}.Debug|Any CPU.Build.0 = Debug|Any CPU
 		{A6EB99A6-AAE2-4E6E-AB9E-93992CE5B84D}.Release|Any CPU.ActiveCfg = Release|Any CPU
 		{A6EB99A6-AAE2-4E6E-AB9E-93992CE5B84D}.Release|Any CPU.Build.0 = Release|Any CPU
+		{F2063D42-1E2D-421A-A1E5-78469C677E5A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F2063D42-1E2D-421A-A1E5-78469C677E5A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F2063D42-1E2D-421A-A1E5-78469C677E5A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F2063D42-1E2D-421A-A1E5-78469C677E5A}.Release|Any CPU.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE

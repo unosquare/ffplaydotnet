@@ -6,41 +6,60 @@
 
     unsafe partial class FFplay
     {
-        internal delegate int InterruptCallbackDelegate(void* opaque);
-        internal delegate int LockManagerCallbackDelegate(void** mutex, AVLockOp op);
+        public delegate int InterruptCallbackDelegate(void* opaque);
+        public delegate int LockManagerCallbackDelegate(void** mutex, AVLockOp op);
 
         #region Supporting Classes
-        internal class MyAVPacketList
+        public class PacketSequenceNode
         {
-            public AVPacket* pkt;
-            public MyAVPacketList next;
-            public int serial;
+            public AVPacket* Packet;
+            public PacketSequenceNode Next { get; set; }
+            public int Serial { get; set; }
         }
 
-        internal class PacketQueue
+        public class PacketQueue
         {
-            public MyAVPacketList first_pkt;
-            public MyAVPacketList last_pkt;
-            public int nb_packets;
-            public int size;
-            public long duration;
-            public bool abort_request;
-            public int serial;
-            public SDL_mutex mutex;
-            public SDL_cond cond;
+            static internal readonly AVPacket* FlushPacket = null;
+            static PacketQueue()
+            {
+                ffmpeg.av_init_packet(FlushPacket);
+                FlushPacket->data = (byte*)FlushPacket;
+            }
+
+            public PacketSequenceNode FirstNode { get; internal set; }
+            public PacketSequenceNode LastNode { get; internal set; }
+
+            public int Length { get; internal set; }
+            public int ByteLength { get; internal set; }
+            public long Duration { get; internal set; }
+            public bool IsPendingAbort { get; internal set; }
+            public int Serial { get; internal set; }
+
+            public SDL_mutex Mutex;
+            public SDL_cond MutexCondition;
         }
 
-        internal class AudioParams
+        public class AudioParams
         {
-            public int freq;
-            public int channels;
-            public long channel_layout;
-            public AVSampleFormat fmt;
-            public int frame_size;
-            public int bytes_per_sec;
+            public int Frequency { get; internal set; }
+            public int ChannelCount { get; internal set; }
+            public long ChannelLayout { get; internal set; }
+            public AVSampleFormat SampleFormat { get; internal set; }
+            public int FrameSize { get; internal set; }
+            public int BytesPerSecond { get; internal set; }
+
+            public void CopyTo(AudioParams other)
+            {
+                other.BytesPerSecond = BytesPerSecond;
+                other.ChannelCount = ChannelCount;
+                other.ChannelLayout = ChannelLayout;
+                other.SampleFormat = SampleFormat;
+                other.FrameSize = FrameSize;
+                other.Frequency = Frequency;
+            }
         }
 
-        internal class Clock
+        public class Clock
         {
             public double pts;           /* clock base */
             public double pts_drift;     /* clock base minus time at which we updated the clock */
@@ -51,24 +70,24 @@
             public int? queue_serial; /* pointer to the current packet queue serial, used for obsolete clock detection */
         }
 
-        internal class Frame
+        public class Frame
         {
-            public AVFrame* frame;
-            public AVSubtitle sub;
-            public int serial;
-            public double pts;           /* presentation timestamp for the frame */
-            public double duration;      /* estimated duration of the frame */
-            public long pos;          /* byte position of the frame in the input file */
+            public AVFrame* DecodedFrame;
+            public AVSubtitle Subtitle;
+            public int Serial;
+            public double PresentationTimestamp;           /* presentation timestamp for the frame */
+            public double EstimatedDuration;      /* estimated duration of the frame */
+            public long BytePosition;          /* byte position of the frame in the input file */
             public SDL_Texture bmp;
-            public bool allocated;
-            public int width;
-            public int height;
+            public bool IsAllocated;
+            public int PictureWidth;
+            public int PictureHeight;
             public int format;
-            public AVRational sar;
-            public bool uploaded;
+            public AVRational PictureAspectRatio;
+            public bool IsUploaded;
         }
 
-        internal class FrameQueue
+        public class FrameQueue
         {
             public Frame[] queue = new Frame[FRAME_QUEUE_SIZE];
             public int rindex;
@@ -82,7 +101,7 @@
             public PacketQueue pktq;
         }
 
-        internal class Decoder
+        public class Decoder
         {
             public AVPacket pkt;
             public AVPacket pkt_temp;
@@ -90,56 +109,87 @@
             public AVCodecContext* avctx;
             public int pkt_serial;
             public bool finished;
-            public bool packet_pending;
+            public bool IsPacketPending;
             public SDL_cond empty_queue_cond;
             public long start_pts;
             public AVRational start_pts_tb;
             public long next_pts;
             public AVRational next_pts_tb;
-            public SDL_Thread decoder_tid;
+            public SDL_Thread DecoderThread;
         }
 
-        internal class VideoState
+        public class MediaState
         {
-            public VideoState()
+            public MediaState()
             {
                 Handle = GCHandle.Alloc(this, GCHandleType.Pinned);
             }
 
             public readonly GCHandle Handle;
-            public SDL_Thread read_tid;
-            public AVInputFormat* iformat;
-            public bool abort_request;
-            public bool force_refresh;
-            public bool paused;
+            public SDL_Thread ReadThread;
+            public AVInputFormat* InputFormat;
+            public bool IsAbortRequested { get; internal set; }
+            public bool IsForceRefreshRequested { get; internal set; }
+            public bool IsPaused { get; set; }
+
             public int last_paused;
             public bool queue_attachments_req;
-            public bool seek_req;
+            public bool IsSeekRequested;
             public int seek_flags;
             public long seek_pos;
             public long seek_rel;
             public int read_pause_return;
-            public AVFormatContext* ic;
-            public bool realtime;
-            public Clock audclk;
-            public Clock vidclk;
-            public Clock extclk;
-            public FrameQueue pictq = new FrameQueue();
-            public FrameQueue subpq = new FrameQueue();
-            public FrameQueue sampq = new FrameQueue();
-            public Decoder auddec = new Decoder();
-            public Decoder viddec = new Decoder();
-            public Decoder subdec = new Decoder(); // subtitle decoder
+
+            public AVFormatContext* InputContext;
+
+            public bool IsMediaRealtime { get; internal set; }
+
+            public Clock AudioClock { get; } = new Clock();
+            public Clock VideoClock { get; } = new Clock();
+            public Clock ExternalClock { get; } = new Clock();
+
+            public FrameQueue PictureQueue { get; } = new FrameQueue();
+            public FrameQueue SubtitleQueue { get; } = new FrameQueue();
+            public FrameQueue AudioQueue { get; } = new FrameQueue();
+
+            public Decoder AudioDecoder { get; } = new Decoder();
+            public Decoder VideoDecoder { get; } = new Decoder();
+            public Decoder SubtitleDecoder { get; } = new Decoder();
+
             public int audio_stream;
-            public SyncMode av_sync_type;
+            public SyncMode MediaSyncMode { get; set; }
+            public SyncMode MasterSyncMode
+            {
+                get
+                {
+                    if (MediaSyncMode == SyncMode.AV_SYNC_VIDEO_MASTER)
+                    {
+                        if (video_st != null)
+                            return SyncMode.AV_SYNC_VIDEO_MASTER;
+                        else
+                            return SyncMode.AV_SYNC_AUDIO_MASTER;
+                    }
+                    else if (MediaSyncMode == SyncMode.AV_SYNC_AUDIO_MASTER)
+                    {
+                        if (AudioStream != null)
+                            return SyncMode.AV_SYNC_AUDIO_MASTER;
+                        else
+                            return SyncMode.AV_SYNC_EXTERNAL_CLOCK;
+                    }
+                    else
+                    {
+                        return SyncMode.AV_SYNC_EXTERNAL_CLOCK;
+                    }
+                }
+            }
             public double audio_clock;
             public int audio_clock_serial;
             public double audio_diff_cum; /* used for AV difference average computation */
             public double audio_diff_avg_coef;
             public double audio_diff_threshold;
             public int audio_diff_avg_count;
-            public AVStream* audio_st;
-            public PacketQueue audioq = new PacketQueue();
+            public AVStream* AudioStream;
+            public PacketQueue AudioPackets { get; } = new PacketQueue();
             public int audio_hw_buf_size;
             public byte* audio_buf;
             public byte* audio_buf1;
@@ -147,41 +197,54 @@
             public uint audio_buf1_size;
             public int audio_buf_index; /* in bytes */
             public int audio_write_buf_size;
-            public int audio_volume;
-            public bool muted;
-            public AudioParams audio_src;
-            public AudioParams audio_tgt;
+            public int AudioVolume { get; set; }
+            public bool IsAudioMuted { get; set; }
+            public AudioParams AudioInputParams { get; } = new AudioParams();
+            public AudioParams AudioOutputParams { get; } = new AudioParams();
+
             public SwrContext* swr_ctx;
+
             public int frame_drops_early;
             public int frame_drops_late;
-            //public ShowMode show_mode;
+
             public short[] sample_array = new short[SAMPLE_ARRAY_SIZE];
             public int sample_array_index;
             public int last_i_start;
-            //public RDFTContext rdft;
-            //public int rdft_bits;
-            //public FFTSample rdft_data;
+
             public int xpos;
             public double last_vis_time;
             public SDL_Texture vis_texture;
             public SDL_Texture sub_texture;
-            public int subtitle_stream;
+            public int SubtitleStreamIndex { get; internal set; }
             public AVStream* subtitle_st;
-            public PacketQueue subtitleq = new PacketQueue();
+            public PacketQueue SubtitlePackets { get; } = new PacketQueue();
+
             public double frame_timer;
             public double frame_last_returned_time;
             public double frame_last_filter_delay;
-            public int video_stream;
+            public int VideoStreamIndex { get; internal set; }
             public AVStream* video_st;
             public PacketQueue videoq = new PacketQueue();
-            public double max_frame_duration;      // maximum duration of a frame - above this, we consider the jump a timestamp discontinuity
+
+            /// <summary>
+            /// Gets the maximum duration of the frame.
+            /// above this, we consider the jump a timestamp discontinuity
+            /// </summary>
+            public double MaximumFrameDuration { get; internal set; }
+
             public SwsContext* img_convert_ctx;
             public SwsContext* sub_convert_ctx;
-            public bool eof;
-            public string filename;
-            public int width, height, xleft, ytop;
+
+            public bool IsAtEndOfFile { get; internal set; }
+            public string MediaUrl { get; internal set; }
+            public int PictureWidth;
+            public int height;
+            public int xleft;
+            public int ytop;
             public bool step;
+
             public int last_video_stream, last_audio_stream, last_subtitle_stream;
+
             public SDL_cond continue_read_thread;
         }
 

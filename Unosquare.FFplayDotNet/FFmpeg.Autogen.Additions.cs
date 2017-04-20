@@ -115,10 +115,12 @@
 
         public const long AV_NOPTS_VALUE = long.MinValue;
         public static readonly AVRational AV_TIME_BASE_Q = new AVRational { num = 1, den = AV_TIME_BASE }; // (AVRational){1, AV_TIME_BASE}
+
         public const int AVERROR_EOF = -32; // http://www-numi.fnal.gov/offline_software/srt_public_context/WebDocs/Errors/unix_system_errors.html
         public const int AVERROR_EAGAIN = -11;
         public const int AVERROR_ENOMEM = -12;
         public const int AVERROR_EINVAL = -22;
+        public const int AVERROR_NOTSUPP = -40;
         public static readonly int AVERROR_OPTION_NOT_FOUND = -MKTAG(0xF8, 'O', 'P', 'T');
 
         #endregion

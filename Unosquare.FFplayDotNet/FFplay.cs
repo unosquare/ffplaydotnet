@@ -6,6 +6,7 @@
     using System.Runtime.InteropServices;
     using System.Text;
     using System.Threading;
+    using static Unosquare.FFplayDotNet.SDL;
 
     // https://raw.githubusercontent.com/FFmpeg/FFmpeg/release/3.2/ffplay.c
 
@@ -39,9 +40,9 @@
 
         internal bool show_status { get; set; } = true;
 
-        internal bool fast { get; set; } = false;
-        internal bool genpts { get; set; } = false;
-        internal bool lowres { get; set; } = false;
+        internal bool EnableFastDecoding { get; set; } = false;
+        internal bool GeneratePts { get; set; } = false;
+        internal bool EnableLowRes { get; set; } = false;
 
         internal bool autoexit { get; set; }
         internal int loop { get; set; } = 1;
@@ -64,6 +65,8 @@
         internal readonly LockManagerCallbackDelegate lock_manager_delegate = new LockManagerCallbackDelegate(lockmgr);
         #endregion
 
+        public delegate int InterruptCallbackDelegate(void* opaque);
+        public delegate int LockManagerCallbackDelegate(void** mutex, AVLockOp op);
 
         internal AVDictionary* FormatOptions = null;
         internal AVDictionary* CodecOptions = null;
@@ -136,7 +139,7 @@
                 do_exit(null);
             }
 
-            var vst = stream_open(filename, InputForcedFormat);
+            var vst = new MediaState(this, filename, InputForcedFormat);
 
             event_loop(vst);
         }
@@ -153,7 +156,7 @@
                 if (remaining_time > 0.0)
                     Thread.Sleep(TimeSpan.FromSeconds(remaining_time * ffmpeg.AV_TIME_BASE));
 
-                remaining_time = REFRESH_RATE;
+                remaining_time = Constants.RefreshRate;
                 if (!vst.IsPaused || vst.IsForceRefreshRequested)
                     video_refresh(vst, ref remaining_time);
 
@@ -166,7 +169,7 @@
 
         #region Methods
 
-        static void free_picture(FrameHolder vp)
+        public static void free_picture(FrameHolder vp)
         {
             // TODO: free the BMP
             //if (vp->bmp)
@@ -176,9 +179,9 @@
             //}
         }
 
-        static int realloc_texture(SDL_Texture texture, uint new_format, int new_width, int new_height, uint blendmode, int init_texture) { return 0; }
+        public static int realloc_texture(SDL_Texture texture, uint new_format, int new_width, int new_height, uint blendmode, int init_texture) { return 0; }
 
-        static void calculate_display_rect(SDL_Rect rect, int scr_xleft, int scr_ytop, int scr_width, int scr_height, int pic_width, int pic_height, AVRational pic_sar)
+        public static void calculate_display_rect(SDL_Rect rect, int scr_xleft, int scr_ytop, int scr_width, int scr_height, int pic_width, int pic_height, AVRational pic_sar)
         {
             double aspect_ratio;
             int width, height, x, y;
@@ -207,7 +210,7 @@
             rect.h = Math.Max(height, 1);
         }
 
-        private int upload_texture(SDL_Texture tex, AVFrame* frame, SwsContext** img_convert_ctx)
+        public int upload_texture(SDL_Texture tex, AVFrame* frame, SwsContext** img_convert_ctx)
         {
             int ret = 0;
 
@@ -251,118 +254,6 @@
             }
             return ret;
         }
-
-        private void video_image_display(MediaState vst)
-        {
-            var vp = new FrameHolder();
-            FrameHolder sp = null;
-            var rect = new SDL_Rect();
-
-            vp = vst.VideoQueue.PeekLast();
-            if (vp.bmp != null)
-            {
-                if (vst.SubtitleStream != null)
-                {
-                    if (vst.SubtitleQueue.PendingCount > 0)
-                    {
-                        sp = vst.SubtitleQueue.Peek();
-                        if (vp.Pts >= sp.Pts + ((float)sp.Subtitle.start_display_time / 1000))
-                        {
-                            if (!sp.IsUploaded)
-                            {
-                                byte** pixels = null;
-                                int pitch = 0;
-
-                                if (sp.PictureWidth == 0 || sp.PictureHeight == 0)
-                                {
-                                    sp.PictureWidth = vp.PictureWidth;
-                                    sp.PictureHeight = vp.PictureHeight;
-                                }
-
-                                if (realloc_texture(vst.sub_texture, SDL_PIXELFORMAT_ARGB8888, sp.PictureWidth, sp.PictureHeight, SDL_BLENDMODE_BLEND, 1) < 0)
-                                    return;
-
-                                for (var i = 0; i < sp.Subtitle.num_rects; i++)
-                                {
-                                    AVSubtitleRect* sub_rect = sp.Subtitle.rects[i];
-                                    sub_rect->x = ffmpeg.av_clip(sub_rect->x, 0, sp.PictureWidth);
-                                    sub_rect->y = ffmpeg.av_clip(sub_rect->y, 0, sp.PictureHeight);
-                                    sub_rect->w = ffmpeg.av_clip(sub_rect->w, 0, sp.PictureWidth - sub_rect->x);
-                                    sub_rect->h = ffmpeg.av_clip(sub_rect->h, 0, sp.PictureHeight - sub_rect->y);
-
-                                    vst.SubtitleScaler = ffmpeg.sws_getCachedContext(vst.SubtitleScaler,
-                                        sub_rect->w, sub_rect->h, AVPixelFormat.AV_PIX_FMT_PAL8,
-                                        sub_rect->w, sub_rect->h, AVPixelFormat.AV_PIX_FMT_BGRA,
-                                        0, null, null, null);
-
-                                    if (vst.SubtitleScaler == null)
-                                    {
-                                        ffmpeg.av_log(null, ffmpeg.AV_LOG_FATAL, "Cannot initialize the conversion context\n");
-                                        return;
-                                    }
-
-                                    if (SDL_LockTexture(vst.sub_texture, sub_rect, pixels, &pitch) == 0)
-                                    {
-                                        var sourceData0 = sub_rect->data[0];
-                                        var sourceStride = sub_rect->linesize[0];
-
-                                        ffmpeg.sws_scale(vst.SubtitleScaler, &sourceData0, &sourceStride,
-                                              0, sub_rect->h, pixels, &pitch);
-
-                                        SDL_UnlockTexture(vst.sub_texture);
-                                    }
-                                }
-
-                                sp.IsUploaded = true;
-                            }
-                        }
-                        else
-                        {
-                            sp = null;
-                        }
-                    }
-                }
-
-                calculate_display_rect(rect, vst.xleft, vst.ytop, vst.PictureWidth, vst.PictureHeight, vp.PictureWidth, vp.PictureHeight, vp.PictureAspectRatio);
-
-                if (!vp.IsUploaded)
-                {
-                    fixed (SwsContext** ctx = &vst.VideoScaler)
-                    {
-                        if (upload_texture(vp.bmp, vp.DecodedFrame, ctx) < 0)
-                            return;
-                    }
-
-                    vp.IsUploaded = true;
-                }
-
-                SDL_RenderCopy(renderer, vp.bmp, null, rect);
-
-                if (sp != null)
-                {
-                    SDL_RenderCopy(renderer, vst.sub_texture, null, rect);
-
-                    int i;
-                    double xratio = (double)rect.w / (double)sp.PictureWidth;
-                    double yratio = (double)rect.h / (double)sp.PictureHeight;
-                    for (i = 0; i < sp.Subtitle.num_rects; i++)
-                    {
-                        var sub_rect = sp.Subtitle.rects[i];
-                        var target = new SDL_Rect
-                        {
-                            x = Convert.ToInt32(rect.x + sub_rect->x * xratio),
-                            y = Convert.ToInt32(rect.y + sub_rect->y * yratio),
-                            w = Convert.ToInt32(sub_rect->w * xratio),
-                            h = Convert.ToInt32(sub_rect->h * yratio)
-                        };
-
-                        SDL_RenderCopy(renderer, vst.sub_texture, sub_rect, target);
-                    }
-                }
-            }
-        }
-
-
 
         private void init_opts()
         {
@@ -408,7 +299,7 @@
         }
 
         // TODO: https://github.com/FFmpeg/FFmpeg/blob/d7896e9b4228e5b7ffc7ef0d0f1cf145f518c819/cmdutils.c#L2002
-        static AVDictionary* filter_codec_opts(AVDictionary* opts, AVCodecID codec_id, AVFormatContext* s, AVStream* st, AVCodec* codec)
+        static public AVDictionary* filter_codec_opts(AVDictionary* opts, AVCodecID codec_id, AVFormatContext* s, AVStream* st, AVCodec* codec)
         {
             AVDictionary* ret = null;
             AVDictionaryEntry* t = null;
@@ -568,60 +459,11 @@
             SDL_RenderClear(renderer);
 
             if (vst.VideoStream != null)
-                video_image_display(vst);
+                vst.video_image_display();
 
             SDL_RenderPresent(renderer);
         }
-
-
-
-
-        static void stream_toggle_pause(MediaState vst)
-        {
-            if (vst.IsPaused)
-            {
-                vst.frame_timer += ffmpeg.av_gettime_relative() / 1000000.0 - vst.VideoClock.LastUpdated;
-                if (vst.read_pause_return != AVERROR_NOTSUPP)
-                {
-                    vst.VideoClock.IsPaused = false;
-                }
-                vst.VideoClock.SetPosition(vst.VideoClock.Position, vst.VideoClock.PacketSerial);
-            }
-            vst.ExternalClock.SetPosition(vst.ExternalClock.Position, vst.ExternalClock.PacketSerial);
-            vst.IsPaused = vst.AudioClock.IsPaused = vst.VideoClock.IsPaused = vst.ExternalClock.IsPaused = !vst.IsPaused;
-        }
-
-        static void toggle_pause(MediaState vst)
-        {
-            stream_toggle_pause(vst);
-            vst.IsFrameStepping = false;
-        }
-
-        static void toggle_mute(MediaState vst)
-        {
-            vst.IsAudioMuted = !vst.IsAudioMuted;
-        }
-
-        static void update_volume(MediaState vst, int sign, int step)
-        {
-            vst.AudioVolume = ffmpeg.av_clip(vst.AudioVolume + sign * step, 0, SDL_MIX_MAXVOLUME);
-        }
-
-        static void step_to_next_frame(MediaState vst)
-        {
-            if (vst.IsPaused)
-                stream_toggle_pause(vst);
-            vst.IsFrameStepping = true;
-        }
-
-
-
-        static void update_video_pts(MediaState vst, double pts, long pos, int serial)
-        {
-            vst.VideoClock.SetPosition(pts, serial);
-            vst.ExternalClock.SyncTo(vst.VideoClock);
-        }
-
+        
         private void alloc_picture(MediaState vst)
         {
             var vp = new FrameHolder();
@@ -689,11 +531,11 @@
                         goto display;
                     }
                     vst.frame_timer += delay;
-                    if (delay > 0 && time - vst.frame_timer > AV_SYNC_THRESHOLD_MAX)
+                    if (delay > 0 && time - vst.frame_timer > Constants.AvSyncThresholdMax)
                         vst.frame_timer = time;
                     SDL_LockMutex(vst.VideoQueue.mutex);
                     if (!double.IsNaN(vp.Pts))
-                        update_video_pts(vst, vp.Pts, vp.BytePosition, vp.Serial);
+                        vst.UpdateVideoPts(vp.Pts, vp.BytePosition, vp.Serial);
                     SDL_UnlockMutex(vst.VideoQueue.mutex);
                     if (vst.VideoQueue.PendingCount > 1)
                     {
@@ -751,7 +593,7 @@
                     vst.VideoQueue.frame_queue_next();
                     vst.IsForceRefreshRequested = true;
                     if (vst.IsFrameStepping && !vst.IsPaused)
-                        stream_toggle_pause(vst);
+                        vst.StreamTogglePause();
                 }
                 display:
                 if (vst.IsForceRefreshRequested && vst.VideoQueue.ReadIndexShown != 0)
@@ -817,7 +659,7 @@
                     if (frame->pts != ffmpeg.AV_NOPTS_VALUE)
                     {
                         double diff = dpts - vst.MasterClockPosition;
-                        if (!double.IsNaN(diff) && Math.Abs(diff) < AV_NOSYNC_THRESHOLD &&
+                        if (!double.IsNaN(diff) && Math.Abs(diff) < Constants.AvNoSyncThreshold &&
                             diff - vst.frame_last_filter_delay < 0 &&
                             vst.VideoDecoder.PacketSerial == vst.VideoClock.PacketSerial &&
                             vst.VideoPackets.Length != 0)
@@ -832,57 +674,11 @@
             return got_picture;
         }
 
-        static int synchronize_audio(MediaState vst, int audioSampleCount)
-        {
-            int wantedAudioSampleCount = audioSampleCount;
-
-            /* if not master, then we try to remove or add samples to correct the clock */
-            if (vst.MasterSyncMode != SyncMode.AV_SYNC_AUDIO_MASTER)
-            {
-                double diff, avg_diff;
-                int min_nb_samples, max_nb_samples;
-
-                diff = vst.AudioClock.Position - vst.MasterClockPosition;
-
-                if (!double.IsNaN(diff) && Math.Abs(diff) < AV_NOSYNC_THRESHOLD)
-                {
-                    vst.audio_diff_cum = diff + vst.audio_diff_avg_coef * vst.audio_diff_cum;
-                    if (vst.audio_diff_avg_count < AUDIO_DIFF_AVG_NB)
-                    {
-                        /* not enough measures to have a correct estimate */
-                        vst.audio_diff_avg_count++;
-                    }
-                    else
-                    {
-                        /* estimate the A-V difference */
-                        avg_diff = vst.audio_diff_cum * (1.0 - vst.audio_diff_avg_coef);
-
-                        if (Math.Abs(avg_diff) >= vst.audio_diff_threshold)
-                        {
-                            wantedAudioSampleCount = audioSampleCount + (int)(diff * vst.AudioInputParams.Frequency);
-                            min_nb_samples = ((audioSampleCount * (100 - SAMPLE_CORRECTION_PERCENT_MAX) / 100));
-                            max_nb_samples = ((audioSampleCount * (100 + SAMPLE_CORRECTION_PERCENT_MAX) / 100));
-                            wantedAudioSampleCount = ffmpeg.av_clip(wantedAudioSampleCount, min_nb_samples, max_nb_samples);
-                        }
-                        ffmpeg.av_log(null, ffmpeg.AV_LOG_TRACE, $"diff={diff} adiff={avg_diff} sample_diff={wantedAudioSampleCount - audioSampleCount} apts={vst.AudioClockPosition} {vst.audio_diff_threshold}\n");
-                    }
-                }
-                else
-                {
-                    /* too big difference : may be initial PTS errors, so
-                       reset A-V filter */
-                    vst.audio_diff_avg_count = 0;
-                    vst.audio_diff_cum = 0;
-                }
-            }
-
-            return wantedAudioSampleCount;
-        }
-
         private int audio_decode_frame(MediaState vst)
         {
-            int data_size, resampled_data_size;
-            long dec_channel_layout;
+            int decodedDataSize;
+            int resampledDataSize;
+            long decodedFrameChannelLayout;
             double audio_clock0;
             int wanted_nb_samples;
 
@@ -907,19 +703,19 @@
                 vst.AudioQueue.frame_queue_next();
             } while (af.Serial != vst.AudioPackets.Serial);
 
-            data_size = ffmpeg.av_samples_get_buffer_size(null, ffmpeg.av_frame_get_channels(af.DecodedFrame),
+            decodedDataSize = ffmpeg.av_samples_get_buffer_size(null, ffmpeg.av_frame_get_channels(af.DecodedFrame),
                                                    af.DecodedFrame->nb_samples,
                                                    (AVSampleFormat)af.DecodedFrame->format, 1);
 
-            dec_channel_layout =
+            decodedFrameChannelLayout =
                 (af.DecodedFrame->channel_layout != 0 && ffmpeg.av_frame_get_channels(af.DecodedFrame) == ffmpeg.av_get_channel_layout_nb_channels(af.DecodedFrame->channel_layout)) ?
                     Convert.ToInt64(af.DecodedFrame->channel_layout) :
                     ffmpeg.av_get_default_channel_layout(ffmpeg.av_frame_get_channels(af.DecodedFrame));
 
-            wanted_nb_samples = synchronize_audio(vst, af.DecodedFrame->nb_samples);
+            wanted_nb_samples = vst.SynchronizeAudio(af.DecodedFrame->nb_samples);
 
             if (af.DecodedFrame->format != (int)vst.AudioInputParams.SampleFormat ||
-                dec_channel_layout != vst.AudioInputParams.ChannelLayout ||
+                decodedFrameChannelLayout != vst.AudioInputParams.ChannelLayout ||
                 af.DecodedFrame->sample_rate != vst.AudioInputParams.Frequency ||
                 (wanted_nb_samples != af.DecodedFrame->nb_samples && vst.AudioScaler == null))
             {
@@ -929,7 +725,7 @@
                 vst.AudioScaler = ffmpeg.swr_alloc_set_opts(
                     null,
                     vst.AudioOutputParams.ChannelLayout, vst.AudioOutputParams.SampleFormat, vst.AudioOutputParams.Frequency,
-                    dec_channel_layout, (AVSampleFormat)af.DecodedFrame->format, af.DecodedFrame->sample_rate,
+                    decodedFrameChannelLayout, (AVSampleFormat)af.DecodedFrame->format, af.DecodedFrame->sample_rate,
                     0, null);
                 if (vst.AudioScaler == null || ffmpeg.swr_init(vst.AudioScaler) < 0)
                 {
@@ -944,7 +740,7 @@
                     return -1;
                 }
 
-                vst.AudioInputParams.ChannelLayout = dec_channel_layout;
+                vst.AudioInputParams.ChannelLayout = decodedFrameChannelLayout;
                 vst.AudioInputParams.ChannelCount = ffmpeg.av_frame_get_channels(af.DecodedFrame);
                 vst.AudioInputParams.Frequency = af.DecodedFrame->sample_rate;
                 vst.AudioInputParams.SampleFormat = (AVSampleFormat)af.DecodedFrame->format;
@@ -994,12 +790,12 @@
                             ffmpeg.swr_free(vst_swr_ctx);
                 }
                 vst.audio_buf = vst.audio_buf1;
-                resampled_data_size = len2 * vst.AudioOutputParams.ChannelCount * ffmpeg.av_get_bytes_per_sample(vst.AudioOutputParams.SampleFormat);
+                resampledDataSize = len2 * vst.AudioOutputParams.ChannelCount * ffmpeg.av_get_bytes_per_sample(vst.AudioOutputParams.SampleFormat);
             }
             else
             {
                 vst.audio_buf = af.DecodedFrame->data[0];
-                resampled_data_size = data_size;
+                resampledDataSize = decodedDataSize;
             }
 
             audio_clock0 = vst.AudioClockPosition;
@@ -1011,7 +807,7 @@
 
             vst.AudioClockSerial = af.Serial;
 
-            return resampled_data_size;
+            return resampledDataSize;
         }
 
         private void sdl_audio_callback(MediaState vst, byte* stream, int len)
@@ -1026,7 +822,7 @@
                     if (audio_size < 0)
                     {
                         vst.audio_buf = null;
-                        vst.audio_buf_size = Convert.ToUInt32(SDL_AUDIO_MIN_BUFFER_SIZE / vst.AudioOutputParams.FrameSize * vst.AudioOutputParams.FrameSize);
+                        vst.audio_buf_size = Convert.ToUInt32(Constants.SDL_AUDIO_MIN_BUFFER_SIZE / vst.AudioOutputParams.FrameSize * vst.AudioOutputParams.FrameSize);
                     }
                     else
                     {
@@ -1062,7 +858,7 @@
             }
         }
 
-        private int audio_open(MediaState vst, long wanted_channel_layout, int wanted_nb_channels, int wanted_sample_rate, AudioParams audio_hw_params)
+        public int audio_open(MediaState vst, long wanted_channel_layout, int wanted_nb_channels, int wanted_sample_rate, AudioParams audio_hw_params)
         {
             var wanted_spec = new SDL_AudioSpec();
             var spec = new SDL_AudioSpec();
@@ -1098,7 +894,9 @@
 
             wanted_spec.format = AUDIO_S16SYS;
             wanted_spec.silence = 0;
-            wanted_spec.samples = Math.Max(SDL_AUDIO_MIN_BUFFER_SIZE, 2 << ffmpeg.av_log2(Convert.ToUInt32(wanted_spec.freq / SDL_AUDIO_MAX_CALLBACKS_PER_SEC)));
+            wanted_spec.samples = Math.Max(
+                Constants.SDL_AUDIO_MIN_BUFFER_SIZE, 
+                2 << ffmpeg.av_log2(Convert.ToUInt32(wanted_spec.freq / Constants.SDL_AUDIO_MAX_CALLBACKS_PER_SEC)));
             wanted_spec.callback = new SDL_AudioCallback(sdl_audio_callback);
             wanted_spec.userdata = vst;
 
@@ -1176,7 +974,8 @@
                 (streamIndex < 0) ||
                 (queue.IsAborted) ||
                 ((stream->disposition & ffmpeg.AV_DISPOSITION_ATTACHED_PIC) != 0) ||
-                queue.Length > MIN_FRAMES && (queue.Duration == 0 || ffmpeg.av_q2d(stream->time_base) * queue.Duration > 1.0);
+                queue.Length > Constants.MinFrames && (queue.Duration == 0 || 
+                ffmpeg.av_q2d(stream->time_base) * queue.Duration > 1.0);
         }
 
         static int decode_interrupt_cb(void* opaque)
@@ -1185,7 +984,7 @@
             return vst.IsAbortRequested ? 1 : 0;
         }
 
-        private int decoder_start(Decoder d, Func<MediaState, int> fn, MediaState vst)
+        public int decoder_start(Decoder d, Func<MediaState, int> fn, MediaState vst)
         {
             d.DecoderThread = SDL_CreateThread(fn, vst);
             if (d.DecoderThread == null)
@@ -1197,7 +996,7 @@
             return 0;
         }
 
-        private int video_thread(MediaState vst)
+        public int video_thread(MediaState vst)
         {
             AVFrame* frame = ffmpeg.av_frame_alloc();
             double pts;
@@ -1228,7 +1027,7 @@
             return 0;
         }
 
-        private int subtitle_thread(MediaState vst)
+        public int subtitle_thread(MediaState vst)
         {
             FrameHolder sp = null;
             int got_subtitle;
@@ -1270,7 +1069,7 @@
             return 0;
         }
 
-        private int audio_thread(MediaState vst)
+        public int audio_thread(MediaState vst)
         {
             var decodedFrame = ffmpeg.av_frame_alloc();
             int gotFrame = 0;
@@ -1303,7 +1102,7 @@
             return ret;
         }
 
-        private int read_thread(MediaState vst)
+        public int read_thread(MediaState vst)
         {
             AVFormatContext* ic = null;
             int err, i, ret;
@@ -1372,7 +1171,7 @@
             }
 
             vst.InputContext = ic;
-            if (genpts)
+            if (GeneratePts)
                 ic->flags |= ffmpeg.AVFMT_FLAG_GENPTS;
 
             ffmpeg.av_format_inject_global_side_data(ic);
@@ -1480,13 +1279,13 @@
             }
             if (st_index[(int)AVMediaType.AVMEDIA_TYPE_AUDIO] >= 0)
             {
-                vst.stream_component_open(st_index[(int)AVMediaType.AVMEDIA_TYPE_AUDIO], this);
+                vst.OpenStreamComponent(st_index[(int)AVMediaType.AVMEDIA_TYPE_AUDIO]);
             }
 
             ret = -1;
             if (st_index[(int)AVMediaType.AVMEDIA_TYPE_VIDEO] >= 0)
             {
-                ret = vst.stream_component_open(st_index[(int)AVMediaType.AVMEDIA_TYPE_VIDEO], this);
+                ret = vst.OpenStreamComponent(st_index[(int)AVMediaType.AVMEDIA_TYPE_VIDEO]);
             }
 
             //if (vst.show_mode == ShowMode.SHOW_MODE_NONE)
@@ -1494,7 +1293,7 @@
 
             if (st_index[(int)AVMediaType.AVMEDIA_TYPE_SUBTITLE] >= 0)
             {
-                vst.stream_component_open(st_index[(int)AVMediaType.AVMEDIA_TYPE_SUBTITLE], this);
+                vst.OpenStreamComponent(st_index[(int)AVMediaType.AVMEDIA_TYPE_SUBTITLE]);
             }
 
             if (vst.VideoStreamIndex < 0 && vst.AudioStreamIndex < 0)
@@ -1512,12 +1311,12 @@
                 if (vst.IsAbortRequested)
                     break;
 
-                if (Convert.ToInt32(vst.IsPaused) != vst.last_paused)
+                if (vst.IsPaused != vst.last_paused)
                 {
-                    vst.last_paused = Convert.ToInt32(vst.IsPaused);
+                    vst.last_paused = vst.IsPaused;
 
                     if (vst.IsPaused)
-                        vst.read_pause_return = ffmpeg.av_read_pause(ic);
+                        vst.ReadPauseResult = ffmpeg.av_read_pause(ic);
                     else
                         ffmpeg.av_read_play(ic);
                 }
@@ -1574,7 +1373,7 @@
                     vst.queue_attachments_req = true;
                     vst.IsAtEndOfFile = false;
                     if (vst.IsPaused)
-                        step_to_next_frame(vst);
+                        vst.StepToNextFrame();
                 }
 
                 if (vst.queue_attachments_req)
@@ -1593,7 +1392,7 @@
                 }
 
                 if (infinite_buffer < 1 &&
-                      (vst.AudioPackets.ByteLength + vst.VideoPackets.ByteLength + vst.SubtitlePackets.ByteLength > MAX_QUEUE_SIZE
+                      (vst.AudioPackets.ByteLength + vst.VideoPackets.ByteLength + vst.SubtitlePackets.ByteLength > Constants.MaxQueueSize
                     || (HasEnoughPackets(vst.AudioStream, vst.AudioStreamIndex, vst.AudioPackets) &&
                         HasEnoughPackets(vst.VideoStream, vst.VideoStreamIndex, vst.VideoPackets) &&
                         HasEnoughPackets(vst.SubtitleStream, vst.SubtitleStreamIndex, vst.SubtitlePackets))))
@@ -1681,7 +1480,7 @@
             if (ret != 0)
             {
                 var ev = new SDL_Event();
-                ev.type = FF_QUIT_EVENT;
+                ev.type = Constants.FF_QUIT_EVENT;
                 ev.user_data1 = vst;
                 SDL_PushEvent(ev);
             }
@@ -1690,38 +1489,7 @@
             return 0;
         }
 
-        private MediaState stream_open(string filename, AVInputFormat* iformat)
-        {
-            var vst = new MediaState();
-
-            vst.MediaUrl = filename;
-            vst.InputFormat = iformat;
-            vst.ytop = 0;
-            vst.xleft = 0;
-
-            vst.VideoQueue = new FrameQueue(vst.VideoPackets, VIDEO_PICTURE_QUEUE_SIZE, true);
-            vst.SubtitleQueue = new FrameQueue(vst.SubtitlePackets, SUBPICTURE_QUEUE_SIZE, false);
-            vst.AudioQueue = new FrameQueue(vst.AudioPackets, SAMPLE_QUEUE_SIZE, true);
-
-            vst.continue_read_thread = SDL_CreateCond();
-
-            vst.VideoClock = new Clock(() => { return new int?(vst.VideoPackets.Serial); });
-            vst.AudioClock = new Clock(() => { return new int?(vst.AudioPackets.Serial); });
-            vst.ExternalClock = new Clock(() => { return new int?(vst.ExternalClock.PacketSerial); });
-
-            vst.AudioClockSerial = -1;
-            vst.AudioVolume = SDL_MIX_MAXVOLUME;
-            vst.IsAudioMuted = false;
-            vst.MediaSyncMode = MediaSyncMode;
-            vst.ReadThread = SDL_CreateThread(read_thread, vst);
-
-            return vst;
-
-            // fail:
-            //stream_close(vst);
-
-            //return vst;
-        }
+        
 
 
         private void event_loop(MediaState mediaState)
@@ -1742,33 +1510,33 @@
                         mediaState.IsForceRefreshRequested = true;
                         break;
                     case EventAction.TogglePause:
-                        toggle_pause(mediaState);
+                        mediaState.TogglePause();
                         break;
                     case EventAction.ToggleMute:
-                        toggle_mute(mediaState);
+                        mediaState.ToggleMute();
                         break;
                     case EventAction.VolumeUp:
-                        update_volume(mediaState, 1, SDL_VOLUME_STEP);
+                        mediaState.UpdateVolume(1, Constants.SDL_VOLUME_STEP);
                         break;
                     case EventAction.VolumeDown:
-                        update_volume(mediaState, -1, SDL_VOLUME_STEP);
+                        mediaState.UpdateVolume(-1, Constants.SDL_VOLUME_STEP);
                         break;
                     case EventAction.StepNextFrame:
-                        step_to_next_frame(mediaState);
+                        mediaState.StepToNextFrame();
                         break;
                     case EventAction.CycleAudio:
-                        mediaState.stream_cycle_channel(AVMediaType.AVMEDIA_TYPE_AUDIO, this);
+                        mediaState.stream_cycle_channel(AVMediaType.AVMEDIA_TYPE_AUDIO);
                         break;
                     case EventAction.CycleVideo:
-                        mediaState.stream_cycle_channel(AVMediaType.AVMEDIA_TYPE_VIDEO, this);
+                        mediaState.stream_cycle_channel(AVMediaType.AVMEDIA_TYPE_VIDEO);
                         break;
                     case EventAction.CycleAll:
-                        mediaState.stream_cycle_channel(AVMediaType.AVMEDIA_TYPE_VIDEO, this);
-                        mediaState.stream_cycle_channel(AVMediaType.AVMEDIA_TYPE_AUDIO, this);
-                        mediaState.stream_cycle_channel(AVMediaType.AVMEDIA_TYPE_SUBTITLE, this);
+                        mediaState.stream_cycle_channel(AVMediaType.AVMEDIA_TYPE_VIDEO);
+                        mediaState.stream_cycle_channel(AVMediaType.AVMEDIA_TYPE_AUDIO);
+                        mediaState.stream_cycle_channel(AVMediaType.AVMEDIA_TYPE_SUBTITLE);
                         break;
                     case EventAction.CycleSubtitles:
-                        mediaState.stream_cycle_channel(AVMediaType.AVMEDIA_TYPE_SUBTITLE, this);
+                        mediaState.stream_cycle_channel(AVMediaType.AVMEDIA_TYPE_SUBTITLE);
                         break;
                     case EventAction.NextChapter:
                         if (mediaState.InputContext->nb_chapters <= 1)

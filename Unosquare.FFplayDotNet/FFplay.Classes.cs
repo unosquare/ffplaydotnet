@@ -191,13 +191,98 @@
 
         public class Clock
         {
-            public double pts;           /* clock base */
-            public double pts_drift;     /* clock base minus time at which we updated the clock */
-            public double last_updated;
-            public int serial;           /* clock is based on a packet with this serial */
-            public double speed;
-            public bool paused;
-            public int? queue_serial; /* pointer to the current packet queue serial, used for obsolete clock detection */
+            #region Private Declarations
+
+            private double m_SpeedRatio = default(double);
+            private readonly Func<int?> GetPacketQueueSerial; /* pointer to the current packet queue serial, used for obsolete clock detection */
+            private double PtsDrift;    /* clock base minus time at which we updated the clock */
+
+            #endregion
+
+            #region Constructors
+
+            public Clock(Func<int?> getPacketQueueSerialDelegate)
+            {
+                SpeedRatio = 1.0;
+                IsPaused = false;
+                GetPacketQueueSerial = getPacketQueueSerialDelegate;
+                SetPosition(double.NaN, -1);
+            }
+
+            #endregion
+
+            #region Properties
+
+            public bool IsPaused { get; set; }
+            public double Pts { get; private set; }           /* clock base */
+            public double LastUpdated { get; private set; }
+            public int PacketSerial { get; private set; }           /* clock is based on a packet with this serial */
+            public double SpeedRatio
+            {
+                get
+                {
+                    return m_SpeedRatio;
+                }
+                set
+                {
+                    SetPosition(Position, PacketSerial);
+                    m_SpeedRatio = value;
+                }
+            }
+            public int? PacketQueueSerial
+            {
+                get
+                {
+                    if (GetPacketQueueSerial == null) return PacketSerial;
+                    return GetPacketQueueSerial();
+                }
+            }
+            public double Position
+            {
+                get
+                {
+                    if (GetPacketQueueSerial().HasValue == false || GetPacketQueueSerial().Value != PacketSerial)
+                        return double.NaN;
+
+                    if (IsPaused)
+                    {
+                        return Pts;
+                    }
+                    else
+                    {
+                        var time = ffmpeg.av_gettime_relative() / 1000000.0;
+                        return PtsDrift + time - (time - LastUpdated) * (1.0 - SpeedRatio);
+                    }
+                }
+            }
+
+            #endregion
+
+            #region Methods
+
+            public void SetPosition(double pts, int serial, double time)
+            {
+                Pts = pts;
+                LastUpdated = time;
+                PtsDrift = Pts - time;
+                PacketSerial = serial;
+            }
+
+            public void SetPosition(double pts, int serial)
+            {
+                var time = ffmpeg.av_gettime_relative() / 1000000.0;
+                SetPosition(pts, serial, time);
+            }
+
+            public void SyncTo(Clock slave)
+            {
+                var currentPosition = Position;
+                var slavePosition = slave.Position;
+                if (!double.IsNaN(slavePosition) && (double.IsNaN(currentPosition) || Math.Abs(currentPosition - slavePosition) > AV_NOSYNC_THRESHOLD))
+                    SetPosition(slavePosition, slave.PacketSerial);
+            }
+
+            #endregion
         }
 
         public class Frame
@@ -219,48 +304,47 @@
 
         public class FrameQueue
         {
+            private readonly PacketQueue Packets = null;
+
             public Frame[] Frames { get; } = new Frame[FRAME_QUEUE_SIZE];
-            public PacketQueue pktq;
-            public int rindex;
-            public int windex;
-            public int size;
-            public int max_size;
-            public bool keep_last;
-            public int rindex_shown;
+
+
+            public int ReadIndex { get; private set; }
+            public int WriteIndex { get; private set; }
+            public int Length;
+            public int Capacity;
+            public bool KeepLast;
+            public int ReadIndexShown;
             public SDL_mutex mutex;
             public SDL_cond cond;
 
-            private void frame_queue_unref_item(Frame vp)
+            private static void DestroyFrame(Frame vp)
             {
                 ffmpeg.av_frame_unref(vp.DecodedFrame);
                 fixed (AVSubtitle* vpsub = &vp.Subtitle)
                 {
                     ffmpeg.avsubtitle_free(vpsub);
                 }
-
-
             }
 
-            public int frame_queue_init(PacketQueue queue, int maxSize, bool keepLast)
+            public FrameQueue(PacketQueue queue, int maxSize, bool keepLast)
             {
                 mutex = SDL_CreateMutex();
                 cond = SDL_CreateCond();
 
-                pktq = queue;
-                max_size = Math.Min(maxSize, FRAME_QUEUE_SIZE);
-                keep_last = keepLast;
-                for (var i = 0; i < max_size; i++)
+                Packets = queue;
+                Capacity = Math.Min(maxSize, FRAME_QUEUE_SIZE);
+                KeepLast = keepLast;
+                for (var i = 0; i < Capacity; i++)
                     Frames[i].DecodedFrame = ffmpeg.av_frame_alloc();
-
-                return 0;
             }
 
             public void frame_queue_destory()
             {
-                for (var i = 0; i < max_size; i++)
+                for (var i = 0; i < Capacity; i++)
                 {
                     var vp = Frames[i];
-                    frame_queue_unref_item(vp);
+                    DestroyFrame(vp);
                     fixed (AVFrame** frameRef = &vp.DecodedFrame)
                     {
                         ffmpeg.av_frame_free(frameRef);
@@ -281,83 +365,92 @@
 
             public Frame frame_queue_peek()
             {
-                return Frames[(rindex + rindex_shown) % max_size];
+                return Frames[(ReadIndex + ReadIndexShown) % Capacity];
             }
 
             public Frame frame_queue_peek_next()
             {
-                return Frames[(rindex + rindex_shown + 1) % max_size];
+                return Frames[(ReadIndex + ReadIndexShown + 1) % Capacity];
             }
 
             public Frame frame_queue_peek_last()
             {
-                return Frames[rindex];
+                return Frames[ReadIndex];
             }
 
-            public Frame frame_queue_peek_writable()
+            public Frame PeekWritableFrame()
             {
                 SDL_LockMutex(mutex);
 
-                while (size >= max_size && !pktq.IsAborted)
+                while (Length >= Capacity && !Packets.IsAborted)
                 {
                     SDL_CondWait(cond, mutex);
                 }
 
                 SDL_UnlockMutex(mutex);
-                if (pktq.IsAborted)
+
+                if (Packets.IsAborted)
                     return null;
 
-                return Frames[windex];
+                return Frames[WriteIndex];
             }
 
-            public Frame frame_queue_peek_readable()
+            public Frame PeekReadableFrame()
             {
                 SDL_LockMutex(mutex);
-                while (size - rindex_shown <= 0 &&!pktq.IsAborted)
+                while (Length - ReadIndexShown <= 0 && !Packets.IsAborted)
                 {
                     SDL_CondWait(cond, mutex);
                 }
                 SDL_UnlockMutex(mutex);
-                if (pktq.IsAborted)
+                if (Packets.IsAborted)
                     return null;
-                return Frames[(rindex + rindex_shown) % max_size];
+                return Frames[(ReadIndex + ReadIndexShown) % Capacity];
             }
 
             public void frame_queue_push()
             {
-                if (++windex == max_size)
-                    windex = 0;
+                if (++WriteIndex == Capacity)
+                    WriteIndex = 0;
+
                 SDL_LockMutex(mutex);
-                size++;
+
+                Length++;
+
                 SDL_CondSignal(cond);
                 SDL_UnlockMutex(mutex);
             }
 
             public void frame_queue_next()
             {
-                if (keep_last && !Convert.ToBoolean(rindex_shown))
+                if (KeepLast && !Convert.ToBoolean(ReadIndexShown))
                 {
-                    rindex_shown = 1;
+                    ReadIndexShown = 1;
                     return;
                 }
-                frame_queue_unref_item(Frames[rindex]);
-                if (++rindex == max_size)
-                    rindex = 0;
+
+                DestroyFrame(Frames[ReadIndex]);
+                if (++ReadIndex == Capacity)
+                    ReadIndex = 0;
+
                 SDL_LockMutex(mutex);
-                size--;
+
+                Length--;
+
                 SDL_CondSignal(cond);
                 SDL_UnlockMutex(mutex);
             }
 
             public int frame_queue_nb_remaining()
             {
-                return size - rindex_shown;
+                return Length - ReadIndexShown;
             }
 
             public long frame_queue_last_pos()
             {
-                var fp = Frames[rindex];
-                if (rindex_shown != 0 && fp.Serial == pktq.Serial)
+                var fp = Frames[ReadIndex];
+
+                if (ReadIndexShown != 0 && fp.Serial == Packets.Serial)
                     return fp.BytePosition;
                 else
                     return -1;
@@ -408,13 +501,13 @@
 
             public bool IsMediaRealtime { get; internal set; }
 
-            public Clock AudioClock { get; } = new Clock();
-            public Clock VideoClock { get; } = new Clock();
-            public Clock ExternalClock { get; } = new Clock();
+            public Clock AudioClock { get; internal set; }
+            public Clock VideoClock { get; internal set; }
+            public Clock ExternalClock { get; internal set; }
 
-            public FrameQueue PictureQueue { get; } = new FrameQueue();
-            public FrameQueue SubtitleQueue { get; } = new FrameQueue();
-            public FrameQueue AudioQueue { get; } = new FrameQueue();
+            public FrameQueue PictureQueue { get; internal set; }
+            public FrameQueue SubtitleQueue { get; internal set; }
+            public FrameQueue AudioQueue { get; internal set; }
 
             public Decoder AudioDecoder { get; } = new Decoder();
             public Decoder VideoDecoder { get; } = new Decoder();

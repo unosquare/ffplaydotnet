@@ -176,6 +176,7 @@
             //    vp->bmp = NULL;
             //}
         }
+
         static void InitializeDecoder(Decoder d, AVCodecContext* avctx, PacketQueue queue, SDL_cond empty_queue_cond)
         {
             d.avctx = avctx;
@@ -799,71 +800,19 @@
             SDL_RenderPresent(renderer);
         }
 
-        static double get_clock(Clock c)
-        {
-            if (c.queue_serial.HasValue == false || c.queue_serial.Value != c.serial)
-                return double.NaN;
-
-            if (c.paused)
-            {
-                return c.pts;
-            }
-            else
-            {
-                double time = ffmpeg.av_gettime_relative() / 1000000.0;
-                return c.pts_drift + time - (time - c.last_updated) * (1.0 - c.speed);
-            }
-        }
-
-        static void set_clock_at(Clock c, double pts, int serial, double time)
-        {
-            c.pts = pts;
-            c.last_updated = time;
-            c.pts_drift = c.pts - time;
-            c.serial = serial;
-        }
-
-        static void set_clock(Clock c, double pts, int serial)
-        {
-            double time = ffmpeg.av_gettime_relative() / 1000000.0;
-            set_clock_at(c, pts, serial, time);
-        }
-
-        static void set_clock_speed(Clock c, double speed)
-        {
-            set_clock(c, get_clock(c), c.serial);
-            c.speed = speed;
-        }
-
-        static void init_clock(Clock c, int? queue_serial)
-        {
-            c.speed = 1.0;
-            c.paused = false;
-            c.queue_serial = queue_serial;
-            set_clock(c, double.NaN, -1);
-        }
-
-        static void sync_clock_to_slave(Clock c, Clock slave)
-        {
-            double clock = get_clock(c);
-            double slave_clock = get_clock(slave);
-            if (!double.IsNaN(slave_clock) && (double.IsNaN(clock) || Math.Abs(clock - slave_clock) > AV_NOSYNC_THRESHOLD))
-                set_clock(c, slave_clock, slave.serial);
-        }
-
         static double get_master_clock(MediaState vst)
         {
             double val;
             switch (vst.MasterSyncMode)
             {
                 case SyncMode.AV_SYNC_VIDEO_MASTER:
-                    val = get_clock(vst.VideoClock);
+                    val = vst.VideoClock.Position;
                     break;
                 case SyncMode.AV_SYNC_AUDIO_MASTER:
-                    val = get_clock(vst.AudioClock);
+                    val = vst.AudioClock.Position;
                     break;
                 default:
-                    val = get_clock(vst.ExternalClock);
+                    val = vst.ExternalClock.Position;
                     break;
             }
             return val;
@@ -874,18 +823,18 @@
             if (vst.VideoStreamIndex >= 0 && vst.VideoPackets.Length <= EXTERNAL_CLOCK_MIN_FRAMES ||
                 vst.audio_stream >= 0 && vst.AudioPackets.Length <= EXTERNAL_CLOCK_MIN_FRAMES)
             {
-                set_clock_speed(vst.ExternalClock, Math.Max(EXTERNAL_CLOCK_SPEED_MIN, vst.ExternalClock.speed - EXTERNAL_CLOCK_SPEED_STEP));
+                vst.ExternalClock.SpeedRatio = (Math.Max(EXTERNAL_CLOCK_SPEED_MIN, vst.ExternalClock.SpeedRatio - EXTERNAL_CLOCK_SPEED_STEP));
             }
             else if ((vst.VideoStreamIndex < 0 || vst.VideoPackets.Length > EXTERNAL_CLOCK_MAX_FRAMES) &&
                      (vst.audio_stream < 0 || vst.AudioPackets.Length > EXTERNAL_CLOCK_MAX_FRAMES))
             {
-                set_clock_speed(vst.ExternalClock, Math.Min(EXTERNAL_CLOCK_SPEED_MAX, vst.ExternalClock.speed + EXTERNAL_CLOCK_SPEED_STEP));
+                vst.ExternalClock.SpeedRatio = (Math.Min(EXTERNAL_CLOCK_SPEED_MAX, vst.ExternalClock.SpeedRatio + EXTERNAL_CLOCK_SPEED_STEP));
             }
             else
             {
-                double speed = vst.ExternalClock.speed;
+                double speed = vst.ExternalClock.SpeedRatio;
                 if (speed != 1.0)
-                    set_clock_speed(vst.ExternalClock, speed + EXTERNAL_CLOCK_SPEED_STEP * (1.0 - speed) / Math.Abs(1.0 - speed));
+                    vst.ExternalClock.SpeedRatio = (speed + EXTERNAL_CLOCK_SPEED_STEP * (1.0 - speed) / Math.Abs(1.0 - speed));
             }
         }
 
@@ -906,15 +855,15 @@
         {
             if (vst.IsPaused)
             {
-                vst.frame_timer += ffmpeg.av_gettime_relative() / 1000000.0 - vst.VideoClock.last_updated;
+                vst.frame_timer += ffmpeg.av_gettime_relative() / 1000000.0 - vst.VideoClock.LastUpdated;
                 if (vst.read_pause_return != AVERROR_NOTSUPP)
                 {
-                    vst.VideoClock.paused = false;
+                    vst.VideoClock.IsPaused = false;
                 }
-                set_clock(vst.VideoClock, get_clock(vst.VideoClock), vst.VideoClock.serial);
+                vst.VideoClock.SetPosition(vst.VideoClock.Position, vst.VideoClock.PacketSerial);
             }
-            set_clock(vst.ExternalClock, get_clock(vst.ExternalClock), vst.ExternalClock.serial);
-            vst.IsPaused = vst.AudioClock.paused = vst.VideoClock.paused = vst.ExternalClock.paused = !vst.IsPaused;
+            vst.ExternalClock.SetPosition(vst.ExternalClock.Position, vst.ExternalClock.PacketSerial);
+            vst.IsPaused = vst.AudioClock.IsPaused = vst.VideoClock.IsPaused = vst.ExternalClock.IsPaused = !vst.IsPaused;
         }
 
         static void toggle_pause(MediaState vst)
@@ -945,7 +894,7 @@
             double sync_threshold, diff = 0;
             if (vst.MasterSyncMode != SyncMode.AV_SYNC_VIDEO_MASTER)
             {
-                diff = get_clock(vst.VideoClock) - get_master_clock(vst);
+                diff = vst.VideoClock.Position - get_master_clock(vst);
                 sync_threshold = Math.Max(AV_SYNC_THRESHOLD_MIN, Math.Min(AV_SYNC_THRESHOLD_MAX, delay));
                 if (!double.IsNaN(diff) && Math.Abs(diff) < vst.MaximumFrameDuration)
                 {
@@ -979,15 +928,15 @@
 
         static void update_video_pts(MediaState vst, double pts, long pos, int serial)
         {
-            set_clock(vst.VideoClock, pts, serial);
-            sync_clock_to_slave(vst.ExternalClock, vst.VideoClock);
+            vst.VideoClock.SetPosition(pts, serial);
+            vst.ExternalClock.SyncTo(vst.VideoClock);
         }
 
         private void alloc_picture(MediaState vst)
         {
             var vp = new Frame();
             uint sdl_format;
-            vp = vst.PictureQueue.Frames[vst.PictureQueue.windex];
+            vp = vst.PictureQueue.Frames[vst.PictureQueue.WriteIndex];
             video_open(vst, vp);
             if (vp.format == (int)AVPixelFormat.AV_PIX_FMT_YUV420P)
                 sdl_format = SDL_PIXELFORMAT_YV12;
@@ -1078,8 +1027,8 @@
                                 sp2 = null;
 
                             if (sp.Serial != vst.SubtitlePackets.Serial
-                                    || (vst.VideoClock.pts > (sp.PresentationTimestamp + ((float)sp.Subtitle.end_display_time / 1000)))
-                                    || (sp2 != null && vst.VideoClock.pts > (sp2.PresentationTimestamp + ((float)sp2.Subtitle.start_display_time / 1000))))
+                                    || (vst.VideoClock.Pts > (sp.PresentationTimestamp + ((float)sp.Subtitle.end_display_time / 1000)))
+                                    || (sp2 != null && vst.VideoClock.Pts > (sp2.PresentationTimestamp + ((float)sp2.Subtitle.start_display_time / 1000))))
                             {
                                 if (sp.IsUploaded)
                                 {
@@ -1115,7 +1064,7 @@
                         stream_toggle_pause(vst);
                 }
                 display:
-                if (vst.IsForceRefreshRequested && vst.PictureQueue.rindex_shown != 0)
+                if (vst.IsForceRefreshRequested && vst.PictureQueue.ReadIndexShown != 0)
                     video_display(vst);
             }
 
@@ -1140,11 +1089,11 @@
                         sqsize = vst.SubtitlePackets.ByteLength;
                     av_diff = 0;
                     if (vst.AudioStream != null && vst.video_st != null)
-                        av_diff = get_clock(vst.AudioClock) - get_clock(vst.VideoClock);
+                        av_diff = vst.AudioClock.Position - vst.VideoClock.Position;
                     else if (vst.video_st != null)
-                        av_diff = get_master_clock(vst) - get_clock(vst.VideoClock);
+                        av_diff = get_master_clock(vst) - vst.VideoClock.Position;
                     else if (vst.AudioStream != null)
-                        av_diff = get_master_clock(vst) - get_clock(vst.AudioClock);
+                        av_diff = get_master_clock(vst) - vst.AudioClock.Position;
 
                     var mode = (vst.AudioStream != null && vst.video_st != null) ? "A-V" : (vst.video_st != null ? "M-V" : (vst.AudioStream != null ? "M-A" : "   "));
                     var faultyDts = vst.video_st != null ? vst.VideoDecoder.avctx->pts_correction_num_faulty_dts : 0;
@@ -1162,7 +1111,7 @@
 
         static int queue_picture(MediaState vst, AVFrame* src_frame, double pts, double duration, long pos, int serial)
         {
-            var vp = vst.PictureQueue.frame_queue_peek_writable();
+            var vp = vst.PictureQueue.PeekWritableFrame();
 
             Debug.WriteLine($"frame_type={ffmpeg.av_get_picture_type_char(src_frame->pict_type)} pts={pts}");
 
@@ -1233,7 +1182,7 @@
                         double diff = dpts - get_master_clock(vst);
                         if (!double.IsNaN(diff) && Math.Abs(diff) < AV_NOSYNC_THRESHOLD &&
                             diff - vst.frame_last_filter_delay < 0 &&
-                            vst.VideoDecoder.PacketSerial == vst.VideoClock.serial &&
+                            vst.VideoDecoder.PacketSerial == vst.VideoClock.PacketSerial &&
                             vst.VideoPackets.Length != 0)
                         {
                             vst.frame_drops_early++;
@@ -1256,7 +1205,7 @@
                 double diff, avg_diff;
                 int min_nb_samples, max_nb_samples;
 
-                diff = get_clock(vst.AudioClock) - get_master_clock(vst);
+                diff = vst.AudioClock.Position - get_master_clock(vst);
 
                 if (!double.IsNaN(diff) && Math.Abs(diff) < AV_NOSYNC_THRESHOLD)
                 {
@@ -1314,7 +1263,7 @@
                     Thread.Sleep(1); //ffmpeg.av_usleep(1000);
                 }
 
-                af = vst.AudioQueue.frame_queue_peek_readable();
+                af = vst.AudioQueue.PeekReadableFrame();
                 if (af == null)
                     return -1;
 
@@ -1473,8 +1422,8 @@
             vst.audio_write_buf_size = Convert.ToInt32(vst.audio_buf_size - vst.audio_buf_index);
             if (!double.IsNaN(vst.audio_clock))
             {
-                set_clock_at(vst.AudioClock, vst.audio_clock - (double)(2 * vst.audio_hw_buf_size + vst.audio_write_buf_size) / vst.AudioOutputParams.BytesPerSecond, vst.audio_clock_serial, audio_callback_time / 1000000.0);
-                sync_clock_to_slave(vst.ExternalClock, vst.AudioClock);
+                vst.AudioClock.SetPosition(vst.audio_clock - (double)(2 * vst.audio_hw_buf_size + vst.audio_write_buf_size) / vst.AudioOutputParams.BytesPerSecond, vst.audio_clock_serial, audio_callback_time / 1000000.0);
+                vst.ExternalClock.SyncTo(vst.AudioClock);
             }
         }
 
@@ -1653,7 +1602,7 @@
 
             while (true)
             {
-                sp = vst.SubtitleQueue.frame_queue_peek_writable();
+                sp = vst.SubtitleQueue.PeekWritableFrame();
                 if (sp == null) return 0;
 
                 fixed (AVSubtitle* sp_sub = &sp.Subtitle)
@@ -1704,7 +1653,7 @@
                 if (got_frame != 0)
                 {
                     tb = new AVRational { num = 1, den = frame->sample_rate };
-                    af = vst.AudioQueue.frame_queue_peek_writable();
+                    af = vst.AudioQueue.PeekWritableFrame();
                     if (af == null) break;
 
                     af.PresentationTimestamp = (frame->pts == ffmpeg.AV_NOPTS_VALUE) ? double.NaN : frame->pts * ffmpeg.av_q2d(tb);
@@ -2126,11 +2075,11 @@
                         }
                         if ((vst.seek_flags & ffmpeg.AVSEEK_FLAG_BYTE) != 0)
                         {
-                            set_clock(vst.ExternalClock, double.NaN, 0);
+                            vst.ExternalClock.SetPosition(double.NaN, 0);
                         }
                         else
                         {
-                            set_clock(vst.ExternalClock, seek_target / (double)ffmpeg.AV_TIME_BASE, 0);
+                            vst.ExternalClock.SetPosition(seek_target / (double)ffmpeg.AV_TIME_BASE, 0);
                         }
                     }
 
@@ -2259,28 +2208,29 @@
             vst.InputFormat = iformat;
             vst.ytop = 0;
             vst.xleft = 0;
-            if (vst.PictureQueue.frame_queue_init(vst.VideoPackets, VIDEO_PICTURE_QUEUE_SIZE, true) < 0)
-                goto fail;
-            if (vst.SubtitleQueue.frame_queue_init(vst.SubtitlePackets, SUBPICTURE_QUEUE_SIZE, false) < 0)
-                goto fail;
-            if (vst.AudioQueue.frame_queue_init(vst.AudioPackets, SAMPLE_QUEUE_SIZE, true) < 0)
-                goto fail;
+
+            vst.PictureQueue = new FrameQueue(vst.VideoPackets, VIDEO_PICTURE_QUEUE_SIZE, true);
+            vst.SubtitleQueue = new FrameQueue(vst.SubtitlePackets, SUBPICTURE_QUEUE_SIZE, false);
+            vst.AudioQueue = new FrameQueue(vst.AudioPackets, SAMPLE_QUEUE_SIZE, true);
 
             vst.continue_read_thread = SDL_CreateCond();
 
-            init_clock(vst.VideoClock, vst.VideoPackets.Serial);
-            init_clock(vst.AudioClock, vst.AudioPackets.Serial);
-            init_clock(vst.ExternalClock, vst.ExternalClock.serial);
+            vst.VideoClock = new Clock(() => { return new int?(vst.VideoPackets.Serial); });
+            vst.AudioClock = new Clock(() => { return new int?(vst.AudioPackets.Serial); });
+            vst.ExternalClock = new Clock(() => { return new int?(vst.ExternalClock.PacketSerial); });
+
             vst.audio_clock_serial = -1;
             vst.AudioVolume = SDL_MIX_MAXVOLUME;
             vst.IsAudioMuted = false;
             vst.MediaSyncMode = MediaSyncMode;
             vst.ReadThread = SDL_CreateThread(read_thread, vst);
 
-            fail:
-            stream_close(vst);
-
             return vst;
+
+            // fail:
+            //stream_close(vst);
+
+            //return vst;
         }
 
         static void seek_chapter(MediaState vst, int incr)

@@ -15,13 +15,13 @@ namespace Unosquare.FFplayDotNet
 
         public FrameHolder[] Frames { get; } = new FrameHolder[Constants.FrameQueueSize];
 
-
         public int ReadIndex { get; private set; }
         public int WriteIndex { get; private set; }
-        public int Length;
-        public int Capacity;
-        public bool KeepLast;
-        public int ReadIndexShown;
+        public int Length { get; private set; }
+        public int Capacity { get; private set; }
+        public bool KeepLast { get; private set; }
+        public int ReadIndexShown { get; private set; }
+
         public SDL_mutex mutex;
         public SDL_cond cond;
 
@@ -46,7 +46,7 @@ namespace Unosquare.FFplayDotNet
                 Frames[i].DecodedFrame = ffmpeg.av_frame_alloc();
         }
 
-        public void frame_queue_destory()
+        public void Clear()
         {
             for (var i = 0; i < Capacity; i++)
             {
@@ -70,19 +70,28 @@ namespace Unosquare.FFplayDotNet
             SDL_UnlockMutex(mutex);
         }
 
-        public FrameHolder Peek()
+        public FrameHolder Current
         {
-            return Frames[(ReadIndex + ReadIndexShown) % Capacity];
+            get
+            {
+                return Frames[(ReadIndex + ReadIndexShown) % Capacity];
+            }
         }
 
-        public FrameHolder PeekNext()
+        public FrameHolder Next
         {
-            return Frames[(ReadIndex + ReadIndexShown + 1) % Capacity];
+            get
+            {
+                return Frames[(ReadIndex + ReadIndexShown + 1) % Capacity];
+            }
         }
 
-        public FrameHolder PeekLast()
+        public FrameHolder Last
         {
-            return Frames[ReadIndex];
+            get
+            {
+                return Frames[ReadIndex];
+            }
         }
 
         public FrameHolder PeekWritableFrame()
@@ -116,7 +125,7 @@ namespace Unosquare.FFplayDotNet
             return Frames[(ReadIndex + ReadIndexShown) % Capacity];
         }
 
-        public void frame_queue_push()
+        public void QueueNextWrite()
         {
             if (++WriteIndex == Capacity)
                 WriteIndex = 0;
@@ -129,7 +138,7 @@ namespace Unosquare.FFplayDotNet
             SDL_UnlockMutex(mutex);
         }
 
-        public void frame_queue_next()
+        public void QueueNextRead()
         {
             if (KeepLast && !Convert.ToBoolean(ReadIndexShown))
             {

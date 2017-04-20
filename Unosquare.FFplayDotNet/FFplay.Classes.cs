@@ -171,6 +171,11 @@
 
         public class AudioParams
         {
+            public AudioParams()
+            {
+
+            }
+
             public int Frequency { get; internal set; }
             public int ChannelCount { get; internal set; }
             public long ChannelLayout { get; internal set; }
@@ -446,14 +451,17 @@
                 return Length - ReadIndexShown;
             }
 
-            public long frame_queue_last_pos()
+            public long StreamPosition
             {
-                var fp = Frames[ReadIndex];
+                get
+                {
+                    var frame = Frames[ReadIndex];
 
-                if (ReadIndexShown != 0 && fp.Serial == Packets.Serial)
-                    return fp.BytePosition;
-                else
-                    return -1;
+                    if (ReadIndexShown != 0 && frame.Serial == Packets.Serial)
+                        return frame.BytePosition;
+                    else
+                        return -1;
+                }
             }
 
         }
@@ -477,27 +485,41 @@
 
         public class MediaState
         {
+            internal readonly GCHandle Handle;
+
+            internal AVInputFormat* InputFormat;
+            internal AVFormatContext* InputContext;
+
+            internal AVStream* AudioStream;
+            internal AVStream* SubtitleStream;
+            internal AVStream* VideoStream;
+
+            internal SwrContext* AudioScaler;
+            internal SwsContext* VideoScaler;
+            internal SwsContext* SubtitleScaler;
+
             public MediaState()
             {
                 Handle = GCHandle.Alloc(this, GCHandleType.Pinned);
             }
 
-            public readonly GCHandle Handle;
             public SDL_Thread ReadThread;
-            public AVInputFormat* InputFormat;
+            
             public bool IsAbortRequested { get; internal set; }
             public bool IsForceRefreshRequested { get; internal set; }
             public bool IsPaused { get; set; }
 
             public int last_paused;
+
             public bool queue_attachments_req;
-            public bool IsSeekRequested;
+            public bool IsSeekRequested { get; internal set; }
+
             public int seek_flags;
             public long seek_pos;
             public long seek_rel;
             public int read_pause_return;
 
-            public AVFormatContext* InputContext;
+            
 
             public bool IsMediaRealtime { get; internal set; }
 
@@ -505,7 +527,7 @@
             public Clock VideoClock { get; internal set; }
             public Clock ExternalClock { get; internal set; }
 
-            public FrameQueue PictureQueue { get; internal set; }
+            public FrameQueue VideoQueue { get; internal set; }
             public FrameQueue SubtitleQueue { get; internal set; }
             public FrameQueue AudioQueue { get; internal set; }
 
@@ -513,7 +535,10 @@
             public Decoder VideoDecoder { get; } = new Decoder();
             public Decoder SubtitleDecoder { get; } = new Decoder();
 
-            public int audio_stream;
+            public int AudioStreamIndex { get; set; }
+            public int VideoStreamIndex { get; internal set; }
+            public int SubtitleStreamIndex { get; internal set; }
+
             public SyncMode MediaSyncMode { get; set; }
             public SyncMode MasterSyncMode
             {
@@ -521,7 +546,7 @@
                 {
                     if (MediaSyncMode == SyncMode.AV_SYNC_VIDEO_MASTER)
                     {
-                        if (video_st != null)
+                        if (VideoStream != null)
                             return SyncMode.AV_SYNC_VIDEO_MASTER;
                         else
                             return SyncMode.AV_SYNC_AUDIO_MASTER;
@@ -539,49 +564,44 @@
                     }
                 }
             }
-            public double audio_clock;
-            public int audio_clock_serial;
+
+            public double AudioClockPosition { get; internal set; }
+            public int AudioClockSerial { get; internal set; }
+
             public double audio_diff_cum; /* used for AV difference average computation */
             public double audio_diff_avg_coef;
             public double audio_diff_threshold;
             public int audio_diff_avg_count;
-            public AVStream* AudioStream;
+
+            public PacketQueue VideoPackets { get; } = new PacketQueue();
             public PacketQueue AudioPackets { get; } = new PacketQueue();
-            public int audio_hw_buf_size;
+            public PacketQueue SubtitlePackets { get; } = new PacketQueue();
+
+            public AudioParams AudioInputParams { get; } = new AudioParams();
+            public AudioParams AudioOutputParams { get; } = new AudioParams();
+            public int AudioVolume { get; set; }
+            public bool IsAudioMuted { get; set; }
+            public int AudioHardwareBufferSize { get; internal set; }
+
             public byte* audio_buf;
             public byte* audio_buf1;
             public uint audio_buf_size; /* in bytes */
             public uint audio_buf1_size;
             public int audio_buf_index; /* in bytes */
             public int audio_write_buf_size;
-            public int AudioVolume { get; set; }
-            public bool IsAudioMuted { get; set; }
-            public AudioParams AudioInputParams { get; } = new AudioParams();
-            public AudioParams AudioOutputParams { get; } = new AudioParams();
-
-            public SwrContext* swr_ctx;
 
             public int frame_drops_early;
             public int frame_drops_late;
 
-            public short[] sample_array = new short[SAMPLE_ARRAY_SIZE];
-            public int sample_array_index;
-            public int last_i_start;
 
             public int xpos;
             public double last_vis_time;
             public SDL_Texture vis_texture;
             public SDL_Texture sub_texture;
-            public int SubtitleStreamIndex { get; internal set; }
-            public AVStream* subtitle_st;
-            public PacketQueue SubtitlePackets { get; } = new PacketQueue();
-
+            
             public double frame_timer;
             public double frame_last_returned_time;
             public double frame_last_filter_delay;
-            public int VideoStreamIndex { get; internal set; }
-            public AVStream* video_st;
-            public PacketQueue VideoPackets { get; } = new PacketQueue();
 
             /// <summary>
             /// Gets the maximum duration of the frame.
@@ -589,16 +609,13 @@
             /// </summary>
             public double MaximumFrameDuration { get; internal set; }
 
-            public SwsContext* img_convert_ctx;
-            public SwsContext* sub_convert_ctx;
-
             public bool IsAtEndOfFile { get; internal set; }
             public string MediaUrl { get; internal set; }
-            public int PictureWidth;
-            public int height;
+            public int PictureWidth { get; internal set; }
+            public int PictureHeight { get; internal set; }
             public int xleft;
             public int ytop;
-            public bool step;
+            public bool IsFrameStepping { get; internal set; }
 
             public int last_video_stream, last_audio_stream, last_subtitle_stream;
 

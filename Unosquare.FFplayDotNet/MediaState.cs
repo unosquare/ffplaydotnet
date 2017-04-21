@@ -57,7 +57,7 @@
         public int xpos;
 
 
-        public SDL_cond continue_read_thread;
+        public LockCondition continue_read_thread;
         public SDL_Texture vis_texture;
         public SDL_Texture sub_texture;
         internal SDL_Thread ReadThread;
@@ -202,7 +202,7 @@
             SubtitleQueue = new FrameQueue(SubtitlePackets, Constants.SubtitleQueueSize, false);
             AudioQueue = new FrameQueue(AudioPackets, Constants.SampleQueueSize, true);
 
-            continue_read_thread = SDL_CreateCond();
+            continue_read_thread = new LockCondition();
 
             VideoClock = new Clock(() => { return new int?(VideoPackets.Serial); });
             AudioClock = new Clock(() => { return new int?(AudioPackets.Serial); });
@@ -236,63 +236,6 @@
             }
         }
 
-        public int EnqueuePicture(AVFrame* sourceFrame, double pts, double duration)
-        {
-            var vp = VideoQueue.PeekWritableFrame();
-            var serial = VideoDecoder.PacketSerial;
-            var streamPosition = ffmpeg.av_frame_get_pkt_pos(sourceFrame);
-
-            Debug.WriteLine($"frame_type={ffmpeg.av_get_picture_type_char(sourceFrame->pict_type)} pts={pts}");
-
-            if (vp == null)
-                return -1;
-
-            vp.PictureAspectRatio = sourceFrame->sample_aspect_ratio;
-            vp.IsUploaded = false;
-
-            if (vp.bmp == null || !vp.IsAllocated ||
-                vp.PictureWidth != sourceFrame->width ||
-                vp.PictureHeight != sourceFrame->height ||
-                vp.format != sourceFrame->format)
-            {
-                var ev = new SDL_Event();
-                vp.IsAllocated = false;
-                vp.PictureWidth = sourceFrame->width;
-                vp.PictureHeight = sourceFrame->height;
-                vp.format = sourceFrame->format;
-                ev.type = Constants.FF_ALLOC_EVENT;
-                ev.user_data1 = this;
-                SDL_PushEvent(ev);
-                SDL_LockMutex(VideoQueue.mutex);
-
-                while (!vp.IsAllocated && !VideoPackets.IsAborted)
-                {
-                    SDL_CondWait(VideoQueue.cond, VideoQueue.mutex);
-                }
-                if (VideoPackets.IsAborted && SDL_PeepEvents(ev, 1, SDL_GETEVENT, Constants.FF_ALLOC_EVENT, Constants.FF_ALLOC_EVENT) != 1)
-                {
-                    while (!vp.IsAllocated && !IsAbortRequested)
-                    {
-                        SDL_CondWait(VideoQueue.cond, VideoQueue.mutex);
-                    }
-                }
-                SDL_UnlockMutex(VideoQueue.mutex);
-                if (VideoPackets.IsAborted)
-                    return -1;
-            }
-
-            if (vp.bmp != null)
-            {
-                vp.Pts = pts;
-                vp.EstimatedDuration = duration;
-                vp.BytePosition = streamPosition;
-                vp.Serial = serial;
-                ffmpeg.av_frame_move_ref(vp.DecodedFrame, sourceFrame);
-                VideoQueue.QueueNextWrite();
-            }
-            return 0;
-        }
-
         public void RequestSeekTo(long pos, long rel, bool seekByBytes)
         {
             if (IsSeekRequested) return;
@@ -304,7 +247,7 @@
                 SeekModeFlags |= ffmpeg.AVSEEK_FLAG_BYTE;
 
             IsSeekRequested = true;
-            SDL_CondSignal(continue_read_thread);
+            continue_read_thread.Signal();
         }
 
         public void SeekChapter(int increment)
@@ -433,16 +376,15 @@
             OpenStreamComponent(targetIndex);
         }
 
-        public void CloseStreamComponent(int stream_index)
+        public void CloseStreamComponent(int streamIndex)
         {
             var ic = InputContext;
-            AVCodecParameters* codecpar;
 
-            if (stream_index < 0 || stream_index >= ic->nb_streams)
+            if (streamIndex < 0 || streamIndex >= ic->nb_streams)
                 return;
 
-            codecpar = ic->streams[stream_index]->codecpar;
-            switch (codecpar->codec_type)
+            var codecParams = ic->streams[streamIndex]->codecpar;
+            switch (codecParams->codec_type)
             {
                 case AVMediaType.AVMEDIA_TYPE_AUDIO:
                     AudioDecoder.DecoderAbort(AudioQueue);
@@ -469,9 +411,9 @@
                     break;
             }
 
-            ic->streams[stream_index]->discard = AVDiscard.AVDISCARD_ALL;
+            ic->streams[streamIndex]->discard = AVDiscard.AVDISCARD_ALL;
 
-            switch (codecpar->codec_type)
+            switch (codecParams->codec_type)
             {
                 case AVMediaType.AVMEDIA_TYPE_AUDIO:
                     AudioStream = null;
@@ -665,7 +607,7 @@
             VideoQueue.Clear();
             AudioQueue.Clear();
             SubtitleQueue.Clear();
-            SDL_DestroyCond(continue_read_thread);
+            continue_read_thread.Dispose();
             ffmpeg.sws_freeContext(VideoScaler);
             ffmpeg.sws_freeContext(SubtitleScaler);
 

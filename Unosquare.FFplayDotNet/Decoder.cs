@@ -25,16 +25,16 @@ namespace Unosquare.FFplayDotNet
         public long StartPts;
         public AVRational StartPtsTimebase;
 
-        public SDL_cond empty_queue_cond;
+        private LockCondition IsQueueEmpty;
         public SDL_Thread DecoderThread;
         public bool? IsPtsReorderingEnabled { get; private set; } = null;
 
 
-        internal Decoder(AVCodecContext* codecContext, PacketQueue queue, SDL_cond queueCond)
+        internal Decoder(AVCodecContext* codecContext, PacketQueue queue, LockCondition queueCond)
         {
             Codec = codecContext;
             PacketQueue = queue;
-            empty_queue_cond = queueCond;
+            IsQueueEmpty = queueCond;
             StartPts = ffmpeg.AV_NOPTS_VALUE;
         }
 
@@ -68,7 +68,7 @@ namespace Unosquare.FFplayDotNet
                     do
                     {
                         if (PacketQueue.Length == 0)
-                            SDL_CondSignal(empty_queue_cond);
+                            IsQueueEmpty.Signal();
 
                         if (PacketQueue.Dequeue(&queuePacket, ref m_PacketSerial) < 0)
                             return -1;

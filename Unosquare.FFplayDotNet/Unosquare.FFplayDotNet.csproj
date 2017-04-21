@@ -64,6 +64,8 @@
     <Compile Include="Enums.cs" />
     <Compile Include="FrameHolder.cs" />
     <Compile Include="FrameQueue.cs" />
+    <Compile Include="LockCondition.cs" />
+    <Compile Include="MonitorLock.cs" />
     <Compile Include="PacketQueue.cs" />
     <Compile Include="PacketHolder.cs" />
     <Compile Include="SDL.cs" />

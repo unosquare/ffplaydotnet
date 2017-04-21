@@ -2,6 +2,7 @@
 {
     using FFmpeg.AutoGen;
     using System;
+    using System.Threading;
 
     static public unsafe class SDL
     {
@@ -31,12 +32,11 @@
 
         #region SDL Placeholders
 
-        public class SDL_cond { }
-        public class SDL_mutex { }
+
+
         public class SDL_Thread { }
         public class SDL_Texture { }
-        public class FFTSample { }
-        public class RDFTContext { }
+
         public class SDL_Window { }
         public class SDL_Renderer { }
         public class SDL_Rect { public int x; public int y; public int w; public int h; }
@@ -44,14 +44,7 @@
         public class SDL_Event { public int type; public object user_data1; }
         public class SDL_AudioSpec { public int channels; public int freq; public int format; public int silence; public int samples; public MediaState userdata; public SDL_AudioCallback callback; public int size; }
 
-        public static void SDL_LockMutex(SDL_mutex mutex) { }
-        public static void SDL_UnlockMutex(SDL_mutex mutex) { }
-        public static void SDL_CondSignal(SDL_cond cond) { }
-        public static SDL_mutex SDL_CreateMutex() { return new SDL_mutex(); }
-        public static SDL_cond SDL_CreateCond() { return new SDL_cond(); }
-        public static void SDL_DestroyMutex(SDL_mutex mutex) { }
-        public static void SDL_DestroyCond(SDL_cond cond) { }
-        public static void SDL_CondWait(SDL_cond cond, SDL_mutex mutex) { }
+
         public static void SDL_WaitThread(SDL_Thread thread, object args) { }
         public static void SDL_RenderFillRect(object renderer, SDL_Rect rect) { }
         public static int SDL_UpdateYUVTexture(SDL_Texture texture, object other, byte* a, int a1, byte* b, int b1, byte* c, int c1) { return 0; }
@@ -80,8 +73,7 @@
         public static string SDL_GetError() { return string.Empty; }
         public static void SDL_PauseAudio(int delay) { }
         public static SDL_Thread SDL_CreateThread(Func<MediaState, int> fn, MediaState vst) { return new SDL_Thread(); }
-        public static void SDL_CondWaitTimeout(SDL_cond cond, SDL_mutex wait_mutex, int timeoutMillis) { }
-        public static void SDL_Delay(int millis) { }
+
         #endregion
 
     }

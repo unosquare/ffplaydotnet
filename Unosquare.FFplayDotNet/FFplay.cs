@@ -86,7 +86,7 @@
             {
                 case AVLockOp.AV_LOCK_CREATE:
                     {
-                        var mutex = SDL_CreateMutex();
+                        var mutex = new MonitorLock();
                         var mutexHandle = GCHandle.Alloc(mutex, GCHandleType.Pinned);
                         *mtx = (void*)mutexHandle.AddrOfPinnedObject();
 
@@ -99,20 +99,20 @@
                     }
                 case AVLockOp.AV_LOCK_OBTAIN:
                     {
-                        var mutex = GCHandle.FromIntPtr(new IntPtr(*mtx)).Target as SDL_mutex;
-                        SDL_LockMutex(mutex);
+                        var mutex = GCHandle.FromIntPtr(new IntPtr(*mtx)).Target as MonitorLock;
+                        mutex.Lock();
                         return 0;
                     }
                 case AVLockOp.AV_LOCK_RELEASE:
                     {
-                        var mutex = GCHandle.FromIntPtr(new IntPtr(*mtx)).Target as SDL_mutex;
-                        SDL_UnlockMutex(mutex);
+                        var mutex = GCHandle.FromIntPtr(new IntPtr(*mtx)).Target as MonitorLock;
+                        mutex.Unlock();
                         return 0;
                     }
                 case AVLockOp.AV_LOCK_DESTROY:
                     {
                         var mutexHandle = GCHandle.FromIntPtr(new IntPtr(*mtx));
-                        SDL_DestroyMutex(mutexHandle.Target as SDL_mutex);
+                        (mutexHandle.Target as MonitorLock)?.Destroy();
                         mutexHandle.Free();
 
                         return 0;
@@ -486,10 +486,10 @@
                 do_exit(vst);
             }
 
-            SDL_LockMutex(vst.VideoQueue.mutex);
+            vst.VideoQueue.mutex.Lock();
             vp.IsAllocated = true;
-            SDL_CondSignal(vst.VideoQueue.cond);
-            SDL_UnlockMutex(vst.VideoQueue.mutex);
+            vst.VideoQueue.cond.Signal();
+            vst.VideoQueue.mutex.Unlock();
         }
 
         private void video_refresh(MediaState vst, ref double remaining_time)
@@ -538,12 +538,12 @@
                     if (delay > 0 && time - vst.frame_timer > Constants.AvSyncThresholdMax)
                         vst.frame_timer = time;
 
-                    SDL_LockMutex(vst.VideoQueue.mutex);
+                    vst.VideoQueue.mutex.Lock();
 
                     if (!double.IsNaN(currentVideoFrame.Pts))
                         vst.UpdateVideoPts(currentVideoFrame.Pts, currentVideoFrame.BytePosition, currentVideoFrame.Serial);
 
-                    SDL_UnlockMutex(vst.VideoQueue.mutex);
+                    vst.VideoQueue.mutex.Unlock();
 
                     if (vst.VideoQueue.PendingCount > 1)
                     {
@@ -859,6 +859,71 @@
             return 0;
         }
 
+        public int EnqueuePicture(MediaState vst, AVFrame* sourceFrame, double pts, double duration)
+        {
+            var videoFrame = vst.VideoQueue.PeekWritableFrame();
+            var serial = vst.VideoDecoder.PacketSerial;
+            var streamPosition = ffmpeg.av_frame_get_pkt_pos(sourceFrame);
+
+            if (Debugger.IsAttached)
+                Debug.WriteLine($"frame_type={ffmpeg.av_get_picture_type_char(sourceFrame->pict_type)} pts={pts}");
+
+            if (videoFrame == null)
+                return -1;
+
+            videoFrame.PictureAspectRatio = sourceFrame->sample_aspect_ratio;
+            videoFrame.IsUploaded = false;
+
+            if (videoFrame.bmp == null || !videoFrame.IsAllocated ||
+                videoFrame.PictureWidth != sourceFrame->width ||
+                videoFrame.PictureHeight != sourceFrame->height ||
+                videoFrame.format != sourceFrame->format)
+            {
+
+                videoFrame.IsAllocated = false;
+                videoFrame.PictureWidth = sourceFrame->width;
+                videoFrame.PictureHeight = sourceFrame->height;
+                videoFrame.format = sourceFrame->format;
+
+                var ev = new SDL_Event
+                {
+                    type = Constants.FF_ALLOC_EVENT,
+                    user_data1 = this
+                };
+
+                SDL_PushEvent(ev);
+                vst.VideoQueue.mutex.Lock();
+
+                while (!videoFrame.IsAllocated && !vst.VideoPackets.IsAborted)
+                    vst.VideoQueue.cond.Wait(vst.VideoQueue.mutex);
+
+                if (vst.VideoPackets.IsAborted && SDL_PeepEvents(ev, 1, SDL_GETEVENT, Constants.FF_ALLOC_EVENT, Constants.FF_ALLOC_EVENT) != 1)
+                {
+                    while (!videoFrame.IsAllocated && !vst.IsAbortRequested)
+                        vst.VideoQueue.cond.Wait(vst.VideoQueue.mutex);
+                }
+
+                vst.VideoQueue.mutex.Unlock();
+
+                if (vst.VideoPackets.IsAborted)
+                    return -1;
+            }
+
+            if (videoFrame.bmp != null)
+            {
+                videoFrame.Pts = pts;
+                videoFrame.EstimatedDuration = duration;
+                videoFrame.BytePosition = streamPosition;
+                videoFrame.Serial = serial;
+
+                ffmpeg.av_frame_move_ref(videoFrame.DecodedFrame, sourceFrame);
+                vst.VideoQueue.QueueNextWrite();
+            }
+
+            return 0;
+        }
+
+
         public int video_thread(MediaState vst)
         {
             AVFrame* frame = ffmpeg.av_frame_alloc();
@@ -879,7 +944,7 @@
 
                 duration = (frame_rate.num != 0 && frame_rate.den != 0 ? ffmpeg.av_q2d(new AVRational { num = frame_rate.den, den = frame_rate.num }) : 0);
                 pts = (frame->pts == ffmpeg.AV_NOPTS_VALUE) ? double.NaN : frame->pts * ffmpeg.av_q2d(tb);
-                ret = vst.EnqueuePicture(frame, pts, duration);
+                ret = EnqueuePicture(vst, frame, pts, duration);
                 ffmpeg.av_frame_unref(frame);
 
                 if (ret < 0)
@@ -977,7 +1042,7 @@
             AVDictionaryEntry* t;
             AVDictionary** opts;
             int orig_nb_streams;
-            SDL_mutex wait_mutex = SDL_CreateMutex();
+            var wait_mutex = new MonitorLock();
             var scan_all_pmts_set = false;
             long pkt_ts;
 
@@ -1187,7 +1252,7 @@
                 if (vst.IsPaused &&
                     (formatName.Equals("rtsp") || (inputContext->pb != null && MediaInputUrl.StartsWith("mmsh:"))))
                 {
-                    SDL_Delay(10);
+                    Thread.Sleep(10);
                     continue;
                 }
 
@@ -1265,9 +1330,9 @@
                         HasEnoughPackets(vst.VideoStream, vst.VideoStreamIndex, vst.VideoPackets) &&
                         HasEnoughPackets(vst.SubtitleStream, vst.SubtitleStreamIndex, vst.SubtitlePackets))))
                 {
-                    SDL_LockMutex(wait_mutex);
-                    SDL_CondWaitTimeout(vst.continue_read_thread, wait_mutex, 10);
-                    SDL_UnlockMutex(wait_mutex);
+                    wait_mutex.Lock();
+                    vst.continue_read_thread.Wait(wait_mutex, 10);
+                    wait_mutex.Unlock();
                     continue;
                 }
 
@@ -1303,9 +1368,9 @@
                     if (inputContext->pb != null && inputContext->pb->error != 0)
                         break;
 
-                    SDL_LockMutex(wait_mutex);
-                    SDL_CondWaitTimeout(vst.continue_read_thread, wait_mutex, 10);
-                    SDL_UnlockMutex(wait_mutex);
+                    wait_mutex.Lock();
+                    vst.continue_read_thread.Wait(wait_mutex, 10);
+                    wait_mutex.Unlock();
                     continue;
                 }
                 else
@@ -1353,7 +1418,7 @@
                 SDL_PushEvent(ev);
             }
 
-            SDL_DestroyMutex(wait_mutex);
+            wait_mutex.Destroy();
             return 0;
         }
 

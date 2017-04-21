@@ -11,9 +11,20 @@
     {
         #region Private Declarations
 
+        /// <summary>
+        /// The Clock speed ratio. Initially 1.0
+        /// </summary>
         private double m_SpeedRatio = default(double);
-        private readonly Func<int?> GetPacketQueueSerial; /* pointer to the current packet queue serial, used for obsolete clock detection */
-        private double PtsDrift;    /* clock base minus time at which we updated the clock */
+
+        /// <summary>
+        /// Pointer to the current packet queue serial, used for obsolete clock detection
+        /// </summary>
+        private readonly Func<int?> GetPacketQueueSerial; // pointer to the current packet queue serial, used for obsolete clock detection
+
+        /// <summary>
+        /// Clock base minus time at which we updated the clock
+        /// </summary>
+        private double PtsDrift;
 
         #endregion
 
@@ -22,9 +33,12 @@
         /// <summary>
         /// Initializes a new instance of the <see cref="Clock"/> class.
         /// </summary>
-        /// <param name="getPacketQueueSerialDelegate">The get packet queue serial delegate.</param>
+        /// <param name="getPacketQueueSerialDelegate">The get packet queue serial delegate. This replaces the pointer in the original source code.</param>
         public Clock(Func<int?> getPacketQueueSerialDelegate)
         {
+            if (getPacketQueueSerialDelegate == null)
+                throw new ArgumentNullException(nameof(getPacketQueueSerialDelegate));
+
             SpeedRatio = 1.0;
             IsPaused = false;
             GetPacketQueueSerial = getPacketQueueSerialDelegate;
@@ -43,9 +57,10 @@
         /// <summary>
         /// Gets the PTS. (clock base is the presentation timestamp)
         /// </summary>
-        public double Pts { get; private set; } 
+        public double Pts { get; private set; }
+
         public double LastUpdated { get; private set; }
-        
+
         /// <summary>
         /// Gets the packet serial.
         /// clock is based on a packet with this serial
@@ -67,6 +82,7 @@
                 m_SpeedRatio = value;
             }
         }
+
         /// <summary>
         /// Gets the packet queue serial.
         /// </summary>
@@ -78,6 +94,7 @@
                 return GetPacketQueueSerial();
             }
         }
+
         /// <summary>
         /// Gets the position.
         /// </summary>
@@ -105,7 +122,7 @@
         #region Methods
 
         /// <summary>
-        /// Sets the position.
+        /// Sets the clock position with a specific Last Updated time.
         /// </summary>
         /// <param name="pts">The PTS.</param>
         /// <param name="serial">The serial.</param>
@@ -119,7 +136,7 @@
         }
 
         /// <summary>
-        /// Sets the position.
+        /// Sets the clock position with LastUpdated = the current timestamp.
         /// </summary>
         /// <param name="pts">The PTS.</param>
         /// <param name="serial">The serial.</param>
@@ -130,16 +147,21 @@
         }
 
         /// <summary>
-        /// Synchronizes to a slave clock.
+        /// Synchronizes this clock to a slave clock.
         /// </summary>
         /// <param name="slave">The slave.</param>
         public void SyncTo(Clock slave)
         {
             var currentPosition = Position;
             var slavePosition = slave.Position;
-            if (!double.IsNaN(slavePosition) && (double.IsNaN(currentPosition) 
-                || Math.Abs(currentPosition - slavePosition) > Constants.AvNoSyncThreshold))
+            if (double.IsNaN(slavePosition)) return;
+
+            if (double.IsNaN(currentPosition) 
+                || Math.Abs(currentPosition - slavePosition) > Constants.AvNoSyncThreshold)
+            {
                 SetPosition(slavePosition, slave.PacketSerial);
+            }
+                
         }
 
         #endregion

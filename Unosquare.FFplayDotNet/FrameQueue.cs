@@ -22,8 +22,8 @@ namespace Unosquare.FFplayDotNet
         public bool KeepLast { get; private set; }
         public int ReadIndexShown { get; private set; }
 
-        public SDL_mutex mutex;
-        public SDL_cond cond;
+        internal readonly MonitorLock mutex;
+        internal readonly LockCondition cond;
 
         private static void DestroyFrame(FrameHolder vp)
         {
@@ -36,8 +36,8 @@ namespace Unosquare.FFplayDotNet
 
         internal FrameQueue(PacketQueue queue, int maxSize, bool keepLast)
         {
-            mutex = SDL.SDL_CreateMutex();
-            cond = SDL_CreateCond();
+            mutex = new MonitorLock();
+            cond = new LockCondition();
 
             Packets = queue;
             Capacity = Math.Min(maxSize, Constants.FrameQueueSize);
@@ -59,15 +59,16 @@ namespace Unosquare.FFplayDotNet
 
                 FFplay.free_picture(vp);
             }
-            SDL_DestroyMutex(mutex);
-            SDL_DestroyCond(cond);
+
+            mutex.Destroy();
+            cond.Dispose();
         }
 
         public void frame_queue_signal()
         {
-            SDL_LockMutex(mutex);
-            SDL_CondSignal(cond);
-            SDL_UnlockMutex(mutex);
+            mutex.Lock();
+            cond.Signal();
+            mutex.Unlock();
         }
 
         public FrameHolder Current
@@ -96,14 +97,14 @@ namespace Unosquare.FFplayDotNet
 
         public FrameHolder PeekWritableFrame()
         {
-            SDL_LockMutex(mutex);
+            mutex.Lock();
 
             while (Length >= Capacity && !Packets.IsAborted)
             {
-                SDL_CondWait(cond, mutex);
+                cond.Wait(mutex);
             }
 
-            SDL_UnlockMutex(mutex);
+            mutex.Unlock();
 
             if (Packets.IsAborted)
                 return null;
@@ -113,12 +114,14 @@ namespace Unosquare.FFplayDotNet
 
         public FrameHolder PeekReadableFrame()
         {
-            SDL_LockMutex(mutex);
+            mutex.Lock();
             while (Length - ReadIndexShown <= 0 && !Packets.IsAborted)
             {
-                SDL_CondWait(cond, mutex);
+                cond.Wait(mutex);
             }
-            SDL_UnlockMutex(mutex);
+
+            mutex.Unlock();
+
             if (Packets.IsAborted)
                 return null;
 
@@ -130,12 +133,11 @@ namespace Unosquare.FFplayDotNet
             if (++WriteIndex == Capacity)
                 WriteIndex = 0;
 
-            SDL_LockMutex(mutex);
-
+            mutex.Lock();
             Length++;
 
-            SDL_CondSignal(cond);
-            SDL_UnlockMutex(mutex);
+            cond.Signal();
+            mutex.Unlock();
         }
 
         public void QueueNextRead()
@@ -150,12 +152,12 @@ namespace Unosquare.FFplayDotNet
             if (++ReadIndex == Capacity)
                 ReadIndex = 0;
 
-            SDL_LockMutex(mutex);
+            mutex.Lock();
 
             Length--;
 
-            SDL_CondSignal(cond);
-            SDL_UnlockMutex(mutex);
+            cond.Signal();
+            mutex.Unlock();
         }
 
         public int PendingCount

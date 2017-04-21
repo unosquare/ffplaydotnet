@@ -52,9 +52,9 @@ namespace Unosquare.FFplayDotNet
             {
                 var vp = Frames[i];
                 DestroyFrame(vp);
-                fixed (AVFrame** frameRef = &vp.DecodedFrame)
+                fixed (AVFrame** framePtr = &vp.DecodedFrame)
                 {
-                    ffmpeg.av_frame_free(frameRef);
+                    ffmpeg.av_frame_free(framePtr);
                 }
 
                 FFplay.free_picture(vp);

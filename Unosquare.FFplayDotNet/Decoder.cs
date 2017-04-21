@@ -11,27 +11,30 @@ namespace Unosquare.FFplayDotNet
 
     public unsafe class Decoder
     {
+        public int m_PacketSerial;
+
+        public int PacketSerial { get { return m_PacketSerial; } internal set { m_PacketSerial = value; } }
+
         public AVPacket CurrentPacket;
-        public AVPacket pkt_temp;
         internal PacketQueue PacketQueue;
         public AVCodecContext* Codec;
-        public int PacketSerial;
+
         public bool IsFinished;
         public bool IsPacketPending;
-        public SDL_cond empty_queue_cond;
+        
         public long StartPts;
         public AVRational StartPtsTimebase;
-        public long NextPts;
-        public AVRational NextPtsTimebase;
+
+        public SDL_cond empty_queue_cond;
         public SDL_Thread DecoderThread;
         public bool? IsPtsReorderingEnabled { get; private set; } = null;
 
 
-        internal Decoder(AVCodecContext* avctx, PacketQueue queue, SDL_cond empty_queue_cond3)
+        internal Decoder(AVCodecContext* codecContext, PacketQueue queue, SDL_cond queueCond)
         {
-            Codec = avctx;
+            Codec = codecContext;
             PacketQueue = queue;
-            empty_queue_cond = empty_queue_cond3;
+            empty_queue_cond = queueCond;
             StartPts = ffmpeg.AV_NOPTS_VALUE;
         }
 
@@ -45,132 +48,135 @@ namespace Unosquare.FFplayDotNet
             return DecodeFrame(null, subtitle);
         }
 
-        private int DecodeFrame(AVFrame* frame, AVSubtitle* subtitle)
+        private int DecodeFrame(AVFrame* outputFrame, AVSubtitle* subtitle)
         {
-            int got_frame = 0;
+            var gotFrame = default(int);
+            var inputPacket = new AVPacket();
+            var nextPtsTimebase = new AVRational();
+            var nextPts = default(long);
+
             do
             {
-                int ret = -1;
+                int result = -1;
+
                 if (PacketQueue.IsAborted)
                     return -1;
 
                 if (!IsPacketPending || PacketQueue.Serial != PacketSerial)
                 {
-                    var pkt = new AVPacket();
+                    var queuePacket = new AVPacket();
                     do
                     {
                         if (PacketQueue.Length == 0)
                             SDL_CondSignal(empty_queue_cond);
-                        if (PacketQueue.Dequeue(&pkt, ref PacketSerial) < 0)
+
+                        if (PacketQueue.Dequeue(&queuePacket, ref m_PacketSerial) < 0)
                             return -1;
-                        if (pkt.data == PacketQueue.FlushPacket->data)
+
+                        if (queuePacket.data == PacketQueue.FlushPacket->data)
                         {
                             ffmpeg.avcodec_flush_buffers(Codec);
                             IsFinished = false;
-                            NextPts = StartPts;
-                            NextPtsTimebase = StartPtsTimebase;
+                            nextPts = StartPts;
+                            nextPtsTimebase = StartPtsTimebase;
                         }
-                    } while (pkt.data == PacketQueue.FlushPacket->data || PacketQueue.Serial != PacketSerial);
-                    fixed (AVPacket* refPacket = &CurrentPacket)
-                    {
-                        ffmpeg.av_packet_unref(refPacket);
-                    }
 
-                    pkt_temp = CurrentPacket = pkt;
+                    } while (queuePacket.data == PacketQueue.FlushPacket->data || PacketQueue.Serial != PacketSerial);
+
+                    fixed (AVPacket* currentPacketPtr = &CurrentPacket)
+                        ffmpeg.av_packet_unref(currentPacketPtr);
+
+                    inputPacket = CurrentPacket = queuePacket;
                     IsPacketPending = true;
                 }
+
                 switch (Codec->codec_type)
                 {
                     case AVMediaType.AVMEDIA_TYPE_VIDEO:
-                        fixed (AVPacket* pktTemp = &pkt_temp)
-                        {
 #pragma warning disable CS0618 // Type or member is obsolete
-                            ret = ffmpeg.avcodec_decode_video2(Codec, frame, &got_frame, pktTemp);
+                        result = ffmpeg.avcodec_decode_video2(Codec, outputFrame, &gotFrame, &inputPacket);
 #pragma warning restore CS0618 // Type or member is obsolete
-                        }
-                        if (got_frame != 0)
+
+                        if (gotFrame != 0)
                         {
                             if (IsPtsReorderingEnabled.HasValue == false)
                             {
-                                frame->pts = ffmpeg.av_frame_get_best_effort_timestamp(frame);
+                                outputFrame->pts = ffmpeg.av_frame_get_best_effort_timestamp(outputFrame);
                             }
                             else if (IsPtsReorderingEnabled.HasValue && IsPtsReorderingEnabled.Value == false)
                             {
-                                frame->pts = frame->pkt_dts;
+                                outputFrame->pts = outputFrame->pkt_dts;
                             }
                         }
+
                         break;
                     case AVMediaType.AVMEDIA_TYPE_AUDIO:
-                        fixed (AVPacket* pktTemp = &pkt_temp)
-                        {
 #pragma warning disable CS0618 // Type or member is obsolete
-                            ret = ffmpeg.avcodec_decode_audio4(Codec, frame, &got_frame, pktTemp);
+                        result = ffmpeg.avcodec_decode_audio4(Codec, outputFrame, &gotFrame, &inputPacket);
 #pragma warning restore CS0618 // Type or member is obsolete
-                        }
-                        if (got_frame != 0)
+
+                        if (gotFrame != 0)
                         {
-                            var tb = new AVRational { num = 1, den = frame->sample_rate };
-                            if (frame->pts != ffmpeg.AV_NOPTS_VALUE)
-                                frame->pts = ffmpeg.av_rescale_q(frame->pts, ffmpeg.av_codec_get_pkt_timebase(Codec), tb);
-                            else if (NextPts != ffmpeg.AV_NOPTS_VALUE)
-                                frame->pts = ffmpeg.av_rescale_q(NextPts, NextPtsTimebase, tb);
-                            if (frame->pts != ffmpeg.AV_NOPTS_VALUE)
+                            var tb = new AVRational { num = 1, den = outputFrame->sample_rate };
+                            if (outputFrame->pts != ffmpeg.AV_NOPTS_VALUE)
+                                outputFrame->pts = ffmpeg.av_rescale_q(outputFrame->pts, ffmpeg.av_codec_get_pkt_timebase(Codec), tb);
+                            else if (nextPts != ffmpeg.AV_NOPTS_VALUE)
+                                outputFrame->pts = ffmpeg.av_rescale_q(nextPts, nextPtsTimebase, tb);
+                            if (outputFrame->pts != ffmpeg.AV_NOPTS_VALUE)
                             {
-                                NextPts = frame->pts + frame->nb_samples;
-                                NextPtsTimebase = tb;
+                                nextPts = outputFrame->pts + outputFrame->nb_samples;
+                                nextPtsTimebase = tb;
                             }
                         }
+
                         break;
+
                     case AVMediaType.AVMEDIA_TYPE_SUBTITLE:
-                        fixed (AVPacket* pktTemp = &pkt_temp)
-                        {
-                            ret = ffmpeg.avcodec_decode_subtitle2(Codec, subtitle, &got_frame, pktTemp);
-                        }
+                        result = ffmpeg.avcodec_decode_subtitle2(Codec, subtitle, &gotFrame, &inputPacket);
                         break;
                 }
-                if (ret < 0)
+
+                if (result < 0)
                 {
                     IsPacketPending = false;
                 }
                 else
                 {
-                    pkt_temp.dts =
-                    pkt_temp.pts = ffmpeg.AV_NOPTS_VALUE;
-                    if (pkt_temp.data != null)
+                    inputPacket.dts =
+                    inputPacket.pts = ffmpeg.AV_NOPTS_VALUE;
+
+                    if (inputPacket.data != null)
                     {
                         if (Codec->codec_type != AVMediaType.AVMEDIA_TYPE_AUDIO)
-                            ret = pkt_temp.size;
+                            result = inputPacket.size;
 
-                        pkt_temp.data += ret;
-                        pkt_temp.size -= ret;
-                        if (pkt_temp.size <= 0)
+                        inputPacket.data += result;
+                        inputPacket.size -= result;
+                        if (inputPacket.size <= 0)
                             IsPacketPending = false;
                     }
                     else
                     {
-                        if (got_frame == 0)
+                        if (gotFrame == 0)
                         {
                             IsPacketPending = false;
                             IsFinished = Convert.ToBoolean(PacketSerial);
                         }
                     }
                 }
-            } while (!Convert.ToBoolean(got_frame) && !IsFinished);
 
-            return got_frame;
+            } while (!Convert.ToBoolean(gotFrame) && !IsFinished);
+
+            return gotFrame;
         }
 
         public void DecoderDestroy()
         {
-            fixed (AVPacket* packetRef = &CurrentPacket)
-            {
-                ffmpeg.av_packet_unref(packetRef);
-            }
+            fixed (AVPacket* packetPtr = &CurrentPacket)
+                ffmpeg.av_packet_unref(packetPtr);
 
-            fixed (AVCodecContext** refContext = &Codec)
-            {
-                ffmpeg.avcodec_free_context(refContext);
-            }
+            fixed (AVCodecContext** codecPtr = &Codec)
+                ffmpeg.avcodec_free_context(codecPtr);
         }
 
         public void DecoderAbort(FrameQueue fq)

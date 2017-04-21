@@ -3,9 +3,9 @@
 
     public enum SyncMode
     {
-        AV_SYNC_AUDIO_MASTER,
-        AV_SYNC_VIDEO_MASTER,
-        AV_SYNC_EXTERNAL_CLOCK,
+        Audio,
+        Video,
+        External,
     }
 
     public enum EventAction

@@ -1,16 +1,12 @@
-﻿using FFmpeg.AutoGen;
-using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Linq;
-using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
-using static Unosquare.FFplayDotNet.SDL;
-
-namespace Unosquare.FFplayDotNet
+﻿namespace Unosquare.FFplayDotNet
 {
+    using FFmpeg.AutoGen;
+    using System;
+    using System.Diagnostics;
+    using System.Runtime.InteropServices;
+    using System.Text;
+    using System.Threading;
+    using static Unosquare.FFplayDotNet.SDL;
 
     public unsafe class MediaState
     {
@@ -27,29 +23,85 @@ namespace Unosquare.FFplayDotNet
         internal SwsContext* VideoScaler;
         internal SwsContext* SubtitleScaler;
 
-        public SDL_Thread ReadThread;
+        internal bool WasPaused;
+        internal int ReadPauseResult;
+
+        internal bool EnqueuePacketAttachments;
+
+        internal int LastVideoStreamIndex;
+        internal int LastAudioStreamIndex;
+        internal int LastSubtitleStreamIndex;
+
+        internal byte* RenderAudioBuffer;
+        internal int RenderAudioBufferIndex; /* in bytes */
+        internal uint RenderAudioBufferLength; /* in bytes */
+        internal byte* ResampledAudioBuffer = null;
+        internal uint ResampledAudioBufferLength;
+
+        internal double DecodedAudioClockPosition;
+        internal int DecodedAudioClockSerial;
+
+        internal double AudioSkewCummulative; /* used for AV difference average computation */
+        internal double AudioSkewCoefficient;
+        internal double AudioSkewThreshold;
+        internal int AudioSkewAvgCount;
+
+        public int frame_drops_early;
+        public int frame_drops_late;
+        public double frame_timer;
+        public double frame_last_returned_time;
+        public double frame_last_filter_delay;
+
+        public int xleft;
+        public int ytop;
+        public int xpos;
+
+
+        public SDL_cond continue_read_thread;
+        public SDL_Texture vis_texture;
+        public SDL_Texture sub_texture;
+        internal SDL_Thread ReadThread;
+
+        internal FFplay Player { get; private set; }
+
 
         public bool IsAbortRequested { get; internal set; }
         public bool IsForceRefreshRequested { get; internal set; }
         public bool IsPaused { get; set; }
 
-        public bool last_paused;
-
-        public bool queue_attachments_req;
         public bool IsSeekRequested { get; internal set; }
+        public int SeekModeFlags { get; private set; }
+        public long SeekTargetPosition { get; private set; }
+        public long SeekTargetRange { get; private set; }
 
-        public int seek_flags;
-        public long seek_pos;
-        public long seek_rel;
-        internal int ReadPauseResult;
+        public bool IsMediaRealtime
+        {
+            get
+            {
+                if (InputContext == null)
+                    return false;
 
+                var formatName = Marshal.PtrToStringAnsi(new IntPtr(InputContext->iformat->name));
+                var filename = Encoding.GetEncoding(0).GetString(InputContext->filename);
 
+                if (formatName.Equals("rtp")
+                   || formatName.Equals("rtsp")
+                   || formatName.Equals("sdp")
+                )
+                    return true;
 
-        public bool IsMediaRealtime { get; internal set; }
+                if (InputContext->pb != null &&
+                    (filename.StartsWith("rtp:") || filename.StartsWith("udp:")))
+                    return true;
 
-        public Clock AudioClock { get; internal set; }
-        public Clock VideoClock { get; internal set; }
-        public Clock ExternalClock { get; internal set; }
+                return false;
+
+            }
+        }
+
+        internal Clock AudioClock { get; set; }
+        internal Clock VideoClock { get; set; }
+        internal Clock ExternalClock { get; set; }
 
         public FrameQueue VideoQueue { get; internal set; }
         public FrameQueue SubtitleQueue { get; internal set; }
@@ -64,27 +116,28 @@ namespace Unosquare.FFplayDotNet
         public int SubtitleStreamIndex { get; internal set; }
 
         public SyncMode MediaSyncMode { get; set; }
+
         public SyncMode MasterSyncMode
         {
             get
             {
-                if (MediaSyncMode == SyncMode.AV_SYNC_VIDEO_MASTER)
+                if (MediaSyncMode == SyncMode.Video)
                 {
                     if (VideoStream != null)
-                        return SyncMode.AV_SYNC_VIDEO_MASTER;
+                        return SyncMode.Video;
                     else
-                        return SyncMode.AV_SYNC_AUDIO_MASTER;
+                        return SyncMode.Audio;
                 }
-                else if (MediaSyncMode == SyncMode.AV_SYNC_AUDIO_MASTER)
+                else if (MediaSyncMode == SyncMode.Audio)
                 {
                     if (AudioStream != null)
-                        return SyncMode.AV_SYNC_AUDIO_MASTER;
+                        return SyncMode.Audio;
                     else
-                        return SyncMode.AV_SYNC_EXTERNAL_CLOCK;
+                        return SyncMode.External;
                 }
                 else
                 {
-                    return SyncMode.AV_SYNC_EXTERNAL_CLOCK;
+                    return SyncMode.External;
                 }
             }
         }
@@ -96,10 +149,10 @@ namespace Unosquare.FFplayDotNet
                 double val;
                 switch (MasterSyncMode)
                 {
-                    case SyncMode.AV_SYNC_VIDEO_MASTER:
+                    case SyncMode.Video:
                         val = VideoClock.Position;
                         break;
-                    case SyncMode.AV_SYNC_AUDIO_MASTER:
+                    case SyncMode.Audio:
                         val = AudioClock.Position;
                         break;
                     default:
@@ -110,13 +163,6 @@ namespace Unosquare.FFplayDotNet
 
             }
         }
-        public double AudioClockPosition { get; internal set; }
-        public int AudioClockSerial { get; internal set; }
-
-        public double audio_diff_cum; /* used for AV difference average computation */
-        public double audio_diff_avg_coef;
-        public double audio_diff_threshold;
-        public int audio_diff_avg_count;
 
         internal PacketQueue VideoPackets { get; } = new PacketQueue();
         internal PacketQueue AudioPackets { get; } = new PacketQueue();
@@ -124,29 +170,10 @@ namespace Unosquare.FFplayDotNet
 
         public AudioParams AudioInputParams { get; } = new AudioParams();
         public AudioParams AudioOutputParams { get; } = new AudioParams();
+
         public int AudioVolume { get; set; }
         public bool IsAudioMuted { get; set; }
         public int AudioHardwareBufferSize { get; internal set; }
-
-        public byte* audio_buf;
-        public byte* audio_buf1;
-        public uint audio_buf_size; /* in bytes */
-        public uint audio_buf1_size;
-        public int audio_buf_index; /* in bytes */
-        public int audio_write_buf_size;
-
-        public int frame_drops_early;
-        public int frame_drops_late;
-
-
-        public int xpos;
-        public double last_vis_time;
-        public SDL_Texture vis_texture;
-        public SDL_Texture sub_texture;
-
-        public double frame_timer;
-        public double frame_last_returned_time;
-        public double frame_last_filter_delay;
 
         /// <summary>
         /// Gets the maximum duration of the frame.
@@ -158,17 +185,10 @@ namespace Unosquare.FFplayDotNet
         public string MediaUrl { get; internal set; }
         public int PictureWidth { get; internal set; }
         public int PictureHeight { get; internal set; }
-        public int xleft;
-        public int ytop;
         public bool IsFrameStepping { get; internal set; }
 
-        public int last_video_stream, last_audio_stream, last_subtitle_stream;
 
-        public FFplay Player { get; private set; }
-
-        public SDL_cond continue_read_thread;
-
-        public MediaState(FFplay player, string filename, AVInputFormat* iformat)
+        internal MediaState(FFplay player, string filename, AVInputFormat* iformat)
         {
             Handle = GCHandle.Alloc(this, GCHandleType.Pinned);
 
@@ -188,7 +208,7 @@ namespace Unosquare.FFplayDotNet
             AudioClock = new Clock(() => { return new int?(AudioPackets.Serial); });
             ExternalClock = new Clock(() => { return new int?(ExternalClock.PacketSerial); });
 
-            AudioClockSerial = -1;
+            DecodedAudioClockSerial = -1;
             AudioVolume = SDL_MIX_MAXVOLUME;
             IsAudioMuted = false;
             MediaSyncMode = MediaSyncMode;
@@ -273,14 +293,16 @@ namespace Unosquare.FFplayDotNet
             return 0;
         }
 
-        public void SeekTo(long pos, long rel, bool seekByBytes)
+        public void RequestSeekTo(long pos, long rel, bool seekByBytes)
         {
             if (IsSeekRequested) return;
 
-            seek_pos = pos;
-            seek_rel = rel;
-            seek_flags &= ~ffmpeg.AVSEEK_FLAG_BYTE;
-            if (seekByBytes) seek_flags |= ffmpeg.AVSEEK_FLAG_BYTE;
+            SeekTargetPosition = pos;
+            SeekTargetRange = rel;
+            SeekModeFlags &= ~ffmpeg.AVSEEK_FLAG_BYTE;
+            if (seekByBytes)
+                SeekModeFlags |= ffmpeg.AVSEEK_FLAG_BYTE;
+
             IsSeekRequested = true;
             SDL_CondSignal(continue_read_thread);
         }
@@ -309,71 +331,79 @@ namespace Unosquare.FFplayDotNet
                 return;
 
             ffmpeg.av_log(null, ffmpeg.AV_LOG_VERBOSE, $"Seeking to chapter {i}.\n");
-            SeekTo(ffmpeg.av_rescale_q(InputContext->chapters[i]->start, InputContext->chapters[i]->time_base,
+            RequestSeekTo(ffmpeg.av_rescale_q(InputContext->chapters[i]->start, InputContext->chapters[i]->time_base,
                                          ffmpeg.AV_TIME_BASE_Q), 0, false);
         }
 
         public void CycleStreamChannel(AVMediaType mediaType)
         {
             var ic = InputContext;
-            int startIndex, stream_index;
-            int old_index;
+
+            int startIndex;
+            int targetIndex;
+            int prevIndex;
+
             AVStream* st;
-            AVProgram* p = null;
+            AVProgram* program = null;
 
             int streamCount = (int)InputContext->nb_streams;
 
             if (mediaType == AVMediaType.AVMEDIA_TYPE_VIDEO)
             {
-                startIndex = last_video_stream;
-                old_index = VideoStreamIndex;
+                startIndex = LastVideoStreamIndex;
+                prevIndex = VideoStreamIndex;
             }
             else if (mediaType == AVMediaType.AVMEDIA_TYPE_AUDIO)
             {
-                startIndex = last_audio_stream;
-                old_index = AudioStreamIndex;
+                startIndex = LastAudioStreamIndex;
+                prevIndex = AudioStreamIndex;
             }
             else
             {
-                startIndex = last_subtitle_stream;
-                old_index = SubtitleStreamIndex;
+                startIndex = LastSubtitleStreamIndex;
+                prevIndex = SubtitleStreamIndex;
             }
 
-            stream_index = startIndex;
+            targetIndex = startIndex;
             if (mediaType != AVMediaType.AVMEDIA_TYPE_VIDEO && VideoStreamIndex != -1)
             {
-                p = ffmpeg.av_find_program_from_stream(ic, null, VideoStreamIndex);
-                if (p != null)
+                program = ffmpeg.av_find_program_from_stream(ic, null, VideoStreamIndex);
+                if (program != null)
                 {
-                    streamCount = (int)p->nb_stream_indexes;
+                    streamCount = (int)program->nb_stream_indexes;
+
                     for (startIndex = 0; startIndex < streamCount; startIndex++)
-                        if (p->stream_index[startIndex] == stream_index)
+                        if (program->stream_index[startIndex] == targetIndex)
                             break;
+
                     if (startIndex == streamCount)
                         startIndex = -1;
-                    stream_index = startIndex;
+
+                    targetIndex = startIndex;
                 }
             }
 
             while (true)
             {
-                if (++stream_index >= streamCount)
+                if (++targetIndex >= streamCount)
                 {
                     if (mediaType == AVMediaType.AVMEDIA_TYPE_SUBTITLE)
                     {
-                        stream_index = -1;
-                        last_subtitle_stream = -1;
+                        targetIndex = -1;
+                        LastSubtitleStreamIndex = -1;
                         goto the_end;
                     }
+
                     if (startIndex == -1)
                         return;
-                    stream_index = 0;
+
+                    targetIndex = 0;
                 }
 
-                if (stream_index == startIndex)
+                if (targetIndex == startIndex)
                     return;
 
-                st = InputContext->streams[p != null ? (int)p->stream_index[stream_index] : stream_index];
+                st = InputContext->streams[program != null ? (int)program->stream_index[targetIndex] : targetIndex];
                 if (st->codecpar->codec_type == mediaType)
                 {
                     switch (mediaType)
@@ -394,13 +424,13 @@ namespace Unosquare.FFplayDotNet
 
             the_end:
 
-            if (p != null && stream_index != -1)
-                stream_index = (int)p->stream_index[stream_index];
+            if (program != null && targetIndex != -1)
+                targetIndex = (int)program->stream_index[targetIndex];
 
-            ffmpeg.av_log(null, ffmpeg.AV_LOG_INFO, $"Switch {ffmpeg.av_get_media_type_string(mediaType)} stream from #{old_index} to #{stream_index}\n");
+            ffmpeg.av_log(null, ffmpeg.AV_LOG_INFO, $"Switch {ffmpeg.av_get_media_type_string(mediaType)} stream from #{prevIndex} to #{targetIndex}\n");
 
-            CloseStreamComponent(old_index);
-            OpenStreamComponent(stream_index);
+            CloseStreamComponent(prevIndex);
+            OpenStreamComponent(targetIndex);
         }
 
         public void CloseStreamComponent(int stream_index)
@@ -423,9 +453,9 @@ namespace Unosquare.FFplayDotNet
                         ffmpeg.swr_free(vst_swr_ctx);
                     }
 
-                    ffmpeg.av_freep((void*)audio_buf1);
-                    audio_buf1_size = 0;
-                    audio_buf = null;
+                    ffmpeg.av_freep((void*)ResampledAudioBuffer);
+                    ResampledAudioBufferLength = 0;
+                    RenderAudioBuffer = null;
                     break;
                 case AVMediaType.AVMEDIA_TYPE_VIDEO:
                     VideoDecoder.DecoderAbort(VideoQueue);
@@ -480,15 +510,19 @@ namespace Unosquare.FFplayDotNet
                 return ffmpeg.AVERROR_ENOMEM;
 
             result = ffmpeg.avcodec_parameters_to_context(codecContext, ic->streams[streamIndex]->codecpar);
-            if (result < 0) goto fail;
+            if (result < 0)
+                goto fail;
+
             ffmpeg.av_codec_set_pkt_timebase(codecContext, ic->streams[streamIndex]->time_base);
             var decoder = ffmpeg.avcodec_find_decoder(codecContext->codec_id);
+
             switch (codecContext->codec_type)
             {
-                case AVMediaType.AVMEDIA_TYPE_AUDIO: last_audio_stream = streamIndex; forcedCodecName = Player.AudioCodecName; break;
-                case AVMediaType.AVMEDIA_TYPE_SUBTITLE: last_subtitle_stream = streamIndex; forcedCodecName = Player.SubtitleCodecName; break;
-                case AVMediaType.AVMEDIA_TYPE_VIDEO: last_video_stream = streamIndex; forcedCodecName = Player.VideoCodecName; break;
+                case AVMediaType.AVMEDIA_TYPE_AUDIO: LastAudioStreamIndex = streamIndex; forcedCodecName = Player.AudioCodecName; break;
+                case AVMediaType.AVMEDIA_TYPE_SUBTITLE: LastSubtitleStreamIndex = streamIndex; forcedCodecName = Player.SubtitleCodecName; break;
+                case AVMediaType.AVMEDIA_TYPE_VIDEO: LastVideoStreamIndex = streamIndex; forcedCodecName = Player.VideoCodecName; break;
             }
+
             if (string.IsNullOrWhiteSpace(forcedCodecName) == false)
                 decoder = ffmpeg.avcodec_find_decoder_by_name(forcedCodecName);
 
@@ -556,11 +590,11 @@ namespace Unosquare.FFplayDotNet
 
                     AudioHardwareBufferSize = result;
                     AudioOutputParams.CopyTo(AudioInputParams);
-                    audio_buf_size = 0;
-                    audio_buf_index = 0;
-                    audio_diff_avg_coef = Math.Exp(Math.Log(0.01) / Constants.AUDIO_DIFF_AVG_NB);
-                    audio_diff_avg_count = 0;
-                    audio_diff_threshold = (double)(AudioHardwareBufferSize) / AudioOutputParams.BytesPerSecond;
+                    RenderAudioBufferLength = 0;
+                    RenderAudioBufferIndex = 0;
+                    AudioSkewCoefficient = Math.Exp(Math.Log(0.01) / Constants.AUDIO_DIFF_AVG_NB);
+                    AudioSkewAvgCount = 0;
+                    AudioSkewThreshold = (double)(AudioHardwareBufferSize) / AudioOutputParams.BytesPerSecond;
                     AudioStreamIndex = streamIndex;
                     AudioStream = ic->streams[streamIndex];
 
@@ -584,7 +618,8 @@ namespace Unosquare.FFplayDotNet
                     VideoDecoder = new Decoder(codecContext, VideoPackets, continue_read_thread);
                     if ((result = Player.decoder_start(VideoDecoder, Player.video_thread, this)) < 0)
                         goto final;
-                    queue_attachments_req = true;
+
+                    EnqueuePacketAttachments = true;
                     break;
 
                 case AVMediaType.AVMEDIA_TYPE_SUBTITLE:
@@ -640,6 +675,12 @@ namespace Unosquare.FFplayDotNet
                 SDL_DestroyTexture(sub_texture);
         }
 
+        /// <summary>
+        /// Decodes the Audio frames in the audio frame queue until
+        /// the packet serial matches the audio frame serial. It then resamples the
+        /// frame.
+        /// </summary>
+        /// <returns></returns>
         public int DecodeAudioFrame()
         {
             // TODO: Move this method to decoder if possible
@@ -647,9 +688,9 @@ namespace Unosquare.FFplayDotNet
             int decodedDataSize;
             int resampledDataSize;
             long decodedFrameChannelLayout;
-            double audioClockPosition;
+
             int wantedSampleCount;
-            FrameHolder af = null;
+            FrameHolder audioFrame = null;
 
             if (IsPaused) return -1;
 
@@ -657,31 +698,33 @@ namespace Unosquare.FFplayDotNet
             {
                 while (AudioQueue.PendingCount == 0)
                 {
-                    if ((ffmpeg.av_gettime_relative() - Player.audio_callback_time) > 1000000L * AudioHardwareBufferSize / AudioOutputParams.BytesPerSecond / 2)
+                    if ((ffmpeg.av_gettime_relative() - Player.RednerAudioCallbackTimestamp) > 1000000L * AudioHardwareBufferSize / AudioOutputParams.BytesPerSecond / 2)
                         return -1;
+
                     Thread.Sleep(1); //ffmpeg.av_usleep(1000);
                 }
 
-                af = AudioQueue.PeekReadableFrame();
-                if (af == null) return -1;
+                audioFrame = AudioQueue.PeekReadableFrame();
+                if (audioFrame == null) return -1;
                 AudioQueue.QueueNextRead();
-            } while (af.Serial != AudioPackets.Serial);
+            } while (audioFrame.Serial != AudioPackets.Serial);
 
-            decodedDataSize = ffmpeg.av_samples_get_buffer_size(null, ffmpeg.av_frame_get_channels(af.DecodedFrame),
-                                                   af.DecodedFrame->nb_samples,
-                                                   (AVSampleFormat)af.DecodedFrame->format, 1);
+            decodedDataSize = ffmpeg.av_samples_get_buffer_size(
+                null, ffmpeg.av_frame_get_channels(audioFrame.DecodedFrame),
+                audioFrame.DecodedFrame->nb_samples,
+                (AVSampleFormat)audioFrame.DecodedFrame->format, 1);
 
             decodedFrameChannelLayout =
-                (af.DecodedFrame->channel_layout != 0 && ffmpeg.av_frame_get_channels(af.DecodedFrame) == ffmpeg.av_get_channel_layout_nb_channels(af.DecodedFrame->channel_layout)) ?
-                    Convert.ToInt64(af.DecodedFrame->channel_layout) :
-                    ffmpeg.av_get_default_channel_layout(ffmpeg.av_frame_get_channels(af.DecodedFrame));
+                (audioFrame.DecodedFrame->channel_layout != 0 && ffmpeg.av_frame_get_channels(audioFrame.DecodedFrame) == ffmpeg.av_get_channel_layout_nb_channels(audioFrame.DecodedFrame->channel_layout)) ?
+                    Convert.ToInt64(audioFrame.DecodedFrame->channel_layout) :
+                    ffmpeg.av_get_default_channel_layout(ffmpeg.av_frame_get_channels(audioFrame.DecodedFrame));
 
-            wantedSampleCount = SynchronizeAudio(af.DecodedFrame->nb_samples);
+            wantedSampleCount = SynchronizeAudio(audioFrame.DecodedFrame->nb_samples);
 
-            if (af.DecodedFrame->format != (int)AudioInputParams.SampleFormat ||
+            if (audioFrame.DecodedFrame->format != (int)AudioInputParams.SampleFormat ||
                 decodedFrameChannelLayout != AudioInputParams.ChannelLayout ||
-                af.DecodedFrame->sample_rate != AudioInputParams.Frequency ||
-                (wantedSampleCount != af.DecodedFrame->nb_samples && AudioScaler == null))
+                audioFrame.DecodedFrame->sample_rate != AudioInputParams.Frequency ||
+                (wantedSampleCount != audioFrame.DecodedFrame->nb_samples && AudioScaler == null))
             {
                 fixed (SwrContext** vst_swr_ctx = &AudioScaler)
                     ffmpeg.swr_free(vst_swr_ctx);
@@ -689,100 +732,100 @@ namespace Unosquare.FFplayDotNet
                 AudioScaler = ffmpeg.swr_alloc_set_opts(
                     null,
                     AudioOutputParams.ChannelLayout, AudioOutputParams.SampleFormat, AudioOutputParams.Frequency,
-                    decodedFrameChannelLayout, (AVSampleFormat)af.DecodedFrame->format, af.DecodedFrame->sample_rate,
+                    decodedFrameChannelLayout, (AVSampleFormat)audioFrame.DecodedFrame->format, audioFrame.DecodedFrame->sample_rate,
                     0, null);
+
                 if (AudioScaler == null || ffmpeg.swr_init(AudioScaler) < 0)
                 {
                     ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR,
-                           $"Cannot create sample rate converter for conversion of {af.DecodedFrame->sample_rate} Hz {ffmpeg.av_get_sample_fmt_name((AVSampleFormat)af.DecodedFrame->format)} " +
+                           $"Cannot create sample rate converter for conversion of {audioFrame.DecodedFrame->sample_rate} Hz {ffmpeg.av_get_sample_fmt_name((AVSampleFormat)audioFrame.DecodedFrame->format)} " +
                            "{ffmpeg.av_frame_get_channels(af.frame)} channels to {audio_tgt.freq} Hz {ffmpeg.av_get_sample_fmt_name(audio_tgt.fmt)} {audio_tgt.channels} " +
                            "channels!\n");
 
-                    fixed (SwrContext** vst_swr_ctx = &AudioScaler)
-                        ffmpeg.swr_free(vst_swr_ctx);
+                    fixed (SwrContext** audoScalerPointer = &AudioScaler)
+                        ffmpeg.swr_free(audoScalerPointer);
 
                     return -1;
                 }
 
                 AudioInputParams.ChannelLayout = decodedFrameChannelLayout;
-                AudioInputParams.ChannelCount = ffmpeg.av_frame_get_channels(af.DecodedFrame);
-                AudioInputParams.Frequency = af.DecodedFrame->sample_rate;
-                AudioInputParams.SampleFormat = (AVSampleFormat)af.DecodedFrame->format;
+                AudioInputParams.ChannelCount = ffmpeg.av_frame_get_channels(audioFrame.DecodedFrame);
+                AudioInputParams.Frequency = audioFrame.DecodedFrame->sample_rate;
+                AudioInputParams.SampleFormat = (AVSampleFormat)audioFrame.DecodedFrame->format;
             }
 
             if (AudioScaler != null)
             {
-                var in_buffer = af.DecodedFrame->extended_data;
-                var out_buffer = audio_buf1;
-                int out_count = wantedSampleCount * AudioOutputParams.Frequency / af.DecodedFrame->sample_rate + 256;
-                int out_size = ffmpeg.av_samples_get_buffer_size(null, AudioOutputParams.ChannelCount, out_count, AudioOutputParams.SampleFormat, 0);
-                int len2;
+                var inputBuffer = audioFrame.DecodedFrame->extended_data;
+                var outputBuffer = ResampledAudioBuffer;
+                var outputSampleCount = wantedSampleCount * AudioOutputParams.Frequency / audioFrame.DecodedFrame->sample_rate + 256;
+                var outputBufferLength = ffmpeg.av_samples_get_buffer_size(null, AudioOutputParams.ChannelCount, outputSampleCount, AudioOutputParams.SampleFormat, 0);
 
-                if (out_size < 0)
+                if (outputBufferLength < 0)
                 {
                     ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, "av_samples_get_buffer_size() failed\n");
                     return -1;
                 }
 
-                if (wantedSampleCount != af.DecodedFrame->nb_samples)
+                if (wantedSampleCount != audioFrame.DecodedFrame->nb_samples)
                 {
-                    if (ffmpeg.swr_set_compensation(AudioScaler, (wantedSampleCount - af.DecodedFrame->nb_samples) * AudioOutputParams.Frequency / af.DecodedFrame->sample_rate,
-                                                wantedSampleCount * AudioOutputParams.Frequency / af.DecodedFrame->sample_rate) < 0)
+                    if (ffmpeg.swr_set_compensation(AudioScaler, (wantedSampleCount - audioFrame.DecodedFrame->nb_samples) * AudioOutputParams.Frequency / audioFrame.DecodedFrame->sample_rate,
+                                                wantedSampleCount * AudioOutputParams.Frequency / audioFrame.DecodedFrame->sample_rate) < 0)
                     {
                         ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, "swr_set_compensation() failed\n");
                         return -1;
                     }
                 }
-                fixed (uint* vst_audio_buf1_size = &audio_buf1_size)
-                    ffmpeg.av_fast_malloc((void*)audio_buf1, vst_audio_buf1_size, (ulong)out_size);
 
-                if (audio_buf1 == null)
+                fixed (uint* bufferLengthPointer = &ResampledAudioBufferLength)
+                    ffmpeg.av_fast_malloc((void*)ResampledAudioBuffer, bufferLengthPointer, (ulong)outputBufferLength);
+
+                if (ResampledAudioBuffer == null)
                     return ffmpeg.AVERROR_ENOMEM;
 
-                len2 = ffmpeg.swr_convert(AudioScaler, &out_buffer, out_count, in_buffer, af.DecodedFrame->nb_samples);
+                var len2 = ffmpeg.swr_convert(AudioScaler, &outputBuffer, outputSampleCount, inputBuffer, audioFrame.DecodedFrame->nb_samples);
                 if (len2 < 0)
                 {
                     ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, "swr_convert() failed\n");
                     return -1;
                 }
 
-                if (len2 == out_count)
+                if (len2 == outputSampleCount)
                 {
                     ffmpeg.av_log(null, ffmpeg.AV_LOG_WARNING, "audio buffer is probably too small\n");
                     if (ffmpeg.swr_init(AudioScaler) < 0)
                         fixed (SwrContext** vst_swr_ctx = &AudioScaler)
                             ffmpeg.swr_free(vst_swr_ctx);
                 }
-                audio_buf = audio_buf1;
+
+                RenderAudioBuffer = ResampledAudioBuffer;
                 resampledDataSize = len2 * AudioOutputParams.ChannelCount * ffmpeg.av_get_bytes_per_sample(AudioOutputParams.SampleFormat);
             }
             else
             {
-                audio_buf = af.DecodedFrame->data[0];
+                RenderAudioBuffer = audioFrame.DecodedFrame->data[0];
                 resampledDataSize = decodedDataSize;
             }
 
-            audioClockPosition = AudioClockPosition;
             /* update the audio clock with the pts */
-            if (!double.IsNaN(af.Pts))
-                AudioClockPosition = af.Pts + (double)af.DecodedFrame->nb_samples / af.DecodedFrame->sample_rate;
+            if (!double.IsNaN(audioFrame.Pts))
+                DecodedAudioClockPosition = audioFrame.Pts + (double)audioFrame.DecodedFrame->nb_samples / audioFrame.DecodedFrame->sample_rate;
             else
-                AudioClockPosition = double.NaN;
+                DecodedAudioClockPosition = double.NaN;
 
-            AudioClockSerial = af.Serial;
+            DecodedAudioClockSerial = audioFrame.Serial;
 
             return resampledDataSize;
         }
 
         public double ComputeVideoClockDelay(double delay)
         {
-            double syncThreshold = 0;
-            double skew = 0;
+            var skew = 0d;
 
-            if (MasterSyncMode != SyncMode.AV_SYNC_VIDEO_MASTER)
+            if (MasterSyncMode != SyncMode.Video)
             {
                 skew = VideoClock.Position - MasterClockPosition;
-                syncThreshold = Math.Max(
+                var syncThreshold = Math.Max(
                     Constants.AvSyncThresholdMin,
                     Math.Min(Constants.AvSyncThresholdMax, delay));
 
@@ -801,7 +844,7 @@ namespace Unosquare.FFplayDotNet
             return delay;
         }
 
-        public double ComputeFrameDuration(FrameHolder videoFrame, FrameHolder nextVideoFrame)
+        public double ComputeVideoFrameDuration(FrameHolder videoFrame, FrameHolder nextVideoFrame)
         {
             if (videoFrame.Serial == nextVideoFrame.Serial)
             {
@@ -811,10 +854,8 @@ namespace Unosquare.FFplayDotNet
                 else
                     return duration;
             }
-            else
-            {
-                return 0.0;
-            }
+
+            return 0.0;
         }
 
         public void video_image_display()
@@ -956,53 +997,60 @@ namespace Unosquare.FFplayDotNet
             ExternalClock.SyncTo(VideoClock);
         }
 
+        /// <summary>
+        /// When audio does not hold the master clock for synchronization,
+        /// this method will try to remove or add samples to correct the clock.
+        /// It gets the number of decoded audio samples and return the estimated
+        /// wanted -- or ideal -- samples.
+        /// </summary>
+        /// <param name="audioSampleCount">The decoded audio sample count.</param>
+        /// <returns>Returns the amount of samples required</returns>
         public int SynchronizeAudio(int audioSampleCount)
         {
-            int wantedAudioSampleCount = audioSampleCount;
+            var wantedAudioSampleCount = audioSampleCount;
 
-            /* if not master, then we try to remove or add samples to correct the clock */
-            if (MasterSyncMode != SyncMode.AV_SYNC_AUDIO_MASTER)
+            /* if not master, then */
+            if (MasterSyncMode != SyncMode.Audio)
             {
-                double diff, avg_diff;
-                int min_nb_samples, max_nb_samples;
+                var audioSkew = AudioClock.Position - MasterClockPosition;
 
-                diff = AudioClock.Position - MasterClockPosition;
-
-                if (!double.IsNaN(diff) && Math.Abs(diff) < Constants.AvNoSyncThreshold)
+                if (!double.IsNaN(audioSkew) && Math.Abs(audioSkew) < Constants.AvNoSyncThreshold)
                 {
-                    audio_diff_cum = diff + audio_diff_avg_coef * audio_diff_cum;
-                    if (audio_diff_avg_count < Constants.AUDIO_DIFF_AVG_NB)
+                    AudioSkewCummulative = audioSkew + AudioSkewCoefficient * AudioSkewCummulative;
+                    if (AudioSkewAvgCount < Constants.AUDIO_DIFF_AVG_NB)
                     {
                         /* not enough measures to have a correct estimate */
-                        audio_diff_avg_count++;
+                        AudioSkewAvgCount++;
                     }
                     else
                     {
                         /* estimate the A-V difference */
-                        avg_diff = audio_diff_cum * (1.0 - audio_diff_avg_coef);
+                        var audioSkewAvg = AudioSkewCummulative * (1.0 - AudioSkewCoefficient);
 
-                        if (Math.Abs(avg_diff) >= audio_diff_threshold)
+                        if (Math.Abs(audioSkewAvg) >= AudioSkewThreshold)
                         {
-                            wantedAudioSampleCount = audioSampleCount + (int)(diff * AudioInputParams.Frequency);
-                            min_nb_samples = ((audioSampleCount * (100 - Constants.SampleCorrectionPercentMax) / 100));
-                            max_nb_samples = ((audioSampleCount * (100 + Constants.SampleCorrectionPercentMax) / 100));
-                            wantedAudioSampleCount = ffmpeg.av_clip(wantedAudioSampleCount, min_nb_samples, max_nb_samples);
+                            wantedAudioSampleCount = audioSampleCount + (int)(audioSkew * AudioInputParams.Frequency);
+                            var sampleCountMin = ((audioSampleCount * (100 - Constants.SampleCorrectionPercentMax) / 100));
+                            var sampleCountMax = ((audioSampleCount * (100 + Constants.SampleCorrectionPercentMax) / 100));
+                            wantedAudioSampleCount = ffmpeg.av_clip(wantedAudioSampleCount, sampleCountMin, sampleCountMax);
                         }
-                        ffmpeg.av_log(null, ffmpeg.AV_LOG_TRACE, $"diff={diff} adiff={avg_diff} sample_diff={wantedAudioSampleCount - audioSampleCount} apts={AudioClockPosition} {audio_diff_threshold}\n");
+
+                        ffmpeg.av_log(null,
+                            ffmpeg.AV_LOG_TRACE, $"diff={audioSkew} adiff={audioSkewAvg} "
+                            + $"sample_diff={wantedAudioSampleCount - audioSampleCount} apts={DecodedAudioClockPosition} {AudioSkewThreshold}\n");
                     }
                 }
                 else
                 {
                     /* too big difference : may be initial PTS errors, so
                        reset A-V filter */
-                    audio_diff_avg_count = 0;
-                    audio_diff_cum = 0;
+                    AudioSkewAvgCount = 0;
+                    AudioSkewCummulative = 0;
                 }
             }
 
             return wantedAudioSampleCount;
         }
-
 
     }
 

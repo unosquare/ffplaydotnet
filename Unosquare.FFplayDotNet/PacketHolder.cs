@@ -4,9 +4,12 @@
 
     /// <summary>
     /// Represents a node in a linked list of packets
+    /// Port of struct MyAVPacketList
     /// </summary>
     public class PacketHolder
     {
+        public const int SizeOf = 12; //12 bytes long for this struct.
+
         /// <summary>
         /// The pointer to the FFmpeg packet
         /// </summary>

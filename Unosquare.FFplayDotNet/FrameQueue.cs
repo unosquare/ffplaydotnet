@@ -22,8 +22,8 @@ namespace Unosquare.FFplayDotNet
         public bool KeepLast { get; private set; }
         public int ReadIndexShown { get; private set; }
 
-        internal readonly MonitorLock mutex;
-        internal readonly LockCondition cond;
+        internal readonly MonitorLock SyncLock;
+        internal readonly LockCondition IsDoneWriting;
 
         private static void DestroyFrame(FrameHolder vp)
         {
@@ -36,8 +36,8 @@ namespace Unosquare.FFplayDotNet
 
         internal FrameQueue(PacketQueue queue, int maxSize, bool keepLast)
         {
-            mutex = new MonitorLock();
-            cond = new LockCondition();
+            SyncLock = new MonitorLock();
+            IsDoneWriting = new LockCondition();
 
             Packets = queue;
             Capacity = Math.Min(maxSize, Constants.FrameQueueSize);
@@ -60,15 +60,16 @@ namespace Unosquare.FFplayDotNet
                 FFplay.free_picture(vp);
             }
 
-            mutex.Destroy();
-            cond.Dispose();
+            SyncLock.Destroy();
+            IsDoneWriting.Dispose();
         }
 
-        public void frame_queue_signal()
+        public void SignalDoneWriting(Action onAfterLock)
         {
-            mutex.Lock();
-            cond.Signal();
-            mutex.Unlock();
+            SyncLock.Lock();
+            onAfterLock?.Invoke();
+            IsDoneWriting.Signal();
+            SyncLock.Unlock();
         }
 
         public FrameHolder Current
@@ -97,14 +98,12 @@ namespace Unosquare.FFplayDotNet
 
         public FrameHolder PeekWritableFrame()
         {
-            mutex.Lock();
+            SyncLock.Lock();
 
             while (Length >= Capacity && !Packets.IsAborted)
-            {
-                cond.Wait(mutex);
-            }
+                IsDoneWriting.Wait(SyncLock);
 
-            mutex.Unlock();
+            SyncLock.Unlock();
 
             if (Packets.IsAborted)
                 return null;
@@ -114,13 +113,12 @@ namespace Unosquare.FFplayDotNet
 
         public FrameHolder PeekReadableFrame()
         {
-            mutex.Lock();
-            while (Length - ReadIndexShown <= 0 && !Packets.IsAborted)
-            {
-                cond.Wait(mutex);
-            }
+            SyncLock.Lock();
 
-            mutex.Unlock();
+            while (Length - ReadIndexShown <= 0 && !Packets.IsAborted)
+                IsDoneWriting.Wait(SyncLock);
+
+            SyncLock.Unlock();
 
             if (Packets.IsAborted)
                 return null;
@@ -133,11 +131,11 @@ namespace Unosquare.FFplayDotNet
             if (++WriteIndex == Capacity)
                 WriteIndex = 0;
 
-            mutex.Lock();
+            SyncLock.Lock();
             Length++;
 
-            cond.Signal();
-            mutex.Unlock();
+            IsDoneWriting.Signal();
+            SyncLock.Unlock();
         }
 
         public void QueueNextRead()
@@ -152,12 +150,12 @@ namespace Unosquare.FFplayDotNet
             if (++ReadIndex == Capacity)
                 ReadIndex = 0;
 
-            mutex.Lock();
+            SyncLock.Lock();
 
             Length--;
 
-            cond.Signal();
-            mutex.Unlock();
+            IsDoneWriting.Signal();
+            SyncLock.Unlock();
         }
 
         public int PendingCount

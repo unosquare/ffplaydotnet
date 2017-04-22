@@ -30,11 +30,11 @@ namespace Unosquare.FFplayDotNet
         public bool? IsPtsReorderingEnabled { get; private set; } = null;
 
 
-        internal Decoder(AVCodecContext* codecContext, PacketQueue queue, LockCondition queueCond)
+        internal Decoder(AVCodecContext* codecContext, PacketQueue queue, LockCondition isReadyForNextRead)
         {
             Codec = codecContext;
             PacketQueue = queue;
-            IsQueueEmpty = queueCond;
+            IsQueueEmpty = isReadyForNextRead;
             StartPts = ffmpeg.AV_NOPTS_VALUE;
         }
 
@@ -67,7 +67,7 @@ namespace Unosquare.FFplayDotNet
                     var queuePacket = new AVPacket();
                     do
                     {
-                        if (PacketQueue.Length == 0)
+                        if (PacketQueue.Count == 0)
                             IsQueueEmpty.Signal();
 
                         if (PacketQueue.Dequeue(&queuePacket, ref m_PacketSerial) < 0)
@@ -182,7 +182,7 @@ namespace Unosquare.FFplayDotNet
         public void DecoderAbort(FrameQueue fq)
         {
             PacketQueue.Abort();
-            fq.frame_queue_signal();
+            fq.SignalDoneWriting(null);
             SDL_WaitThread(DecoderThread, null);
             DecoderThread = null;
             PacketQueue.Clear();

@@ -4,155 +4,255 @@
 
     // TODO: Replace locks with the original ffplay locks.
 
+    /// <summary>
+    /// A Group of sequential packets
+    /// Port of PacketQueue
+    /// </summary>
     internal unsafe class PacketQueue
     {
-        internal static readonly AVPacket* FlushPacket = null;
 
+        #region State Management and Constants
+
+        internal static readonly AVPacket* FlushPacket = null;
+        internal const int MaxQueueByteLength = (15 * 1024 * 1024); // 15 MB
+
+        internal readonly MonitorLock SyncLock;
+        internal readonly LockCondition IsDoneWriting;
+
+        /// <summary>
+        /// Initializes the <see cref="PacketQueue"/> static class.
+        /// Allocates memory for an empty packet
+        /// </summary>
         static PacketQueue()
         {
             ffmpeg.av_init_packet(FlushPacket);
             FlushPacket->data = (byte*)FlushPacket;
         }
 
-        public PacketHolder FirstNode { get; private set; }
-        public PacketHolder LastNode { get; private set; }
+        #endregion
 
-        public int Length { get; private set; }
+        #region Properties
+
+        /// <summary>
+        /// Gets the first packet holder in the queue.
+        /// </summary>
+        public PacketHolder First { get; private set; }
+
+        /// <summary>
+        /// Gets the last packet holder in the queue.
+        /// </summary>
+        public PacketHolder Last { get; private set; }
+
+        /// <summary>
+        /// Gets the number of items in the queue.
+        /// </summary>
+        public int Count { get; private set; }
+        
+        /// <summary>
+        /// Gets the length of bytes of this queue.
+        /// </summary>
         public int ByteLength { get; private set; }
+
+        /// <summary>
+        /// Gets the total duration of the packets ocntained in this queue.
+        /// </summary>
         public long Duration { get; private set; }
+
+        /// <summary>
+        /// Gets a value indicating whether this queue has been instructed to stop
+        /// enqueing items via the Abot method.
+        /// </summary>
         public bool IsAborted { get; private set; }
+
+        /// <summary>
+        /// Gets the current packet serial.
+        /// </summary>
         public int Serial { get; private set; }
 
-        private readonly object SyncRoot = new object();
+        #endregion
 
+        #region Constructors
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="PacketQueue" /> class.
+        /// Port of packet_queue_init
+        /// Port of packet_queue_start
+        /// </summary>
         public PacketQueue()
         {
-            lock (SyncRoot)
-            {
-                IsAborted = false;
-                EnqueueInternal(PacketQueue.FlushPacket);
-            }
+            SyncLock = new MonitorLock();
+            IsDoneWriting = new LockCondition();
+
+            SyncLock.Lock();
+            IsAborted = false;
+            EnqueueInternal(PacketQueue.FlushPacket);
+            SyncLock.Unlock();
         }
 
+        #endregion
+
+        #region Methods
+
+        /// <summary>
+        /// Enqueues the internal.
+        /// Port of packet_queue_put_private
+        /// </summary>
+        /// <param name="packet">The packet.</param>
+        /// <returns></returns>
         private int EnqueueInternal(AVPacket* packet)
         {
-            lock (SyncRoot)
-            {
-                if (IsAborted)
-                    return -1;
+            if (IsAborted)
+                return -1;
 
-                var node = new PacketHolder();
-                node.Packet = packet;
-                node.Next = null;
-                if (packet == PacketQueue.FlushPacket)
-                    Serial++;
+            var currentPacket = new PacketHolder();
+            currentPacket.Packet = packet;
+            currentPacket.Next = null;
+            if (packet == PacketQueue.FlushPacket)
+                Serial++;
 
-                node.Serial = Serial;
+            currentPacket.Serial = Serial;
 
-                if (LastNode == null)
-                    FirstNode = node;
-                else
-                    LastNode.Next = node;
+            if (Last == null)
+                First = currentPacket;
+            else
+                Last.Next = currentPacket;
 
-                LastNode = node;
-                Length++;
-                ByteLength += node.Packet->size; // + sizeof(*pkt1); // TODO: unsure how to do this or if needed
-                Duration += node.Packet->duration;
+            Last = currentPacket;
+            Count++;
+            ByteLength += currentPacket.Packet->size + PacketHolder.SizeOf; // + sizeof(*pkt1); // TODO: unsure how to do this or if needed
+            Duration += currentPacket.Packet->duration;
 
-                return 0;
-            }
+            IsDoneWriting.Signal();
+            return 0;
         }
 
+        /// <summary>
+        /// Enqueues the specified packet.
+        /// Port of packet_queue_put
+        /// </summary>
+        /// <param name="packet">The packet.</param>
+        /// <returns></returns>
         public int Enqueue(AVPacket* packet)
         {
             var result = 0;
+
+            SyncLock.Lock();
             result = EnqueueInternal(packet);
+            SyncLock.Unlock();
 
             if (packet != PacketQueue.FlushPacket && result < 0)
                 ffmpeg.av_packet_unref(packet);
+
             return result;
         }
 
-        public int EnqueueNull(int streamIndex)
+        /// <summary>
+        /// Enqueues an empty packet.
+        /// Port of packet_queue_put_nullpacket
+        /// </summary>
+        /// <param name="streamIndex">Index of the stream.</param>
+        /// <returns></returns>
+        public int EnqueueEmptyPacket(int streamIndex)
         {
             var packet = new AVPacket();
             ffmpeg.av_init_packet(&packet);
             packet.data = null;
             packet.size = 0;
             packet.stream_index = streamIndex;
+
             return Enqueue(&packet);
         }
 
+        /// <summary>
+        /// Clears all the items in the queue
+        /// Port of packet_queue_flush
+        /// </summary>
         public void Clear()
         {
-            // port of: packet_queue_flush;
+            PacketHolder currentNode = null;
+            PacketHolder nextNode = null;
 
-            PacketHolder currentNode;
-            PacketHolder nextNode;
+            SyncLock.Lock();
 
-            lock (SyncRoot)
+            for (currentNode = First; currentNode != null; currentNode = nextNode)
             {
-                for (currentNode = FirstNode; currentNode != null; currentNode = nextNode)
-                {
-                    nextNode = currentNode.Next;
-                    ffmpeg.av_packet_unref(currentNode.Packet);
-                }
-
-                LastNode = null;
-                FirstNode = null;
-                Length = 0;
-                ByteLength = 0;
-                Duration = 0;
+                nextNode = currentNode.Next;
+                ffmpeg.av_packet_unref(currentNode.Packet);
             }
+
+            Last = null;
+            First = null;
+            Count = 0;
+            ByteLength = 0;
+            Duration = 0;
+
+            SyncLock.Unlock();
         }
 
+        /// <summary>
+        /// Dequeues the specified packet.
+        /// Port of packet_queue_get
+        /// </summary>
+        /// <param name="packet">The packet.</param>
+        /// <param name="serial">The serial.</param>
+        /// <returns></returns>
         public int Dequeue(AVPacket* packet, ref int serial)
         {
             PacketHolder node = null;
-            int result = default(int);
+            var result = default(int);
+            SyncLock.Lock();
 
-            lock (SyncRoot)
+            while (true)
             {
-                while (true)
+                if (IsAborted)
                 {
-                    if (IsAborted)
-                    {
-                        result = -1;
-                        break;
-                    }
+                    result = -1;
+                    break;
+                }
 
-                    node = FirstNode;
-                    if (node != null)
-                    {
-                        FirstNode = node.Next;
-                        if (FirstNode == null)
-                            LastNode = null;
+                node = First;
+                if (node != null)
+                {
+                    First = node.Next;
+                    if (First == null)
+                        Last = null;
 
-                        Length--;
-                        ByteLength -= node.Packet->size; // + sizeof(*pkt1); // TODO: Verify
-                        Duration -= node.Packet->duration;
+                    Count--;
+                    ByteLength -= node.Packet->size; // + sizeof(*pkt1); // TODO: Verify
+                    Duration -= node.Packet->duration;
 
-                        packet = node.Packet;
+                    packet = node.Packet;
 
-                        if (serial != 0)
-                            serial = node.Serial;
+                    if (serial != 0)
+                        serial = node.Serial;
 
-                        result = 1;
-                        break;
-                    }
+                    result = 1;
+                    break;
+                }
+                else
+                {
+                    IsDoneWriting.Wait(SyncLock);
                 }
             }
+
+            SyncLock.Unlock();
 
             return result;
         }
 
+        /// <summary>
+        /// Aborts this queue. This prevents items from being enqueued.
+        /// Port of: packet_queue_abort
+        /// </summary>
         public void Abort()
         {
-            lock (SyncRoot)
-            {
-                IsAborted = true;
-            }
+            SyncLock.Lock();
+            IsAborted = true;
+            IsDoneWriting.Signal();
+            SyncLock.Unlock();
         }
+
+        #endregion
     }
 
 }

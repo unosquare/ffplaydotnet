@@ -57,7 +57,7 @@
         public int xpos;
 
 
-        public LockCondition continue_read_thread;
+        public LockCondition IsFrameDecoded;
         public SDL_Texture vis_texture;
         public SDL_Texture sub_texture;
         internal SDL_Thread ReadThread;
@@ -202,7 +202,7 @@
             SubtitleQueue = new FrameQueue(SubtitlePackets, Constants.SubtitleQueueSize, false);
             AudioQueue = new FrameQueue(AudioPackets, Constants.SampleQueueSize, true);
 
-            continue_read_thread = new LockCondition();
+            IsFrameDecoded = new LockCondition();
 
             VideoClock = new Clock(() => { return new int?(VideoPackets.Serial); });
             AudioClock = new Clock(() => { return new int?(AudioPackets.Serial); });
@@ -218,13 +218,13 @@
 
         public void AdjustExternalClockSpeedRatio()
         {
-            if (VideoStreamIndex >= 0 && VideoPackets.Length <= Constants.ExternalClockMinFrame ||
-                AudioStreamIndex >= 0 && AudioPackets.Length <= Constants.ExternalClockMinFrame)
+            if (VideoStreamIndex >= 0 && VideoPackets.Count <= Constants.ExternalClockMinFrames ||
+                AudioStreamIndex >= 0 && AudioPackets.Count <= Constants.ExternalClockMinFrames)
             {
                 ExternalClock.SpeedRatio = (Math.Max(Constants.ExternalClockSpeedMin, ExternalClock.SpeedRatio - Constants.ExternalClockSpeedStep));
             }
-            else if ((VideoStreamIndex < 0 || VideoPackets.Length > Constants.ExternalClockMaxFrames) &&
-                     (AudioStreamIndex < 0 || AudioPackets.Length > Constants.ExternalClockMaxFrames))
+            else if ((VideoStreamIndex < 0 || VideoPackets.Count > Constants.ExternalClockMaxFrames) &&
+                     (AudioStreamIndex < 0 || AudioPackets.Count > Constants.ExternalClockMaxFrames))
             {
                 ExternalClock.SpeedRatio = (Math.Min(Constants.ExternalClockSpeedMax, ExternalClock.SpeedRatio + Constants.ExternalClockSpeedStep));
             }
@@ -247,7 +247,7 @@
                 SeekModeFlags |= ffmpeg.AVSEEK_FLAG_BYTE;
 
             IsSeekRequested = true;
-            continue_read_thread.Signal();
+            IsFrameDecoded.Signal();
         }
 
         public void SeekChapter(int increment)
@@ -540,7 +540,7 @@
                     AudioStreamIndex = streamIndex;
                     AudioStream = ic->streams[streamIndex];
 
-                    AudioDecoder = new Decoder(codecContext, AudioPackets, continue_read_thread);
+                    AudioDecoder = new Decoder(codecContext, AudioPackets, IsFrameDecoded);
 
                     if ((InputContext->iformat->flags & (ffmpeg.AVFMT_NOBINSEARCH | ffmpeg.AVFMT_NOGENSEARCH | ffmpeg.AVFMT_NO_BYTE_SEEK)) != 0 &&
                         InputContext->iformat->read_seek.Pointer == IntPtr.Zero)
@@ -557,7 +557,7 @@
                 case AVMediaType.AVMEDIA_TYPE_VIDEO:
                     VideoStreamIndex = streamIndex;
                     VideoStream = ic->streams[streamIndex];
-                    VideoDecoder = new Decoder(codecContext, VideoPackets, continue_read_thread);
+                    VideoDecoder = new Decoder(codecContext, VideoPackets, IsFrameDecoded);
                     if ((result = Player.decoder_start(VideoDecoder, Player.video_thread, this)) < 0)
                         goto final;
 
@@ -567,7 +567,7 @@
                 case AVMediaType.AVMEDIA_TYPE_SUBTITLE:
                     SubtitleStreamIndex = streamIndex;
                     SubtitleStream = ic->streams[streamIndex];
-                    SubtitleDecoder = new Decoder(codecContext, SubtitlePackets, continue_read_thread);
+                    SubtitleDecoder = new Decoder(codecContext, SubtitlePackets, IsFrameDecoded);
                     if ((result = Player.decoder_start(SubtitleDecoder, Player.subtitle_thread, this)) < 0)
                         goto final;
                     break;
@@ -607,7 +607,7 @@
             VideoQueue.Clear();
             AudioQueue.Clear();
             SubtitleQueue.Clear();
-            continue_read_thread.Dispose();
+            IsFrameDecoded.Dispose();
             ffmpeg.sws_freeContext(VideoScaler);
             ffmpeg.sws_freeContext(SubtitleScaler);
 

@@ -486,10 +486,9 @@
                 do_exit(vst);
             }
 
-            vst.VideoQueue.mutex.Lock();
-            vp.IsAllocated = true;
-            vst.VideoQueue.cond.Signal();
-            vst.VideoQueue.mutex.Unlock();
+            vst.VideoQueue.SignalDoneWriting(() => {
+                vp.IsAllocated = true;
+            });
         }
 
         private void video_refresh(MediaState vst, ref double remaining_time)
@@ -538,12 +537,12 @@
                     if (delay > 0 && time - vst.frame_timer > Constants.AvSyncThresholdMax)
                         vst.frame_timer = time;
 
-                    vst.VideoQueue.mutex.Lock();
+                    vst.VideoQueue.SyncLock.Lock();
 
                     if (!double.IsNaN(currentVideoFrame.Pts))
                         vst.UpdateVideoPts(currentVideoFrame.Pts, currentVideoFrame.BytePosition, currentVideoFrame.Serial);
 
-                    vst.VideoQueue.mutex.Unlock();
+                    vst.VideoQueue.SyncLock.Unlock();
 
                     if (vst.VideoQueue.PendingCount > 1)
                     {
@@ -673,7 +672,7 @@
                         if (!double.IsNaN(ptsSkew) && Math.Abs(ptsSkew) < Constants.AvNoSyncThreshold &&
                             ptsSkew - vst.frame_last_filter_delay < 0 &&
                             vst.VideoDecoder.PacketSerial == vst.VideoClock.PacketSerial &&
-                            vst.VideoPackets.Length != 0)
+                            vst.VideoPackets.Count != 0)
                         {
                             vst.frame_drops_early++;
                             ffmpeg.av_frame_unref(frame);
@@ -837,7 +836,7 @@
                 (streamIndex < 0) ||
                 (queue.IsAborted) ||
                 ((stream->disposition & ffmpeg.AV_DISPOSITION_ATTACHED_PIC) != 0) ||
-                queue.Length > Constants.MinFrames && (queue.Duration == 0 ||
+                queue.Count > Constants.MinFrames && (queue.Duration == 0 ||
                 ffmpeg.av_q2d(stream->time_base) * queue.Duration > 1.0);
         }
 
@@ -892,18 +891,18 @@
                 };
 
                 SDL_PushEvent(ev);
-                vst.VideoQueue.mutex.Lock();
+                vst.VideoQueue.SyncLock.Lock();
 
                 while (!videoFrame.IsAllocated && !vst.VideoPackets.IsAborted)
-                    vst.VideoQueue.cond.Wait(vst.VideoQueue.mutex);
+                    vst.VideoQueue.IsDoneWriting.Wait(vst.VideoQueue.SyncLock);
 
                 if (vst.VideoPackets.IsAborted && SDL_PeepEvents(ev, 1, SDL_GETEVENT, Constants.FF_ALLOC_EVENT, Constants.FF_ALLOC_EVENT) != 1)
                 {
                     while (!videoFrame.IsAllocated && !vst.IsAbortRequested)
-                        vst.VideoQueue.cond.Wait(vst.VideoQueue.mutex);
+                        vst.VideoQueue.IsDoneWriting.Wait(vst.VideoQueue.SyncLock);
                 }
 
-                vst.VideoQueue.mutex.Unlock();
+                vst.VideoQueue.SyncLock.Unlock();
 
                 if (vst.VideoPackets.IsAborted)
                     return -1;
@@ -1035,23 +1034,19 @@
             AVFormatContext* inputContext = null;
             int err, i, ret;
             var st_index = new int[(int)AVMediaType.AVMEDIA_TYPE_NB];
-            AVPacket pkt1;
+            var pkt1 = new AVPacket();
             AVPacket* pkt = &pkt1;
-            long stream_start_time;
-            bool pkt_in_play_range = false;
+
             AVDictionaryEntry* t;
             AVDictionary** opts;
-            int orig_nb_streams;
-            var wait_mutex = new MonitorLock();
+
+            var inputStreamCount = 0;
+            var isPacketInPlayRange = false;
+
             var scan_all_pmts_set = false;
             long pkt_ts;
 
-            if (wait_mutex == null)
-            {
-                ffmpeg.av_log(null, ffmpeg.AV_LOG_FATAL, $"SDL_CreateMutex(): {SDL_GetError()}\n");
-                ret = ffmpeg.AVERROR_ENOMEM;
-                goto fail;
-            }
+            var DecoderLock = new MonitorLock();
 
             ffmpeg.memset(st_index, -1, st_index.Length);
             vst.LastVideoStreamIndex = vst.VideoStreamIndex = -1;
@@ -1106,9 +1101,9 @@
             ffmpeg.av_format_inject_global_side_data(inputContext);
 
             opts = setup_find_stream_info_opts(inputContext, CodecOptions);
-            orig_nb_streams = Convert.ToInt32(inputContext->nb_streams);
+            inputStreamCount = Convert.ToInt32(inputContext->nb_streams);
             err = ffmpeg.avformat_find_stream_info(inputContext, opts);
-            for (i = 0; i < orig_nb_streams; i++)
+            for (i = 0; i < inputStreamCount; i++)
                 ffmpeg.av_dict_free(&opts[i]);
 
             ffmpeg.av_freep(&opts);
@@ -1124,13 +1119,13 @@
                 inputContext->pb->eof_reached = 0; // TODO: FIXME hack, ffplay maybe should not use avio_feof() to test for the end
 
             var formatName = Marshal.PtrToStringAnsi(new IntPtr(inputContext->iformat->name));
-            var isDiscontinuous = (inputContext->iformat->flags & ffmpeg.AVFMT_TS_DISCONT) == 0;
+            var isDiscontinuous = (inputContext->iformat->flags & ffmpeg.AVFMT_TS_DISCONT) != 0;
 
             // seek by byes only for continuous ogg vorbis
             if (MediaSeekByBytes.HasValue == false)
-                MediaSeekByBytes = !isDiscontinuous && formatName.Equals("ogg");
+                MediaSeekByBytes = isDiscontinuous && formatName.Equals("ogg") == false;
 
-            vst.MaximumFrameDuration = (inputContext->iformat->flags & ffmpeg.AVFMT_TS_DISCONT) != 0 ? 10.0 : 3600.0;
+            vst.MaximumFrameDuration = isDiscontinuous ? 10.0 : 3600.0;
 
             t = ffmpeg.av_dict_get(inputContext->metadata, "title", null, 0);
             if (t != null)
@@ -1318,21 +1313,21 @@
                             goto fail;
 
                         vst.VideoPackets.Enqueue(&copy);
-                        vst.VideoPackets.EnqueueNull(vst.VideoStreamIndex);
+                        vst.VideoPackets.EnqueueEmptyPacket(vst.VideoStreamIndex);
                     }
 
                     vst.EnqueuePacketAttachments = false;
                 }
 
                 if (infinite_buffer < 1 &&
-                      (vst.AudioPackets.ByteLength + vst.VideoPackets.ByteLength + vst.SubtitlePackets.ByteLength > Constants.MaxQueueSize
+                      (vst.AudioPackets.ByteLength + vst.VideoPackets.ByteLength + vst.SubtitlePackets.ByteLength > PacketQueue.MaxQueueByteLength
                     || (HasEnoughPackets(vst.AudioStream, vst.AudioStreamIndex, vst.AudioPackets) &&
                         HasEnoughPackets(vst.VideoStream, vst.VideoStreamIndex, vst.VideoPackets) &&
                         HasEnoughPackets(vst.SubtitleStream, vst.SubtitleStreamIndex, vst.SubtitlePackets))))
                 {
-                    wait_mutex.Lock();
-                    vst.continue_read_thread.Wait(wait_mutex, 10);
-                    wait_mutex.Unlock();
+                    DecoderLock.Lock();
+                    vst.IsFrameDecoded.Wait(DecoderLock, 10);
+                    DecoderLock.Unlock();
                     continue;
                 }
 
@@ -1356,11 +1351,11 @@
                     if ((ret == ffmpeg.AVERROR_EOF || ffmpeg.avio_feof(inputContext->pb) != 0) && !vst.IsAtEndOfFile)
                     {
                         if (vst.VideoStreamIndex >= 0)
-                            vst.VideoPackets.EnqueueNull(vst.VideoStreamIndex);
+                            vst.VideoPackets.EnqueueEmptyPacket(vst.VideoStreamIndex);
                         if (vst.AudioStreamIndex >= 0)
-                            vst.AudioPackets.EnqueueNull(vst.AudioStreamIndex);
+                            vst.AudioPackets.EnqueueEmptyPacket(vst.AudioStreamIndex);
                         if (vst.SubtitleStreamIndex >= 0)
-                            vst.SubtitlePackets.EnqueueNull(vst.SubtitleStreamIndex);
+                            vst.SubtitlePackets.EnqueueEmptyPacket(vst.SubtitleStreamIndex);
 
                         vst.IsAtEndOfFile = true;
                     }
@@ -1368,9 +1363,9 @@
                     if (inputContext->pb != null && inputContext->pb->error != 0)
                         break;
 
-                    wait_mutex.Lock();
-                    vst.continue_read_thread.Wait(wait_mutex, 10);
-                    wait_mutex.Unlock();
+                    DecoderLock.Lock();
+                    vst.IsFrameDecoded.Wait(DecoderLock, 10);
+                    DecoderLock.Unlock();
                     continue;
                 }
                 else
@@ -1378,24 +1373,24 @@
                     vst.IsAtEndOfFile = false;
                 }
 
-                stream_start_time = inputContext->streams[pkt->stream_index]->start_time;
+                var stream_start_time = inputContext->streams[pkt->stream_index]->start_time;
                 pkt_ts = pkt->pts == ffmpeg.AV_NOPTS_VALUE ? pkt->dts : pkt->pts;
-                pkt_in_play_range = MediaDuration == ffmpeg.AV_NOPTS_VALUE ||
+                isPacketInPlayRange = MediaDuration == ffmpeg.AV_NOPTS_VALUE ||
                         (pkt_ts - (stream_start_time != ffmpeg.AV_NOPTS_VALUE ? stream_start_time : 0)) *
                         ffmpeg.av_q2d(inputContext->streams[pkt->stream_index]->time_base) -
                         (double)(MediaStartTimestamp != ffmpeg.AV_NOPTS_VALUE ? MediaStartTimestamp : 0) / 1000000
                         <= ((double)MediaDuration / 1000000);
 
-                if (pkt->stream_index == vst.AudioStreamIndex && pkt_in_play_range)
+                if (pkt->stream_index == vst.AudioStreamIndex && isPacketInPlayRange)
                 {
                     vst.AudioPackets.Enqueue(pkt);
                 }
-                else if (pkt->stream_index == vst.VideoStreamIndex && pkt_in_play_range
+                else if (pkt->stream_index == vst.VideoStreamIndex && isPacketInPlayRange
                          && (vst.VideoStream->disposition & ffmpeg.AV_DISPOSITION_ATTACHED_PIC) == 0)
                 {
                     vst.VideoPackets.Enqueue(pkt);
                 }
-                else if (pkt->stream_index == vst.SubtitleStreamIndex && pkt_in_play_range)
+                else if (pkt->stream_index == vst.SubtitleStreamIndex && isPacketInPlayRange)
                 {
                     vst.SubtitlePackets.Enqueue(pkt);
                 }
@@ -1418,7 +1413,7 @@
                 SDL_PushEvent(ev);
             }
 
-            wait_mutex.Destroy();
+            DecoderLock.Destroy();
             return 0;
         }
 

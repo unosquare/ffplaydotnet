@@ -19,9 +19,9 @@ namespace Unosquare.FFplayDotNet
         public const int FF_ALLOC_EVENT = (SDL.SDL_USEREVENT);
         public const int FF_QUIT_EVENT = (SDL.SDL_USEREVENT + 2);
 
-        public const int MaxQueueSize = (15 * 1024 * 1024);
+        
         public const int MinFrames = 25;
-        public const int ExternalClockMinFrame = 2;
+        public const int ExternalClockMinFrames = 2;
         public const int ExternalClockMaxFrames = 10;
 
         public const double AvSyncThresholdMin = 0.04;

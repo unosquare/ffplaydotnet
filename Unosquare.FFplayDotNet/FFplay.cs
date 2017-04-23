@@ -57,16 +57,16 @@
         internal int loop { get; set; } = 1;
 
         /// <summary>
-        /// drop frames when cpu is too slow.
+        /// Enable dropping frames when cpu is too slow.
         /// Port of framedrop
         /// </summary>
-        internal bool framedrop { get; set; } = true;
+        internal bool EnableFrameDrops { get; set; } = true;
 
         /// <summary>
-        /// don't limit the input buffer size (useful with realtime streams).
+        /// If set to > 0, don't limit the input buffer size (useful with realtime streams).
         /// Port of infinite_buffer
         /// </summary>
-        internal int infinite_buffer { get; set; } = -1;
+        internal int EnableInfiniteBuffer { get; set; } = -1;
 
         public string AudioCodecName { get; private set; }
         public string SubtitleCodecName { get; private set; }
@@ -80,7 +80,8 @@
         internal Task MediaReadTask;
 
         internal readonly InterruptCallbackDelegate decode_interrupt_delegate = new InterruptCallbackDelegate(decode_interrupt_cb);
-        internal readonly LockManagerCallbackDelegate lock_manager_delegate = new LockManagerCallbackDelegate(lockmgr);
+        internal readonly LockManagerCallbackDelegate lock_manager_delegate = new LockManagerCallbackDelegate(HandleLockOperation);
+
         #endregion
 
         public delegate int InterruptCallbackDelegate(void* opaque);
@@ -92,19 +93,36 @@
         public FFplay()
         {
             Helper.RegisterFFmpeg();
+
+            #region init_opts
+
+            var codecOpts = new AVDictionary();
+            CodecOptions = &codecOpts;
+
+            var formatOpts = new AVDictionary();
+            FormatOptions = &formatOpts;
+
+            #endregion
         }
 
-        static int lockmgr(void** mtx, AVLockOp op)
+        /// <summary>
+        /// Locking Handler for internal use of FFmpeg.
+        /// Port of lockmgr
+        /// </summary>
+        /// <param name="mutexReference">The mutex reference.</param>
+        /// <param name="lockOperation">The lock operation.</param>
+        /// <returns></returns>
+        private static int HandleLockOperation(void** mutexReference, AVLockOp lockOperation)
         {
-            switch (op)
+            switch (lockOperation)
             {
                 case AVLockOp.AV_LOCK_CREATE:
                     {
                         var mutex = new MonitorLock();
                         var mutexHandle = GCHandle.Alloc(mutex, GCHandleType.Pinned);
-                        *mtx = (void*)mutexHandle.AddrOfPinnedObject();
+                        *mutexReference = (void*)mutexHandle.AddrOfPinnedObject();
 
-                        if (*mtx == null)
+                        if (*mutexReference == null)
                         {
                             ffmpeg.av_log(null, ffmpeg.AV_LOG_FATAL, $"SDL_CreateMutex(): {SDL_GetError()}\n");
                             return 1;
@@ -113,25 +131,26 @@
                     }
                 case AVLockOp.AV_LOCK_OBTAIN:
                     {
-                        var mutex = GCHandle.FromIntPtr(new IntPtr(*mtx)).Target as MonitorLock;
+                        var mutex = GCHandle.FromIntPtr(new IntPtr(*mutexReference)).Target as MonitorLock;
                         mutex.Lock();
                         return 0;
                     }
                 case AVLockOp.AV_LOCK_RELEASE:
                     {
-                        var mutex = GCHandle.FromIntPtr(new IntPtr(*mtx)).Target as MonitorLock;
+                        var mutex = GCHandle.FromIntPtr(new IntPtr(*mutexReference)).Target as MonitorLock;
                         mutex.Unlock();
                         return 0;
                     }
                 case AVLockOp.AV_LOCK_DESTROY:
                     {
-                        var mutexHandle = GCHandle.FromIntPtr(new IntPtr(*mtx));
+                        var mutexHandle = GCHandle.FromIntPtr(new IntPtr(*mutexReference));
                         (mutexHandle.Target as MonitorLock)?.Destroy();
                         mutexHandle.Free();
 
                         return 0;
                     }
             }
+
             return 1;
         }
 
@@ -143,7 +162,7 @@
         public void Run(string filename, string fromatName = null)
         {
             ffmpeg.avformat_network_init();
-            init_opts();
+
 
             if (string.IsNullOrWhiteSpace(fromatName) == false)
             {
@@ -203,8 +222,6 @@
             //}
         }
 
-        public static int realloc_texture(SDL_Texture texture, uint new_format, int new_width, int new_height, uint blendmode, int init_texture) { return 0; }
-
         public static void calculate_display_rect(SDL_Rect rect, int scr_xleft, int scr_ytop, int scr_width, int scr_height, int pic_width, int pic_height, AVRational pic_sar)
         {
             double aspect_ratio;
@@ -234,68 +251,46 @@
             rect.h = Math.Max(height, 1);
         }
 
-        public int upload_texture(SDL_Texture tex, AVFrame* frame, SwsContext** img_convert_ctx)
+        public int upload_texture(MediaState mediaState, SDL_Texture tex, AVFrame* frame)
         {
-            int ret = 0;
-
-            switch ((AVPixelFormat)frame->format)
+            fixed (SwsContext** scalerReference = &mediaState.VideoScaler)
             {
-                case AVPixelFormat.AV_PIX_FMT_YUV420P:
-                    ret = SDL_UpdateYUVTexture(tex, null, frame->data[0], frame->linesize[0],
-                                                          frame->data[1], frame->linesize[1],
-                                                          frame->data[2], frame->linesize[2]);
-                    break;
-                case AVPixelFormat.AV_PIX_FMT_BGRA:
-                    ret = SDL_UpdateTexture(tex, null, frame->data[0], frame->linesize[0]);
-                    break;
 
-                default:
-                    *img_convert_ctx = ffmpeg.sws_getCachedContext(*img_convert_ctx,
-                        frame->width, frame->height, (AVPixelFormat)frame->format, frame->width, frame->height,
-                        AVPixelFormat.AV_PIX_FMT_BGRA, VideoScalerFlags, null, null, null);
-                    if (*img_convert_ctx != null)
-                    {
-                        byte** pixels = null;
-                        int pitch = 0;
-                        if (SDL_LockTexture(tex, null, pixels, &pitch) == 0)
-                        {
-                            var sourceData0 = frame->data[0];
-                            var sourceStride = frame->linesize[0];
+                if ((AVPixelFormat)frame->format == AVPixelFormat.AV_PIX_FMT_BGRA)
+                {
+                    return SDL_UpdateTexture(tex, null, frame->data[0], frame->linesize[0]);
+                }
+                else
+                {
+                    *scalerReference = ffmpeg.sws_getCachedContext(*scalerReference,
+                            frame->width, frame->height, (AVPixelFormat)frame->format, frame->width, frame->height,
+                            AVPixelFormat.AV_PIX_FMT_BGRA, VideoScalerFlags, null, null, null);
 
-                            // TODO: pixels and pitch must be filled by the prior function
-                            ffmpeg.sws_scale(*img_convert_ctx,
-                                &sourceData0, &sourceStride, 0, frame->height,
-                                pixels, &pitch);
-                            SDL_UnlockTexture(tex);
-                        }
-                    }
-                    else
+                    if (*scalerReference == null)
                     {
                         ffmpeg.av_log(null, ffmpeg.AV_LOG_FATAL, "Cannot initialize the conversion context\n");
-                        ret = -1;
+                        return -1;
                     }
-                    break;
+
+                    byte** targetData0 = null;
+                    int targetStride = 0;
+
+                    if (SDL_LockTexture(tex, null, targetData0, &targetStride) == 0)
+                    {
+                        var sourceScan0 = frame->data[0];
+                        var sourceStride = frame->linesize[0];
+
+                        // TODO: pixels and pitch must be filled by the prior function
+                        ffmpeg.sws_scale(*scalerReference,
+                            &sourceScan0, &sourceStride, 0, frame->height,
+                            targetData0, &targetStride);
+
+                        SDL_UnlockTexture(tex);
+                    }
+
+                    return 0;
+                }
             }
-            return ret;
-        }
-
-        private void init_opts()
-        {
-            var codecOpts = new AVDictionary();
-            CodecOptions = &codecOpts;
-
-            var formatOpts = new AVDictionary();
-            FormatOptions = &formatOpts;
-        }
-
-        private void uninit_opts()
-        {
-            fixed (AVDictionary** optionsPtr = &FormatOptions)
-                ffmpeg.av_dict_free(optionsPtr);
-
-            fixed (AVDictionary** optionsPtr = &CodecOptions)
-                ffmpeg.av_dict_free(optionsPtr);
-
         }
 
         private void do_exit(MediaState vst)
@@ -316,7 +311,7 @@
 
             ffmpeg.av_lockmgr_register(null);
 
-            uninit_opts();
+            // uninit_opts(); // NOTE: this is not rquired. Options are managed objects
 
             ffmpeg.avformat_network_deinit();
 
@@ -495,29 +490,19 @@
             SDL_RenderPresent(renderer);
         }
 
-        private void alloc_picture(MediaState vst)
+        /// <summary>
+        /// Allocs the picture.
+        /// Port of alloc_picture
+        /// </summary>
+        /// <param name="mediaState">State of the media.</param>
+        private void alloc_picture(MediaState mediaState)
         {
-            var vp = new FrameHolder();
-            uint sdl_format;
-            vp = vst.VideoQueue.Frames[vst.VideoQueue.WriteIndex];
-            video_open(vst, vp);
-            if (vp.format == (int)AVPixelFormat.AV_PIX_FMT_YUV420P)
-                sdl_format = SDL_PIXELFORMAT_YV12;
-            else
-                sdl_format = SDL_PIXELFORMAT_ARGB8888;
+            var videoFrame = mediaState.VideoQueue.Frames[mediaState.VideoQueue.WriteIndex];
+            video_open(mediaState, videoFrame);
 
-            if (realloc_texture(vp.bmp, sdl_format, vp.PictureWidth, vp.PictureHeight, SDL_BLENDMODE_NONE, 0) < 0)
+            mediaState.VideoQueue.SignalDoneWriting(() =>
             {
-                ffmpeg.av_log(null, ffmpeg.AV_LOG_FATAL,
-                       $"Error: the video system does not support an image\n" +
-                                $"size of {vp.PictureWidth}x{vp.PictureHeight} pixels. Try using -lowres or -vf \"scale=w:h\"\n" +
-                                "to reduce the image size.\n");
-                do_exit(vst);
-            }
-
-            vst.VideoQueue.SignalDoneWriting(() =>
-            {
-                vp.IsAllocated = true;
+                videoFrame.IsAllocated = true;
             });
         }
 
@@ -579,7 +564,7 @@
                         var nextvp = vst.VideoQueue.Next;
                         duration = vst.ComputeVideoFrameDuration(currentVideoFrame, nextvp);
                         if (!vst.IsFrameStepping
-                            && (framedrop)
+                            && (EnableFrameDrops)
                             && time > vst.frame_timer + duration)
                         {
                             vst.frame_drops_late++;
@@ -766,20 +751,19 @@
                 videoFrame.PictureHeight = sourceFrame->height;
                 videoFrame.format = sourceFrame->format;
 
-
                 EventQueue.PushEvent(this, MediaEventAction.AllocatePicture);
 
                 vst.VideoQueue.SyncLock.Lock();
-
-                while (!videoFrame.IsAllocated && !vst.VideoPackets.IsAborted)
-                    vst.VideoQueue.IsDoneWriting.Wait(vst.VideoQueue.SyncLock);
-
-                if (vst.VideoPackets.IsAborted && EventQueue.CountEvents(MediaEventAction.AllocatePicture) != 1)
                 {
-                    while (!videoFrame.IsAllocated && !vst.IsAbortRequested)
+                    while (!videoFrame.IsAllocated && !vst.VideoPackets.IsAborted)
                         vst.VideoQueue.IsDoneWriting.Wait(vst.VideoQueue.SyncLock);
-                }
 
+                    if (vst.VideoPackets.IsAborted && EventQueue.CountEvents(MediaEventAction.AllocatePicture) != 1)
+                    {
+                        while (!videoFrame.IsAllocated && !vst.IsAbortRequested)
+                            vst.VideoQueue.IsDoneWriting.Wait(vst.VideoQueue.SyncLock);
+                    }
+                }
                 vst.VideoQueue.SyncLock.Unlock();
 
                 if (vst.VideoPackets.IsAborted)
@@ -800,7 +784,7 @@
             return 0;
         }
 
-        #region Decoding Tasks Queue Frames (Audio, video, subtitles)
+        #region Decoding Tasks: Frames Queues for audio, video, and subtitles
 
         /// <summary>
         /// Continuously decodes video frames from the video frame queue
@@ -1117,8 +1101,8 @@
                 goto fail;
             }
 
-            if (infinite_buffer < 0 && vst.IsMediaRealtime)
-                infinite_buffer = 1;
+            if (EnableInfiniteBuffer < 0 && vst.IsMediaRealtime)
+                EnableInfiniteBuffer = 1;
 
             while (true)
             {
@@ -1210,7 +1194,7 @@
                     vst.EnqueuePacketAttachments = false;
                 }
 
-                if (infinite_buffer < 1 &&
+                if (EnableInfiniteBuffer < 1 &&
                       (vst.AudioPackets.ByteLength + vst.VideoPackets.ByteLength + vst.SubtitlePackets.ByteLength > PacketQueue.MaxQueueByteLength
                     || (vst.AudioPackets.HasEnoughPackets(vst.AudioStream, vst.AudioStreamIndex) &&
                         vst.VideoPackets.HasEnoughPackets(vst.VideoStream, vst.VideoStreamIndex) &&

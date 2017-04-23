@@ -612,7 +612,7 @@
             AudioQueue.Clear();
             SubtitleQueue.Clear();
             IsFrameDecoded.Dispose();
-            
+
             ffmpeg.sws_freeContext(VideoScaler);
             ffmpeg.sws_freeContext(SubtitleScaler);
 
@@ -832,8 +832,8 @@
                                     sp.PictureHeight = vp.PictureHeight;
                                 }
 
-                                if (FFplay.realloc_texture(sub_texture, SDL_PIXELFORMAT_ARGB8888, sp.PictureWidth, sp.PictureHeight, SDL_BLENDMODE_BLEND, 1) < 0)
-                                    return;
+                                //if (FFplay.realloc_texture(sub_texture, SDL_PIXELFORMAT_ARGB8888, sp.PictureWidth, sp.PictureHeight, SDL_BLENDMODE_BLEND, 1) < 0)
+                                //    return;
 
                                 for (var i = 0; i < sp.Subtitle.num_rects; i++)
                                 {
@@ -880,11 +880,8 @@
 
                 if (!vp.IsUploaded)
                 {
-                    fixed (SwsContext** ctx = &VideoScaler)
-                    {
-                        if (Player.upload_texture(vp.bmp, vp.DecodedFrame, ctx) < 0)
-                            return;
-                    }
+                    if (Player.upload_texture(this, vp.bmp, vp.DecodedFrame) < 0)
+                        return;
 
                     vp.IsUploaded = true;
                 }

@@ -60,8 +60,7 @@
 
 
         public LockCondition IsFrameDecoded;
-        public SDL_Texture vis_texture;
-        public SDL_Texture sub_texture;
+        public SDL_Texture subtitleTexture;
 
         internal FFplay Player { get; private set; }
 
@@ -392,10 +391,8 @@
                     AudioDecoder.Abort(AudioQueue);
                     SDL_CloseAudio();
                     AudioDecoder.ReleaseUnmanaged();
-                    fixed (SwrContext** vst_swr_ctx = &AudioScaler)
-                    {
-                        ffmpeg.swr_free(vst_swr_ctx);
-                    }
+                    fixed (SwrContext** audioScalerReference = &AudioScaler)
+                        ffmpeg.swr_free(audioScalerReference);
 
                     ffmpeg.av_freep((void*)ResampledAudioBuffer);
                     ResampledAudioBufferLength = 0;
@@ -529,7 +526,7 @@
             switch (codecContext->codec_type)
             {
                 case AVMediaType.AVMEDIA_TYPE_AUDIO:
-                    if ((result = Player.audio_open(this, channelLayout, channelCount, sampleRate, AudioOutputParams)) < 0)
+                    if ((result = Player.audio_open(channelLayout, channelCount, sampleRate, AudioOutputParams)) < 0)
                         goto fail;
 
                     AudioHardwareBufferSize = result;
@@ -616,10 +613,8 @@
             ffmpeg.sws_freeContext(VideoScaler);
             ffmpeg.sws_freeContext(SubtitleScaler);
 
-            if (vis_texture != null)
-                SDL_DestroyTexture(vis_texture);
-            if (sub_texture != null)
-                SDL_DestroyTexture(sub_texture);
+            if (subtitleTexture != null)
+                SDL_DestroyTexture(subtitleTexture);
         }
 
         /// <summary>
@@ -673,8 +668,8 @@
                 audioFrame.DecodedFrame->sample_rate != AudioInputParams.Frequency ||
                 (wantedSampleCount != audioFrame.DecodedFrame->nb_samples && AudioScaler == null))
             {
-                fixed (SwrContext** vst_swr_ctx = &AudioScaler)
-                    ffmpeg.swr_free(vst_swr_ctx);
+                fixed (SwrContext** audioScalerReference = &AudioScaler)
+                    ffmpeg.swr_free(audioScalerReference);
 
                 AudioScaler = ffmpeg.swr_alloc_set_opts(
                     null,
@@ -689,8 +684,8 @@
                            "{ffmpeg.av_frame_get_channels(af.frame)} channels to {audio_tgt.freq} Hz {ffmpeg.av_get_sample_fmt_name(audio_tgt.fmt)} {audio_tgt.channels} " +
                            "channels!\n");
 
-                    fixed (SwrContext** audoScalerPointer = &AudioScaler)
-                        ffmpeg.swr_free(audoScalerPointer);
+                    fixed (SwrContext** audoScalerReference = &AudioScaler)
+                        ffmpeg.swr_free(audoScalerReference);
 
                     return -1;
                 }
@@ -741,8 +736,8 @@
                 {
                     ffmpeg.av_log(null, ffmpeg.AV_LOG_WARNING, "audio buffer is probably too small\n");
                     if (ffmpeg.swr_init(AudioScaler) < 0)
-                        fixed (SwrContext** vst_swr_ctx = &AudioScaler)
-                            ffmpeg.swr_free(vst_swr_ctx);
+                        fixed (SwrContext** audioScalerReference = &AudioScaler)
+                            ffmpeg.swr_free(audioScalerReference);
                 }
 
                 RenderAudioBuffer = ResampledAudioBuffer;
@@ -854,7 +849,7 @@
                                         return;
                                     }
 
-                                    if (SDL_LockTexture(sub_texture, sub_rect, pixels, &pitch) == 0)
+                                    if (SDL_LockTexture(subtitleTexture, sub_rect, pixels, &pitch) == 0)
                                     {
                                         var sourceData0 = sub_rect->data[0];
                                         var sourceStride = sub_rect->linesize[0];
@@ -862,7 +857,7 @@
                                         ffmpeg.sws_scale(SubtitleScaler, &sourceData0, &sourceStride,
                                               0, sub_rect->h, pixels, &pitch);
 
-                                        SDL_UnlockTexture(sub_texture);
+                                        SDL_UnlockTexture(subtitleTexture);
                                     }
                                 }
 
@@ -880,7 +875,7 @@
 
                 if (!vp.IsUploaded)
                 {
-                    if (Player.upload_texture(this, vp.bmp, vp.DecodedFrame) < 0)
+                    if (Player.upload_texture(vp.bmp, vp.DecodedFrame) < 0)
                         return;
 
                     vp.IsUploaded = true;
@@ -890,7 +885,7 @@
 
                 if (sp != null)
                 {
-                    SDL_RenderCopy(Player.renderer, sub_texture, null, rect);
+                    SDL_RenderCopy(Player.renderer, subtitleTexture, null, rect);
                 }
             }
         }

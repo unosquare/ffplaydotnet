@@ -20,7 +20,12 @@
         /// <summary>
         /// The decoded frame. Port of *frame
         /// </summary>
-        public AVFrame* DecodedFrame;
+        internal AVFrame* DecodedFrame;
+
+        /// <summary>
+        /// The decoded subtitle (if it is a subtitle frame)
+        /// </summary>
+        internal AVSubtitle Subtitle;
 
         /// <summary>
         /// Gets the type of the media of this frame.
@@ -28,13 +33,8 @@
         public AVMediaType MediaType { get; internal set; }
 
         /// <summary>
-        /// The decoded subtitle (if it is a subtitle frame)
-        /// </summary>
-        public AVSubtitle Subtitle;
-
-        /// <summary>
         /// The serial number of the last packet that
-        /// made up the frame
+        /// composed the frame
         /// </summary>
         public int Serial { get; internal set; }
         
@@ -51,7 +51,7 @@
         /// <summary>
         /// The byte position of the frame in the input file
         /// </summary>
-        public long BytePosition;
+        public long BytePosition { get; internal set; }
 
         public SDL_Texture bmp;
 

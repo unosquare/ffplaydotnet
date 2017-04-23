@@ -298,97 +298,6 @@
 
         }
 
-        static int check_stream_specifier(AVFormatContext* s, AVStream* st, string spec)
-        {
-            int ret = ffmpeg.avformat_match_stream_specifier(s, st, spec);
-            if (ret < 0)
-                ffmpeg.av_log(s, ffmpeg.AV_LOG_ERROR, $"Invalid stream specifier: {spec}.\n");
-            return ret;
-        }
-
-        static AVDictionary** setup_find_stream_info_opts(AVFormatContext* s, AVDictionary* codec_opts)
-        {
-            var orginalOpts = new AVDictionary();
-            var optsReference = &orginalOpts;
-            AVDictionary** opts = &optsReference;
-
-            if (s->nb_streams == 0) return null;
-
-            for (var i = 0; i < s->nb_streams; i++)
-            {
-                opts[i] = filter_codec_opts(codec_opts, s->streams[i]->codecpar->codec_id, s, s->streams[i], null);
-            }
-
-            return opts;
-        }
-
-        // TODO: https://github.com/FFmpeg/FFmpeg/blob/d7896e9b4228e5b7ffc7ef0d0f1cf145f518c819/cmdutils.c#L2002
-        static public AVDictionary* filter_codec_opts(AVDictionary* opts, AVCodecID codec_id, AVFormatContext* s, AVStream* st, AVCodec* codec)
-        {
-            AVDictionary* ret = null;
-            AVDictionaryEntry* t = null;
-            var flags = s->oformat != null ? ffmpeg.AV_OPT_FLAG_ENCODING_PARAM : ffmpeg.AV_OPT_FLAG_DECODING_PARAM;
-            char prefix = (char)0;
-            var cc = ffmpeg.avcodec_get_class();
-
-            if (codec == null)
-                codec = (s->oformat != null) ?
-                    ffmpeg.avcodec_find_encoder(codec_id) : ffmpeg.avcodec_find_decoder(codec_id);
-
-            switch (st->codecpar->codec_type)
-            {
-                case AVMediaType.AVMEDIA_TYPE_VIDEO:
-                    prefix = 'v';
-                    flags |= ffmpeg.AV_OPT_FLAG_VIDEO_PARAM;
-                    break;
-                case AVMediaType.AVMEDIA_TYPE_AUDIO:
-                    prefix = 'a';
-                    flags |= ffmpeg.AV_OPT_FLAG_AUDIO_PARAM;
-                    break;
-                case AVMediaType.AVMEDIA_TYPE_SUBTITLE:
-                    prefix = 's';
-                    flags |= ffmpeg.AV_OPT_FLAG_SUBTITLE_PARAM;
-                    break;
-            }
-
-            //E.g. -codec:a:1 ac3 contains the a:1 stream specifier
-            //E.g. the stream specifier in -b:a 128k
-            while ((t = ffmpeg.av_dict_get(opts, "", t, ffmpeg.AV_DICT_IGNORE_SUFFIX)) != null)
-            {
-                var key = Native.BytePtrToString(t->key);
-                if (string.IsNullOrWhiteSpace(key)) continue;
-
-                var value = Native.BytePtrToString(t->value);
-                var keyParts = key.Split(new char[] { ':' }, 2);
-
-                /* check stream specification in opt name */
-                if (keyParts.Length > 1)
-                {
-                    switch (check_stream_specifier(s, st, keyParts[1]))
-                    {
-                        case 1: key = keyParts[0]; break;
-                        case 0: continue;
-                        default: continue;
-                    }
-                }
-
-
-                if (ffmpeg.av_opt_find(&cc, key, null, flags, ffmpeg.AV_OPT_SEARCH_FAKE_OBJ) != null ||
-                    codec == null ||
-                    (codec->priv_class != null &&
-                     ffmpeg.av_opt_find(&codec->priv_class, key, null, flags, ffmpeg.AV_OPT_SEARCH_FAKE_OBJ) != null))
-                {
-                    ffmpeg.av_dict_set(&ret, key, value, 0);
-                }
-                else if (key[0] == prefix && keyParts.Length > 1 && ffmpeg.av_opt_find(&cc, keyParts[1], null, flags, ffmpeg.AV_OPT_SEARCH_FAKE_OBJ) != null)
-                {
-                    ffmpeg.av_dict_set(&ret, key + 1, value, 0);
-                }
-            }
-
-            return ret;
-        }
-
         private void do_exit(MediaState vst)
         {
 
@@ -476,6 +385,101 @@
             vst.PictureHeight = h;
             return 0;
         }
+
+        public int audio_open(MediaState vst, long wantedChannelLayout, int wantedChannelCount, int wantedSampleRate, AudioParams audioHardware)
+        {
+            var wantedAudioSpec = new SDL_AudioSpec();
+            var spec = new SDL_AudioSpec();
+
+            var channelCountOptions = new int[] { 0, 0, 1, 6, 2, 6, 4, 6 };
+            var sampleRateOptions = new int[] { 0, 44100, 48000, 96000, 192000 };
+            int sampleRateId = sampleRateOptions.Length - 1;
+
+            var audioChannelsEnv = SDL_getenv("SDL_AUDIO_CHANNELS");
+
+            if (string.IsNullOrWhiteSpace(audioChannelsEnv) == false)
+            {
+                wantedChannelCount = int.Parse(audioChannelsEnv);
+                wantedChannelLayout = ffmpeg.av_get_default_channel_layout(wantedChannelCount);
+            }
+
+            if (wantedChannelLayout == 0 || wantedChannelCount != ffmpeg.av_get_channel_layout_nb_channels((ulong)wantedChannelLayout))
+            {
+                wantedChannelLayout = ffmpeg.av_get_default_channel_layout(wantedChannelCount);
+                wantedChannelLayout &= ~ffmpeg.AV_CH_LAYOUT_STEREO_DOWNMIX;
+            }
+
+            wantedChannelCount = ffmpeg.av_get_channel_layout_nb_channels((ulong)wantedChannelLayout);
+            wantedAudioSpec.channels = wantedChannelCount;
+            wantedAudioSpec.freq = wantedSampleRate;
+            if (wantedAudioSpec.freq <= 0 || wantedAudioSpec.channels <= 0)
+            {
+                ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, "Invalid sample rate or channel count!\n");
+                return -1;
+            }
+
+            while (sampleRateId != 0 && sampleRateOptions[sampleRateId] >= wantedAudioSpec.freq)
+                sampleRateId--;
+
+            wantedAudioSpec.format = AUDIO_S16SYS;
+            wantedAudioSpec.silence = 0;
+            wantedAudioSpec.samples = Math.Max(
+                Constants.SDL_AUDIO_MIN_BUFFER_SIZE,
+                2 << ffmpeg.av_log2(Convert.ToUInt32(wantedAudioSpec.freq / Constants.SDL_AUDIO_MAX_CALLBACKS_PER_SEC)));
+            wantedAudioSpec.callback = new SDL_AudioCallback(sdl_audio_callback);
+            wantedAudioSpec.userdata = vst;
+
+            while (SDL_OpenAudio(wantedAudioSpec, spec) < 0)
+            {
+                ffmpeg.av_log(null, ffmpeg.AV_LOG_WARNING, $"SDL_OpenAudio ({wantedAudioSpec.channels} channels, {wantedAudioSpec.freq} Hz): {SDL_GetError()}\n");
+
+                wantedAudioSpec.channels = channelCountOptions[Math.Min(7, wantedAudioSpec.channels)];
+                if (wantedAudioSpec.channels == 0)
+                {
+                    wantedAudioSpec.freq = sampleRateOptions[sampleRateId--];
+                    wantedAudioSpec.channels = wantedChannelCount;
+                    if (wantedAudioSpec.freq == 0)
+                    {
+                        ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR,
+                               "No more combinations to try, audio open failed\n");
+                        return -1;
+                    }
+                }
+                wantedChannelLayout = ffmpeg.av_get_default_channel_layout(wantedAudioSpec.channels);
+            }
+            if (spec.format != AUDIO_S16SYS)
+            {
+                ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR,
+                       $"SDL advised audio format {spec.format} is not supported!\n");
+                return -1;
+            }
+            if (spec.channels != wantedAudioSpec.channels)
+            {
+                wantedChannelLayout = ffmpeg.av_get_default_channel_layout(spec.channels);
+                if (wantedChannelLayout == 0)
+                {
+                    ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR,
+                           $"SDL advised channel count {spec.channels} is not supported!\n");
+                    return -1;
+                }
+            }
+
+            audioHardware.SampleFormat = AVSampleFormat.AV_SAMPLE_FMT_S16;
+            audioHardware.Frequency = spec.freq;
+            audioHardware.ChannelLayout = wantedChannelLayout;
+            audioHardware.ChannelCount = spec.channels;
+            audioHardware.SampleBufferLength = ffmpeg.av_samples_get_buffer_size(null, audioHardware.ChannelCount, 1, audioHardware.SampleFormat, 1);
+            audioHardware.BytesPerSecond = ffmpeg.av_samples_get_buffer_size(null, audioHardware.ChannelCount, audioHardware.Frequency, audioHardware.SampleFormat, 1);
+
+            if (audioHardware.BytesPerSecond <= 0 || audioHardware.SampleBufferLength <= 0)
+            {
+                ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, "av_samples_get_buffer_size failed\n");
+                return -1;
+            }
+
+            return spec.size;
+        }
+
 
         private void video_display(MediaState vst)
         {
@@ -725,100 +729,6 @@
 
                 vst.ExternalClock.SyncTo(vst.AudioClock);
             }
-        }
-
-        public int audio_open(MediaState vst, long wantedChannelLayout, int wantedChannelCount, int wantedSampleRate, AudioParams audioHardware)
-        {
-            var wanted_spec = new SDL_AudioSpec();
-            var spec = new SDL_AudioSpec();
-
-            var channelCountOptions = new int[] { 0, 0, 1, 6, 2, 6, 4, 6 };
-            var sampleRateOptions = new int[] { 0, 44100, 48000, 96000, 192000 };
-            int sampleRateId = sampleRateOptions.Length - 1;
-
-            var audioChannelsEnv = SDL_getenv("SDL_AUDIO_CHANNELS");
-
-            if (string.IsNullOrWhiteSpace(audioChannelsEnv) == false)
-            {
-                wantedChannelCount = int.Parse(audioChannelsEnv);
-                wantedChannelLayout = ffmpeg.av_get_default_channel_layout(wantedChannelCount);
-            }
-
-            if (wantedChannelLayout == 0 || wantedChannelCount != ffmpeg.av_get_channel_layout_nb_channels((ulong)wantedChannelLayout))
-            {
-                wantedChannelLayout = ffmpeg.av_get_default_channel_layout(wantedChannelCount);
-                wantedChannelLayout &= ~ffmpeg.AV_CH_LAYOUT_STEREO_DOWNMIX;
-            }
-
-            wantedChannelCount = ffmpeg.av_get_channel_layout_nb_channels((ulong)wantedChannelLayout);
-            wanted_spec.channels = wantedChannelCount;
-            wanted_spec.freq = wantedSampleRate;
-            if (wanted_spec.freq <= 0 || wanted_spec.channels <= 0)
-            {
-                ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, "Invalid sample rate or channel count!\n");
-                return -1;
-            }
-
-            while (sampleRateId != 0 && sampleRateOptions[sampleRateId] >= wanted_spec.freq)
-                sampleRateId--;
-
-            wanted_spec.format = AUDIO_S16SYS;
-            wanted_spec.silence = 0;
-            wanted_spec.samples = Math.Max(
-                Constants.SDL_AUDIO_MIN_BUFFER_SIZE,
-                2 << ffmpeg.av_log2(Convert.ToUInt32(wanted_spec.freq / Constants.SDL_AUDIO_MAX_CALLBACKS_PER_SEC)));
-            wanted_spec.callback = new SDL_AudioCallback(sdl_audio_callback);
-            wanted_spec.userdata = vst;
-
-            while (SDL_OpenAudio(wanted_spec, spec) < 0)
-            {
-                ffmpeg.av_log(null, ffmpeg.AV_LOG_WARNING, $"SDL_OpenAudio ({wanted_spec.channels} channels, {wanted_spec.freq} Hz): {SDL_GetError()}\n");
-
-                wanted_spec.channels = channelCountOptions[Math.Min(7, wanted_spec.channels)];
-                if (wanted_spec.channels == 0)
-                {
-                    wanted_spec.freq = sampleRateOptions[sampleRateId--];
-                    wanted_spec.channels = wantedChannelCount;
-                    if (wanted_spec.freq == 0)
-                    {
-                        ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR,
-                               "No more combinations to try, audio open failed\n");
-                        return -1;
-                    }
-                }
-                wantedChannelLayout = ffmpeg.av_get_default_channel_layout(wanted_spec.channels);
-            }
-            if (spec.format != AUDIO_S16SYS)
-            {
-                ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR,
-                       $"SDL advised audio format {spec.format} is not supported!\n");
-                return -1;
-            }
-            if (spec.channels != wanted_spec.channels)
-            {
-                wantedChannelLayout = ffmpeg.av_get_default_channel_layout(spec.channels);
-                if (wantedChannelLayout == 0)
-                {
-                    ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR,
-                           $"SDL advised channel count {spec.channels} is not supported!\n");
-                    return -1;
-                }
-            }
-
-            audioHardware.SampleFormat = AVSampleFormat.AV_SAMPLE_FMT_S16;
-            audioHardware.Frequency = spec.freq;
-            audioHardware.ChannelLayout = wantedChannelLayout;
-            audioHardware.ChannelCount = spec.channels;
-            audioHardware.SampleBufferLength = ffmpeg.av_samples_get_buffer_size(null, audioHardware.ChannelCount, 1, audioHardware.SampleFormat, 1);
-            audioHardware.BytesPerSecond = ffmpeg.av_samples_get_buffer_size(null, audioHardware.ChannelCount, audioHardware.Frequency, audioHardware.SampleFormat, 1);
-
-            if (audioHardware.BytesPerSecond <= 0 || audioHardware.SampleBufferLength <= 0)
-            {
-                ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, "av_samples_get_buffer_size failed\n");
-                return -1;
-            }
-
-            return spec.size;
         }
 
         static int decode_interrupt_cb(void* opaque)
@@ -1081,7 +991,7 @@
 
             ffmpeg.av_format_inject_global_side_data(inputContext);
 
-            opts = setup_find_stream_info_opts(inputContext, CodecOptions);
+            opts = Helper.RetrieveStreamOptions(inputContext, CodecOptions);
             inputStreamCount = Convert.ToInt32(inputContext->nb_streams);
             err = ffmpeg.avformat_find_stream_info(inputContext, opts);
             for (i = 0; i < inputStreamCount; i++)

@@ -440,10 +440,10 @@
             string forcedCodecName = null;
             AVDictionaryEntry* kvp = null;
 
-            int sample_rate = 0;
-            int channelCount = 0;
-            long channelLayout = 0;
-            int result = 0;
+            var sampleRate = 0;
+            var channelCount = 0;
+            var channelLayout = 0L;
+            var result = 0;
 
             int lowResIndex = Convert.ToInt32(Player.EnableLowRes);
             if (streamIndex < 0 || streamIndex >= ic->nb_streams)
@@ -500,7 +500,7 @@
             if ((decoder->capabilities & ffmpeg.AV_CODEC_CAP_DR1) != 0)
                 codecContext->flags |= ffmpeg.CODEC_FLAG_EMU_EDGE;
 
-            var opts = FFplay.filter_codec_opts(Player.CodecOptions, codecContext->codec_id, ic, ic->streams[streamIndex], decoder);
+            var opts = Helper.FilterCodecOptions(Player.CodecOptions, codecContext->codec_id, ic, ic->streams[streamIndex], decoder);
 
             if (ffmpeg.av_dict_get(opts, "threads", null, 0) == null)
                 ffmpeg.av_dict_set(&opts, "threads", "auto", 0);
@@ -529,7 +529,7 @@
             switch (codecContext->codec_type)
             {
                 case AVMediaType.AVMEDIA_TYPE_AUDIO:
-                    if ((result = Player.audio_open(this, channelLayout, channelCount, sample_rate, AudioOutputParams)) < 0)
+                    if ((result = Player.audio_open(this, channelLayout, channelCount, sampleRate, AudioOutputParams)) < 0)
                         goto fail;
 
                     AudioHardwareBufferSize = result;

@@ -236,6 +236,127 @@
             return errorMessage;
         }
 
+
+        /// <summary>
+        /// Checks the syntax of the stream specifier.
+        /// Port of check_stream_specifier
+        /// </summary>
+        /// <param name="format">The format.</param>
+        /// <param name="stream">The stream.</param>
+        /// <param name="streamSpec">The spec.</param>
+        /// <returns></returns>
+        unsafe public static int ValidateStreamSpecifier(AVFormatContext* format, AVStream* stream, string streamSpec)
+        {
+            var result = ffmpeg.avformat_match_stream_specifier(format, stream, streamSpec);
+            if (result < 0)
+                ffmpeg.av_log(format, ffmpeg.AV_LOG_ERROR, $"Invalid stream specifier: {streamSpec}.\n");
+
+            return result;
+        }
+
+        /// <summary>
+        /// Retrieves the Stream options dictionary.
+        /// Port of setup_find_stream_info_opts.
+        /// </summary>
+        /// <param name="format">The format.</param>
+        /// <param name="codecOptions">The codec options.</param>
+        /// <returns></returns>
+        unsafe public static AVDictionary** RetrieveStreamOptions(AVFormatContext* format, AVDictionary* codecOptions)
+        {
+            if (format->nb_streams == 0)
+                return null;
+
+            var orginalOpts = new AVDictionary();
+            var optsReference = &orginalOpts;
+            var streamOptions = &optsReference;
+
+            for (var i = 0; i < format->nb_streams; i++)
+                streamOptions[i] = FilterCodecOptions(codecOptions, format->streams[i]->codecpar->codec_id, format, format->streams[i], null);
+
+            return streamOptions;
+        }
+
+        /// <summary>
+        /// Retrieves a dictionary with the options for the specified codec.
+        /// Port of filter_codec_opts
+        /// </summary>
+        /// <param name="allOptions">The input options.</param>
+        /// <param name="codecId">The codec identifier.</param>
+        /// <param name="format">The format.</param>
+        /// <param name="stream">The stream.</param>
+        /// <param name="codec">The codec.</param>
+        /// <returns></returns>
+        unsafe public static AVDictionary* FilterCodecOptions(AVDictionary* allOptions, AVCodecID codecId, AVFormatContext* format, AVStream* stream, AVCodec* codec)
+        {
+            // TODO: https://github.com/FFmpeg/FFmpeg/blob/d7896e9b4228e5b7ffc7ef0d0f1cf145f518c819/cmdutils.c#L2002
+
+            AVDictionary* result = null;
+            AVDictionaryEntry* currentEntry = null;
+            var flags = format->oformat != null ?
+                ffmpeg.AV_OPT_FLAG_ENCODING_PARAM : ffmpeg.AV_OPT_FLAG_DECODING_PARAM;
+
+            var prefix = (char)0;
+            var cc = ffmpeg.avcodec_get_class();
+
+            if (codec == null)
+                codec = (format->oformat != null) ?
+                    ffmpeg.avcodec_find_encoder(codecId) : ffmpeg.avcodec_find_decoder(codecId);
+
+            switch (stream->codecpar->codec_type)
+            {
+                case AVMediaType.AVMEDIA_TYPE_VIDEO:
+                    prefix = 'v';
+                    flags |= ffmpeg.AV_OPT_FLAG_VIDEO_PARAM;
+                    break;
+                case AVMediaType.AVMEDIA_TYPE_AUDIO:
+                    prefix = 'a';
+                    flags |= ffmpeg.AV_OPT_FLAG_AUDIO_PARAM;
+                    break;
+                case AVMediaType.AVMEDIA_TYPE_SUBTITLE:
+                    prefix = 's';
+                    flags |= ffmpeg.AV_OPT_FLAG_SUBTITLE_PARAM;
+                    break;
+            }
+
+            //E.g. -codec:a:1 ac3 contains the a:1 stream specifier
+            //E.g. the stream specifier in -b:a 128k
+            while ((currentEntry = ffmpeg.av_dict_get(allOptions, "", currentEntry, ffmpeg.AV_DICT_IGNORE_SUFFIX)) != null)
+            {
+                var key = Native.BytePtrToString(currentEntry->key);
+                if (string.IsNullOrWhiteSpace(key)) continue;
+
+                var value = Native.BytePtrToString(currentEntry->value);
+                var keyParts = key.Split(new char[] { ':' }, 2);
+
+                /* check stream specification in opt name */
+                if (keyParts.Length > 1)
+                {
+                    switch (ValidateStreamSpecifier(format, stream, keyParts[1]))
+                    {
+                        case 1: key = keyParts[0]; break;
+                        case 0: continue;
+                        default: continue;
+                    }
+                }
+
+
+                if (ffmpeg.av_opt_find(&cc, key, null, flags, ffmpeg.AV_OPT_SEARCH_FAKE_OBJ) != null ||
+                    codec == null ||
+                    (codec->priv_class != null &&
+                     ffmpeg.av_opt_find(&codec->priv_class, key, null, flags, ffmpeg.AV_OPT_SEARCH_FAKE_OBJ) != null))
+                {
+                    ffmpeg.av_dict_set(&result, key, value, 0);
+                }
+                else if (key[0] == prefix && keyParts.Length > 1 && ffmpeg.av_opt_find(&cc, keyParts[1], null, flags, ffmpeg.AV_OPT_SEARCH_FAKE_OBJ) != null)
+                {
+                    ffmpeg.av_dict_set(&result, key + 1, value, 0);
+                }
+            }
+
+            return result;
+        }
+
+
         /// <summary>
         /// Gets a value indicating whether we are running windows
         /// </summary>

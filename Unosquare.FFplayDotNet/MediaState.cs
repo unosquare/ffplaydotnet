@@ -389,9 +389,9 @@
             switch (codecParams->codec_type)
             {
                 case AVMediaType.AVMEDIA_TYPE_AUDIO:
-                    AudioDecoder.DecoderAbort(AudioQueue);
+                    AudioDecoder.Abort(AudioQueue);
                     SDL_CloseAudio();
-                    AudioDecoder.DecoderDestroy();
+                    AudioDecoder.ReleaseUnmanaged();
                     fixed (SwrContext** vst_swr_ctx = &AudioScaler)
                     {
                         ffmpeg.swr_free(vst_swr_ctx);
@@ -402,12 +402,12 @@
                     RenderAudioBuffer = null;
                     break;
                 case AVMediaType.AVMEDIA_TYPE_VIDEO:
-                    VideoDecoder.DecoderAbort(VideoQueue);
-                    VideoDecoder.DecoderDestroy();
+                    VideoDecoder.Abort(VideoQueue);
+                    VideoDecoder.ReleaseUnmanaged();
                     break;
                 case AVMediaType.AVMEDIA_TYPE_SUBTITLE:
-                    SubtitleDecoder.DecoderAbort(SubtitleQueue);
-                    SubtitleDecoder.DecoderDestroy();
+                    SubtitleDecoder.Abort(SubtitleQueue);
+                    SubtitleDecoder.ReleaseUnmanaged();
                     break;
                 default:
                     break;
@@ -551,18 +551,15 @@
                         AudioDecoder.StartPtsTimebase = AudioStream->time_base;
                     }
 
-                    if ((result = Player.decoder_start(AudioDecoder, Player.audio_thread, this)) < 0)
-                        goto final;
-
+                    AudioDecoder.Start(Player.audio_thread);
                     SDL_PauseAudio(0);
                     break;
+
                 case AVMediaType.AVMEDIA_TYPE_VIDEO:
                     VideoStreamIndex = streamIndex;
                     VideoStream = ic->streams[streamIndex];
                     VideoDecoder = new Decoder(this, codecContext, VideoPackets, IsFrameDecoded);
-                    if ((result = Player.decoder_start(VideoDecoder, Player.video_thread, this)) < 0)
-                        goto final;
-
+                    result = VideoDecoder.Start(Player.video_thread);
                     EnqueuePacketAttachments = true;
                     break;
 
@@ -570,14 +567,13 @@
                     SubtitleStreamIndex = streamIndex;
                     SubtitleStream = ic->streams[streamIndex];
                     SubtitleDecoder = new Decoder(this, codecContext, SubtitlePackets, IsFrameDecoded);
-
-                    if ((result = Player.decoder_start(SubtitleDecoder, Player.subtitle_thread, this)) < 0)
-                        goto final;
+                    result = SubtitleDecoder.Start(Player.audio_thread);
                     break;
 
                 default:
                     break;
             }
+
             goto final;
             fail:
             ffmpeg.avcodec_free_context(&codecContext);

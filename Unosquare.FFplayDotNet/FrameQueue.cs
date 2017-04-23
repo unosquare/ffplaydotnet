@@ -64,6 +64,11 @@ namespace Unosquare.FFplayDotNet
             IsDoneWriting.Dispose();
         }
 
+        public void SignalDoneWriting()
+        {
+            SignalDoneWriting(null);
+        }
+
         public void SignalDoneWriting(Action onAfterLock)
         {
             SyncLock.Lock();

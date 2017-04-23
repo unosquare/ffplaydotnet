@@ -2,11 +2,12 @@
 {
     using FFmpeg.AutoGen;
     using System;
-    using static Unosquare.FFplayDotNet.SDL;
+    using System.Threading.Tasks;
 
     /// <summary>
     /// A class that is used to decode Audio, Video, or Subtitle packets
-    /// into frames. Port of Decoder
+    /// into frames. 
+    /// Port of Decoder
     /// </summary>
     public unsafe partial class Decoder
     {
@@ -30,10 +31,17 @@
         /// </summary>
         private AVPacket CurrentPacket;
 
+        /// <summary>
+        /// The decoder task
+        /// Port of decoder_tid
+        /// </summary>
+        private Task DecoderTask;
+
+        /// <summary>
+        /// A lock condition that is signaled when the queue is empty
+        /// Port of *empty_queue_cond
+        /// </summary>
         private readonly LockCondition IsQueueEmpty;
-
-        #endregion
-
 
         /// <summary>
         /// The codec context.
@@ -41,7 +49,12 @@
         /// </summary>
         internal AVCodecContext* Codec;
 
+        /// <summary>
+        /// Gets the media state object associated with this decoder
+        /// </summary>
         internal MediaState MediaState { get; private set; }
+
+        #endregion
 
         #region Properties
 
@@ -53,20 +66,26 @@
 
         /// <summary>
         /// Gets a value indicating whether the input decoding has been completed
-        /// In other words, if there is no more packets to decode into frames.
+        /// In other words, if there is no more packets in the queue to decode into frames.
         /// Port of finished
         /// </summary>
         public bool IsFinished { get; private set; }
-        
-        
+
+        /// <summary>
+        /// Gets the start PTS.
+        /// Port of start_pts
+        /// </summary>
         public long StartPts { get; internal set; }
+
+        /// <summary>
+        /// Gets the start PTS timebase.
+        /// Port of start_pts_tb
+        /// </summary>
         public AVRational StartPtsTimebase { get; internal set; }
 
-        
-        public SDL_Thread DecoderThread;
-
-
         #endregion
+
+        #region Methods
 
         /// <summary>
         /// Initializes a new instance of the <see cref="Decoder"/> class.
@@ -85,12 +104,24 @@
         }
 
         /// <summary>
+        /// Starts the decoder thread with the given function signature
+        /// Port of decoder_start
+        /// </summary>
+        /// <param name="fn">The function.</param>
+        /// <returns></returns>
+        internal int Start(Action<MediaState> fn)
+        {
+            DecoderTask = Task.Run(() => { fn.Invoke(MediaState); });
+            return 0;
+        }
+
+        /// <summary>
         /// Decodes a video or audio frame
         /// Port of decoder_decode_frame
         /// </summary>
         /// <param name="frame">The frame.</param>
         /// <returns></returns>
-        public int DecodeFrame(AVFrame* frame)
+        public int Decode(AVFrame* frame)
         {
             return DecodeFrame(frame, null);
         }
@@ -101,7 +132,7 @@
         /// </summary>
         /// <param name="subtitle">The subtitle.</param>
         /// <returns></returns>
-        public int DecodeFrame(AVSubtitle* subtitle)
+        public int Decode(AVSubtitle* subtitle)
         {
             return DecodeFrame(null, subtitle);
         }
@@ -238,7 +269,11 @@
             return gotFrame;
         }
 
-        public void DecoderDestroy()
+        /// <summary>
+        /// Releases unmanaged resources including the Codec context and current packet
+        /// Port of decoder_destroy
+        /// </summary>
+        internal void ReleaseUnmanaged()
         {
             fixed (AVPacket* packetPtr = &CurrentPacket)
                 ffmpeg.av_packet_unref(packetPtr);
@@ -247,15 +282,22 @@
                 ffmpeg.avcodec_free_context(codecPtr);
         }
 
-        public void DecoderAbort(FrameQueue fq)
+        /// <summary>
+        /// Signals the frame queue to stop feeding frames for decoding
+        /// and waits for the associated decoder thread to exit.
+        /// Port of decoder_abort
+        /// </summary>
+        /// <param name="frameQueue">The frame queue.</param>
+        internal void Abort(FrameQueue frameQueue)
         {
             PacketQueue.Abort();
-            fq.SignalDoneWriting(null);
-            SDL_WaitThread(DecoderThread, null);
-            DecoderThread = null;
+            frameQueue.SignalDoneWriting();
+            DecoderTask.Wait();
+            DecoderTask = null;
             PacketQueue.Clear();
         }
 
+        #endregion
     }
 
 }

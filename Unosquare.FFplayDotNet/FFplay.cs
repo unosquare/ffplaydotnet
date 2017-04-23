@@ -653,7 +653,7 @@
         {
             int gotPicture;
 
-            if ((gotPicture = vst.VideoDecoder.DecodeFrame(frame)) < 0)
+            if ((gotPicture = vst.VideoDecoder.Decode(frame)) < 0)
                 return -1;
 
             if (gotPicture != 0)
@@ -847,25 +847,7 @@
             return vst.IsAbortRequested ? 1 : 0;
         }
 
-        /// <summary>
-        /// Initializes the Decoder
-        /// Port of decoder_start
-        /// </summary>
-        /// <param name="d">The d.</param>
-        /// <param name="fn">The function.</param>
-        /// <param name="vst">The VST.</param>
-        /// <returns></returns>
-        public int decoder_start(Decoder d, Func<MediaState, int> fn, MediaState vst)
-        {
-            d.DecoderThread = SDL_CreateThread(fn, vst);
-            if (d.DecoderThread == null)
-            {
-                ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, $"SDL_CreateThread(): {SDL_GetError()}\n");
-                return ffmpeg.AVERROR_ENOMEM;
-            }
 
-            return 0;
-        }
 
         public int EnqueuePicture(MediaState vst, AVFrame* sourceFrame, double pts, double duration)
         {
@@ -932,7 +914,7 @@
         }
 
 
-        public int video_thread(MediaState vst)
+        public void video_thread(MediaState vst)
         {
             AVFrame* frame = ffmpeg.av_frame_alloc();
             double pts;
@@ -960,10 +942,9 @@
             }
 
             ffmpeg.av_frame_free(&frame);
-            return 0;
         }
 
-        public int subtitle_thread(MediaState vst)
+        public void subtitle_thread(MediaState vst)
         {
             FrameHolder sp = null;
             int gotSubtitle;
@@ -972,10 +953,10 @@
             while (true)
             {
                 sp = vst.SubtitleQueue.PeekWritableFrame();
-                if (sp == null) return 0;
+                if (sp == null) return;
 
                 fixed (AVSubtitle* sp_sub = &sp.Subtitle)
-                    gotSubtitle = vst.SubtitleDecoder.DecodeFrame(sp_sub);
+                    gotSubtitle = vst.SubtitleDecoder.Decode(sp_sub);
 
                 if (gotSubtitle < 0) break;
 
@@ -1001,11 +982,9 @@
                         ffmpeg.avsubtitle_free(sp_sub);
                 }
             }
-
-            return 0;
         }
 
-        public int audio_thread(MediaState vst)
+        public void audio_thread(MediaState vst)
         {
             var decodedFrame = ffmpeg.av_frame_alloc();
             int gotFrame = 0;
@@ -1013,7 +992,7 @@
 
             do
             {
-                gotFrame = vst.AudioDecoder.DecodeFrame(decodedFrame);
+                gotFrame = vst.AudioDecoder.Decode(decodedFrame);
 
                 if (gotFrame < 0) break;
 
@@ -1035,7 +1014,6 @@
             } while (ret >= 0 || ret == ffmpeg.AVERROR_EAGAIN || ret == ffmpeg.AVERROR_EOF);
 
             ffmpeg.av_frame_free(&decodedFrame);
-            return ret;
         }
 
         public int read_thread(MediaState vst)

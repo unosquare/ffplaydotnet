@@ -13,14 +13,12 @@ namespace Unosquare.FFplayDotNet.Console
         static void Main(string[] args)
         {
             var t1 = new Thread(ReaderDoWork) { IsBackground = true };
-            var t2 = new Thread(WriterDoWork) { IsBackground = true };
+            var t2 = Task.Run(() => { WriterDoWork(); });
 
             t1.Start();
-            t2.Start();
 
             Terminal.ReadKey(true, true);
             t1.Abort();
-            t2.Abort();
         }
 
         private static readonly MonitorLock SyncLock = new MonitorLock();

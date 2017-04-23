@@ -2,10 +2,11 @@
 {
     using FFmpeg.AutoGen;
     using System;
-    using System.Diagnostics;
     using System.Runtime.InteropServices;
     using System.Text;
     using System.Threading;
+    using Unosquare.FFplayDotNet.Core;
+    using Unosquare.FFplayDotNet.Primitives;
     using static Unosquare.FFplayDotNet.SDL;
 
     public unsafe class MediaState
@@ -551,7 +552,7 @@
                         AudioDecoder.StartPtsTimebase = AudioStream->time_base;
                     }
 
-                    AudioDecoder.Start(Player.audio_thread);
+                    AudioDecoder.Start(FFplay.DecodeAudioQueue);
                     SDL_PauseAudio(0);
                     break;
 
@@ -559,7 +560,7 @@
                     VideoStreamIndex = streamIndex;
                     VideoStream = ic->streams[streamIndex];
                     VideoDecoder = new Decoder(this, codecContext, VideoPackets, IsFrameDecoded);
-                    result = VideoDecoder.Start(Player.video_thread);
+                    result = VideoDecoder.Start(FFplay.DecodeVideoQueue);
                     EnqueuePacketAttachments = true;
                     break;
 
@@ -567,7 +568,7 @@
                     SubtitleStreamIndex = streamIndex;
                     SubtitleStream = ic->streams[streamIndex];
                     SubtitleDecoder = new Decoder(this, codecContext, SubtitlePackets, IsFrameDecoded);
-                    result = SubtitleDecoder.Start(Player.audio_thread);
+                    result = SubtitleDecoder.Start(FFplay.DecodeSubtitlesQueue);
                     break;
 
                 default:
@@ -759,7 +760,7 @@
             return resampledDataSize;
         }
 
-        public double ComputeVideoClockDelay(double delay)
+        internal double ComputeVideoClockDelay(double delay)
         {
             var skew = 0d;
 
@@ -785,13 +786,13 @@
             return delay;
         }
 
-        public double ComputeVideoFrameDuration(FrameHolder videoFrame, FrameHolder nextVideoFrame)
+        internal double ComputeVideoFrameDuration(FrameHolder videoFrame, FrameHolder nextVideoFrame)
         {
             if (videoFrame.Serial == nextVideoFrame.Serial)
             {
                 var duration = nextVideoFrame.Pts - videoFrame.Pts;
                 if (double.IsNaN(duration) || duration <= 0 || duration > MaximumFrameDuration)
-                    return videoFrame.EstimatedDuration;
+                    return videoFrame.Duration;
                 else
                     return duration;
             }

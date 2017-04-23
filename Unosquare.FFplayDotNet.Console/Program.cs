@@ -1,13 +1,12 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading;
-using System.Threading.Tasks;
-using Unosquare.Swan;
-
-namespace Unosquare.FFplayDotNet.Console
+﻿namespace Unosquare.FFplayDotNet.Console
 {
+    using System.Collections.Generic;
+    using System.Linq;
+    using System.Threading;
+    using System.Threading.Tasks;
+    using Unosquare.FFplayDotNet.Primitives;
+    using Unosquare.Swan;
+
     class Program
     {
         static void Main(string[] args)

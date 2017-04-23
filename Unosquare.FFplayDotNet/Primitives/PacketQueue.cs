@@ -1,8 +1,7 @@
-﻿namespace Unosquare.FFplayDotNet
+﻿namespace Unosquare.FFplayDotNet.Primitives
 {
     using FFmpeg.AutoGen;
-
-    // TODO: Replace locks with the original ffplay locks.
+    using Unosquare.FFplayDotNet.Core;
 
     /// <summary>
     /// A Group of sequential packets
@@ -251,6 +250,16 @@
             IsAborted = true;
             IsDoneWriting.Signal();
             SyncLock.Unlock();
+        }
+
+        public bool HasEnoughPackets(AVStream* stream, int streamIndex)
+        {
+            return
+                (streamIndex < 0) ||
+                (IsAborted) ||
+                ((stream->disposition & ffmpeg.AV_DISPOSITION_ATTACHED_PIC) != 0) ||
+                Count > Constants.MinFrames && (Duration == 0 ||
+                ffmpeg.av_q2d(stream->time_base) * Duration > 1.0);
         }
 
         #endregion

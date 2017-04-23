@@ -1,13 +1,8 @@
-﻿using FFmpeg.AutoGen;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using static Unosquare.FFplayDotNet.SDL;
-
-namespace Unosquare.FFplayDotNet
+﻿namespace Unosquare.FFplayDotNet.Primitives
 {
+    using FFmpeg.AutoGen;
+    using System;
+    using Unosquare.FFplayDotNet.Core;
 
     public unsafe class FrameQueue
     {
@@ -42,8 +37,13 @@ namespace Unosquare.FFplayDotNet
             Packets = queue;
             Capacity = Math.Min(maxSize, Constants.FrameQueueSize);
             KeepLast = keepLast;
+
             for (var i = 0; i < Capacity; i++)
+            {
+                Frames[i] = new FrameHolder();
                 Frames[i].DecodedFrame = ffmpeg.av_frame_alloc();
+            }
+                
         }
 
         public void Clear()

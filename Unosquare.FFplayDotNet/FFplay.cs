@@ -6,6 +6,8 @@
     using System.Runtime.InteropServices;
     using System.Text;
     using System.Threading;
+    using Unosquare.FFplayDotNet.Core;
+    using Unosquare.FFplayDotNet.Primitives;
     using static Unosquare.FFplayDotNet.SDL;
 
     // https://raw.githubusercontent.com/FFmpeg/FFmpeg/release/3.2/ffplay.c
@@ -52,7 +54,17 @@
 
         internal bool autoexit { get; set; }
         internal int loop { get; set; } = 1;
-        internal int framedrop { get; set; } = -1;
+
+        /// <summary>
+        /// drop frames when cpu is too slow.
+        /// Port of framedrop
+        /// </summary>
+        internal bool framedrop { get; set; } = true;
+
+        /// <summary>
+        /// don't limit the input buffer size (useful with realtime streams).
+        /// Port of infinite_buffer
+        /// </summary>
         internal int infinite_buffer { get; set; } = -1;
 
         public string AudioCodecName { get; private set; }
@@ -549,7 +561,7 @@
                         var nextvp = vst.VideoQueue.Next;
                         duration = vst.ComputeVideoFrameDuration(currentVideoFrame, nextvp);
                         if (!vst.IsFrameStepping
-                            && (framedrop > 0 || (framedrop != 0 && vst.MasterSyncMode != SyncMode.Video))
+                            && (framedrop)
                             && time > vst.frame_timer + duration)
                         {
                             vst.frame_drops_late++;
@@ -647,42 +659,6 @@
             }
 
             LastVideoRefreshTimestamp = currentTimestamp;
-        }
-
-        private int get_video_frame(MediaState vst, AVFrame* frame)
-        {
-            int gotPicture;
-
-            if ((gotPicture = vst.VideoDecoder.Decode(frame)) < 0)
-                return -1;
-
-            if (gotPicture != 0)
-            {
-                var framePts = double.NaN;
-
-                if (frame->pts != ffmpeg.AV_NOPTS_VALUE)
-                    framePts = ffmpeg.av_q2d(vst.VideoStream->time_base) * frame->pts;
-
-                frame->sample_aspect_ratio = ffmpeg.av_guess_sample_aspect_ratio(vst.InputContext, vst.VideoStream, frame);
-                if (framedrop > 0 || (framedrop != 0 && vst.MasterSyncMode != SyncMode.Video))
-                {
-                    if (frame->pts != ffmpeg.AV_NOPTS_VALUE)
-                    {
-                        double ptsSkew = framePts - vst.MasterClockPosition;
-                        if (!double.IsNaN(ptsSkew) && Math.Abs(ptsSkew) < Constants.AvNoSyncThreshold &&
-                            ptsSkew - vst.frame_last_filter_delay < 0 &&
-                            vst.VideoDecoder.PacketSerial == vst.VideoClock.PacketSerial &&
-                            vst.VideoPackets.Count != 0)
-                        {
-                            vst.frame_drops_early++;
-                            ffmpeg.av_frame_unref(frame);
-                            gotPicture = 0;
-                        }
-                    }
-                }
-            }
-
-            return gotPicture;
         }
 
         private void sdl_audio_callback(MediaState vst, byte* stream, int length)
@@ -831,16 +807,6 @@
             return spec.size;
         }
 
-        static bool HasEnoughPackets(AVStream* stream, int streamIndex, PacketQueue queue)
-        {
-            return
-                (streamIndex < 0) ||
-                (queue.IsAborted) ||
-                ((stream->disposition & ffmpeg.AV_DISPOSITION_ATTACHED_PIC) != 0) ||
-                queue.Count > Constants.MinFrames && (queue.Duration == 0 ||
-                ffmpeg.av_q2d(stream->time_base) * queue.Duration > 1.0);
-        }
-
         static int decode_interrupt_cb(void* opaque)
         {
             var vst = GCHandle.FromIntPtr(new IntPtr(opaque)).Target as MediaState;
@@ -852,6 +818,8 @@
         public int EnqueuePicture(MediaState vst, AVFrame* sourceFrame, double pts, double duration)
         {
             var videoFrame = vst.VideoQueue.PeekWritableFrame();
+            videoFrame.MediaType = AVMediaType.AVMEDIA_TYPE_VIDEO;
+
             var serial = vst.VideoDecoder.PacketSerial;
             var streamPosition = ffmpeg.av_frame_get_pkt_pos(sourceFrame);
 
@@ -902,7 +870,7 @@
             if (videoFrame.bmp != null)
             {
                 videoFrame.Pts = pts;
-                videoFrame.EstimatedDuration = duration;
+                videoFrame.Duration = duration;
                 videoFrame.BytePosition = streamPosition;
                 videoFrame.Serial = serial;
 
@@ -913,78 +881,47 @@
             return 0;
         }
 
+        #region Decoding Tasks Queue Frames (Audio, video, subtitles)
 
-        public void video_thread(MediaState vst)
+        /// <summary>
+        /// Continuously decodes video frames from the video frame queue
+        /// using the video decoder.
+        /// Port of video_thread
+        /// </summary>
+        /// <param name="mediaState">The media state object</param>
+        internal static void DecodeVideoQueue(MediaState mediaState)
         {
-            AVFrame* frame = ffmpeg.av_frame_alloc();
-            double pts;
-            double duration;
-            int ret;
-            var tb = vst.VideoStream->time_base;
-            var frame_rate = ffmpeg.av_guess_frame_rate(vst.InputContext, vst.VideoStream, null);
+            var decodedFrame = ffmpeg.av_frame_alloc();
+            var frameTimebase = mediaState.VideoStream->time_base;
+            var frameRate = ffmpeg.av_guess_frame_rate(mediaState.InputContext, mediaState.VideoStream, null);
 
             while (true)
             {
-                ret = get_video_frame(vst, frame);
-                if (ret < 0)
-                    break;
+                var result = mediaState.VideoDecoder.Decode(decodedFrame);
 
-                if (ret == 0)
-                    continue;
+                if (result < 0) break;
+                if (result == 0) continue;
 
-                duration = (frame_rate.num != 0 && frame_rate.den != 0 ? ffmpeg.av_q2d(new AVRational { num = frame_rate.den, den = frame_rate.num }) : 0);
-                pts = (frame->pts == ffmpeg.AV_NOPTS_VALUE) ? double.NaN : frame->pts * ffmpeg.av_q2d(tb);
-                ret = EnqueuePicture(vst, frame, pts, duration);
-                ffmpeg.av_frame_unref(frame);
+                var framePts = (decodedFrame->pts == ffmpeg.AV_NOPTS_VALUE) ? double.NaN : decodedFrame->pts * ffmpeg.av_q2d(frameTimebase);
+                var frameDuration = frameRate.num != 0 && frameRate.den != 0 ? 
+                    ffmpeg.av_q2d(new AVRational { num = frameRate.den, den = frameRate.num }) : 0;
 
-                if (ret < 0)
-                    break;
+                result = mediaState.Player.EnqueuePicture(mediaState, decodedFrame, framePts, frameDuration);
+                ffmpeg.av_frame_unref(decodedFrame);
+
+                if (result < 0) break;
             }
 
-            ffmpeg.av_frame_free(&frame);
+            ffmpeg.av_frame_free(&decodedFrame);
         }
 
-        public void subtitle_thread(MediaState vst)
-        {
-            FrameHolder sp = null;
-            int gotSubtitle;
-            double pts;
-
-            while (true)
-            {
-                sp = vst.SubtitleQueue.PeekWritableFrame();
-                if (sp == null) return;
-
-                fixed (AVSubtitle* sp_sub = &sp.Subtitle)
-                    gotSubtitle = vst.SubtitleDecoder.Decode(sp_sub);
-
-                if (gotSubtitle < 0) break;
-
-                pts = 0;
-
-                if (gotSubtitle != 0 && sp.Subtitle.format == 0)
-                {
-                    if (sp.Subtitle.pts != ffmpeg.AV_NOPTS_VALUE)
-                        pts = sp.Subtitle.pts / (double)ffmpeg.AV_TIME_BASE;
-
-                    sp.Pts = pts;
-                    sp.Serial = vst.SubtitleDecoder.PacketSerial;
-                    sp.PictureWidth = vst.SubtitleDecoder.Codec->width;
-                    sp.PictureHeight = vst.SubtitleDecoder.Codec->height;
-                    sp.IsUploaded = false;
-
-                    /* now we can update the picture count */
-                    vst.SubtitleQueue.QueueNextWrite();
-                }
-                else if (gotSubtitle != 0)
-                {
-                    fixed (AVSubtitle* sp_sub = &sp.Subtitle)
-                        ffmpeg.avsubtitle_free(sp_sub);
-                }
-            }
-        }
-
-        public void audio_thread(MediaState vst)
+        /// <summary>
+        /// Continuously decodes video frames from the audio frame queue
+        /// using the audio decoder.
+        /// Port of audio_thread
+        /// </summary>
+        /// <param name="mediaState">The media state object.</param>
+        internal static void DecodeAudioQueue(MediaState mediaState)
         {
             var decodedFrame = ffmpeg.av_frame_alloc();
             int gotFrame = 0;
@@ -992,29 +929,77 @@
 
             do
             {
-                gotFrame = vst.AudioDecoder.Decode(decodedFrame);
+                gotFrame = mediaState.AudioDecoder.Decode(decodedFrame);
 
                 if (gotFrame < 0) break;
 
                 if (gotFrame != 0)
                 {
                     var timeBase = new AVRational { num = 1, den = decodedFrame->sample_rate };
-                    var audioFrame = vst.AudioQueue.PeekWritableFrame();
+                    var audioFrame = mediaState.AudioQueue.PeekWritableFrame();
+                    audioFrame.MediaType = AVMediaType.AVMEDIA_TYPE_AUDIO;
+
                     if (audioFrame == null) break;
 
                     audioFrame.Pts = (decodedFrame->pts == ffmpeg.AV_NOPTS_VALUE) ? double.NaN : decodedFrame->pts * ffmpeg.av_q2d(timeBase);
                     audioFrame.BytePosition = ffmpeg.av_frame_get_pkt_pos(decodedFrame);
-                    audioFrame.Serial = vst.AudioDecoder.PacketSerial;
-                    audioFrame.EstimatedDuration = ffmpeg.av_q2d(new AVRational { num = decodedFrame->nb_samples, den = decodedFrame->sample_rate });
+                    audioFrame.Serial = mediaState.AudioDecoder.PacketSerial;
+                    audioFrame.Duration = ffmpeg.av_q2d(new AVRational { num = decodedFrame->nb_samples, den = decodedFrame->sample_rate });
 
                     ffmpeg.av_frame_move_ref(audioFrame.DecodedFrame, decodedFrame);
-                    vst.AudioQueue.QueueNextWrite();
+                    mediaState.AudioQueue.QueueNextWrite();
 
                 }
             } while (ret >= 0 || ret == ffmpeg.AVERROR_EAGAIN || ret == ffmpeg.AVERROR_EOF);
 
             ffmpeg.av_frame_free(&decodedFrame);
         }
+
+        /// <summary>
+        /// Continuously decodes the subtitle frame queue by getting the
+        /// next available writable frame in the queue, and then queues the next write
+        /// Port of subtitle_thread
+        /// </summary>
+        /// <param name="mediaState">The media state object</param>
+        internal static void DecodeSubtitlesQueue(MediaState mediaState)
+        {
+            var hasDecoded = 0;
+
+            while (true)
+            {
+                var decodedFrame = mediaState.SubtitleQueue.PeekWritableFrame();
+                decodedFrame.MediaType = AVMediaType.AVMEDIA_TYPE_SUBTITLE;
+
+                if (decodedFrame == null)
+                    return;
+
+                fixed (AVSubtitle* subtitlePtr = &decodedFrame.Subtitle)
+                    hasDecoded = mediaState.SubtitleDecoder.Decode(subtitlePtr);
+
+                if (hasDecoded < 0)
+                    break;
+
+                if (hasDecoded != 0 && decodedFrame.Subtitle.format == 0)
+                {
+                    decodedFrame.Pts = (decodedFrame.Subtitle.pts != ffmpeg.AV_NOPTS_VALUE) ?
+                        decodedFrame.Subtitle.pts / (double)ffmpeg.AV_TIME_BASE : 0;
+                    decodedFrame.Serial = mediaState.SubtitleDecoder.PacketSerial;
+                    decodedFrame.PictureWidth = mediaState.SubtitleDecoder.Codec->width;
+                    decodedFrame.PictureHeight = mediaState.SubtitleDecoder.Codec->height;
+                    decodedFrame.IsUploaded = false;
+
+                    /* now we can update the picture count */
+                    mediaState.SubtitleQueue.QueueNextWrite();
+                }
+                else if (hasDecoded != 0)
+                {
+                    fixed (AVSubtitle* subtitlePtr = &decodedFrame.Subtitle)
+                        ffmpeg.avsubtitle_free(subtitlePtr);
+                }
+            }
+        }
+
+        #endregion
 
         public int read_thread(MediaState vst)
         {
@@ -1308,9 +1293,9 @@
 
                 if (infinite_buffer < 1 &&
                       (vst.AudioPackets.ByteLength + vst.VideoPackets.ByteLength + vst.SubtitlePackets.ByteLength > PacketQueue.MaxQueueByteLength
-                    || (HasEnoughPackets(vst.AudioStream, vst.AudioStreamIndex, vst.AudioPackets) &&
-                        HasEnoughPackets(vst.VideoStream, vst.VideoStreamIndex, vst.VideoPackets) &&
-                        HasEnoughPackets(vst.SubtitleStream, vst.SubtitleStreamIndex, vst.SubtitlePackets))))
+                    || (vst.AudioPackets.HasEnoughPackets(vst.AudioStream, vst.AudioStreamIndex) &&
+                        vst.VideoPackets.HasEnoughPackets(vst.VideoStream, vst.VideoStreamIndex) &&
+                        vst.SubtitlePackets.HasEnoughPackets(vst.SubtitleStream, vst.SubtitleStreamIndex))))
                 {
                     DecoderLock.Lock();
                     vst.IsFrameDecoded.Wait(DecoderLock, 10);

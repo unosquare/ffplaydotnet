@@ -4,7 +4,7 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace Unosquare.FFplayDotNet
+namespace Unosquare.FFplayDotNet.Core
 {
     /// <summary>
     /// Contains a set of internal constants and definitions

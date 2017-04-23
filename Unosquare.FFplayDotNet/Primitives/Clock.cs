@@ -1,7 +1,8 @@
-﻿namespace Unosquare.FFplayDotNet
+﻿namespace Unosquare.FFplayDotNet.Primitives
 {
     using FFmpeg.AutoGen;
     using System;
+    using Unosquare.FFplayDotNet.Core;
 
     /// <summary>
     /// Represents a media clock that is synchronizable

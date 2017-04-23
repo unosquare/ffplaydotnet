@@ -3,6 +3,8 @@
     using FFmpeg.AutoGen;
     using System;
     using System.Threading.Tasks;
+    using Unosquare.FFplayDotNet.Core;
+    using Unosquare.FFplayDotNet.Primitives;
 
     /// <summary>
     /// A class that is used to decode Audio, Video, or Subtitle packets
@@ -116,25 +118,28 @@
         }
 
         /// <summary>
-        /// Decodes a video or audio frame
+        /// Decodes a video or audio frame.
         /// Port of decoder_decode_frame
         /// </summary>
         /// <param name="frame">The frame.</param>
         /// <returns></returns>
         public int Decode(AVFrame* frame)
         {
-            return DecodeFrame(frame, null);
+            if (Codec->codec_type == AVMediaType.AVMEDIA_TYPE_VIDEO)
+                return DecodeVideoFrameInternal(frame);
+
+            return DecodeFrameInternal(frame, null);
         }
 
         /// <summary>
-        /// Decodes a subtitle frame
+        /// Decodes a subtitle frame.
         /// Port of decoder_decode_frame
         /// </summary>
         /// <param name="subtitle">The subtitle.</param>
         /// <returns></returns>
         public int Decode(AVSubtitle* subtitle)
         {
-            return DecodeFrame(null, subtitle);
+            return DecodeFrameInternal(null, subtitle);
         }
 
         /// <summary>
@@ -144,7 +149,7 @@
         /// <param name="outputFrame">The output frame.</param>
         /// <param name="subtitle">The subtitle.</param>
         /// <returns></returns>
-        private int DecodeFrame(AVFrame* outputFrame, AVSubtitle* subtitle)
+        private int DecodeFrameInternal(AVFrame* outputFrame, AVSubtitle* subtitle)
         {
             var gotFrame = default(int);
             var inputPacket = new AVPacket();
@@ -267,6 +272,48 @@
             } while (!Convert.ToBoolean(gotFrame) && !IsFinished);
 
             return gotFrame;
+        }
+
+        /// <summary>
+        /// Gets the video frame.
+        /// Port of get_video_frame
+        /// </summary>
+        /// <param name="frame">The frame.</param>
+        /// <returns></returns>
+        private int DecodeVideoFrameInternal(AVFrame* frame)
+        {
+            int gotPicture;
+
+            if ((gotPicture = MediaState.VideoDecoder.DecodeFrameInternal(frame, null)) < 0)
+                return -1;
+
+            if (gotPicture != 0)
+            {
+                var framePts = double.NaN;
+
+                if (frame->pts != ffmpeg.AV_NOPTS_VALUE)
+                    framePts = ffmpeg.av_q2d(MediaState.VideoStream->time_base) * frame->pts;
+
+                frame->sample_aspect_ratio = ffmpeg.av_guess_sample_aspect_ratio(MediaState.InputContext, MediaState.VideoStream, frame);
+                if (MediaState.Player.framedrop)
+                {
+                    if (frame->pts != ffmpeg.AV_NOPTS_VALUE)
+                    {
+                        double ptsSkew = framePts - MediaState.MasterClockPosition;
+                        if (!double.IsNaN(ptsSkew) && Math.Abs(ptsSkew) < Constants.AvNoSyncThreshold &&
+                            ptsSkew - MediaState.frame_last_filter_delay < 0 &&
+                            MediaState.VideoDecoder.PacketSerial == MediaState.VideoClock.PacketSerial &&
+                            MediaState.VideoPackets.Count != 0)
+                        {
+                            MediaState.frame_drops_early++;
+                            ffmpeg.av_frame_unref(frame);
+                            gotPicture = 0;
+                        }
+                    }
+                }
+            }
+
+            return gotPicture;
         }
 
         /// <summary>

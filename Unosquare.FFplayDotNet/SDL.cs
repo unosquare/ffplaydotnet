@@ -33,20 +33,15 @@
         #region SDL Placeholders
 
 
-
-        public class SDL_Thread { }
         public class SDL_Texture { }
 
         public class SDL_Window { }
         public class SDL_Renderer { }
         public class SDL_Rect { public int x; public int y; public int w; public int h; }
         public class SDL_RendererInfo { }
-        public class SDL_Event { public int type; public object user_data1; }
+
         public class SDL_AudioSpec { public int channels; public int freq; public int format; public int silence; public int samples; public MediaState userdata; public SDL_AudioCallback callback; public int size; }
 
-
-        public static void SDL_WaitThread(SDL_Thread thread, object args) { }
-        public static void SDL_RenderFillRect(object renderer, SDL_Rect rect) { }
         public static int SDL_UpdateYUVTexture(SDL_Texture texture, object other, byte* a, int a1, byte* b, int b1, byte* c, int c1) { return 0; }
         public static int SDL_UpdateTexture(SDL_Texture tex, object other, byte* a, int a1) { return 0; }
         public static void SDL_UnlockTexture(SDL_Texture tex) { }
@@ -65,14 +60,12 @@
         public static SDL_Renderer SDL_CreateRenderer(SDL_Window window, int z, int flags) { return new SDL_Renderer(); }
         public static int SDL_GetRendererInfo(SDL_Renderer renderer, SDL_RendererInfo info) { return 0; }
         public static int SDL_SetWindowSize(SDL_Window win, int w, int h) { return 0; }
-        public static void SDL_PushEvent(SDL_Event ev) { }
-        public static int SDL_PeepEvents(SDL_Event ev, int a, int op, int user1, int user2) { return 0; }
+
         public static int SDL_MixAudio(byte* stream, byte* buffer, int len, int volume) { return 0; }
         public static string SDL_getenv(string name) { return "2"; }
         public static int SDL_OpenAudio(SDL_AudioSpec wanted, SDL_AudioSpec output) { return 0; }
         public static string SDL_GetError() { return string.Empty; }
         public static void SDL_PauseAudio(int delay) { }
-        public static SDL_Thread SDL_CreateThread(Func<MediaState, int> fn, MediaState vst) { return new SDL_Thread(); }
 
         #endregion
 

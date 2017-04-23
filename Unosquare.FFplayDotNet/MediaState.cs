@@ -5,6 +5,7 @@
     using System.Runtime.InteropServices;
     using System.Text;
     using System.Threading;
+    using System.Threading.Tasks;
     using Unosquare.FFplayDotNet.Core;
     using Unosquare.FFplayDotNet.Primitives;
     using static Unosquare.FFplayDotNet.SDL;
@@ -61,7 +62,6 @@
         public LockCondition IsFrameDecoded;
         public SDL_Texture vis_texture;
         public SDL_Texture sub_texture;
-        internal SDL_Thread ReadThread;
 
         internal FFplay Player { get; private set; }
 
@@ -84,7 +84,7 @@
                 if (InputContext == null)
                     return false;
 
-                var formatName = Marshal.PtrToStringAnsi(new IntPtr(InputContext->iformat->name));
+                var formatName = Native.BytePtrToString(InputContext->iformat->name);
                 var filename = Encoding.GetEncoding(0).GetString(InputContext->filename);
 
                 if (formatName.Equals("rtp")
@@ -215,7 +215,6 @@
             AudioVolume = SDL_MIX_MAXVOLUME;
             IsAudioMuted = false;
             MediaSyncMode = MediaSyncMode;
-            ReadThread = SDL_CreateThread(player.read_thread, this);
 
         }
 
@@ -519,7 +518,7 @@
 
             if ((kvp = ffmpeg.av_dict_get(opts, "", null, ffmpeg.AV_DICT_IGNORE_SUFFIX)) != null)
             {
-                ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, $"Option {Marshal.PtrToStringAnsi(new IntPtr(kvp->key))} not found.\n");
+                ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, $"Option {Native.BytePtrToString(kvp->key)} not found.\n");
                 result = ffmpeg.AVERROR_OPTION_NOT_FOUND;
                 goto fail;
             }
@@ -583,10 +582,15 @@
             return result;
         }
 
+        /// <summary>
+        /// Closes the media along with all of its streams.
+        /// Port of stream_close
+        /// </summary>
         public void CloseStream()
         {
             IsAbortRequested = true;
-            SDL_WaitThread(ReadThread, null);
+            Player.MediaReadTask.Wait();
+
             if (AudioStreamIndex >= 0)
                 CloseStreamComponent(AudioStreamIndex);
 
@@ -608,6 +612,7 @@
             AudioQueue.Clear();
             SubtitleQueue.Clear();
             IsFrameDecoded.Dispose();
+            
             ffmpeg.sws_freeContext(VideoScaler);
             ffmpeg.sws_freeContext(SubtitleScaler);
 

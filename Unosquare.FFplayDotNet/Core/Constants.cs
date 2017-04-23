@@ -15,10 +15,6 @@ namespace Unosquare.FFplayDotNet.Core
         public const int SDL_AUDIO_MIN_BUFFER_SIZE = 512;
         public const int SDL_AUDIO_MAX_CALLBACKS_PER_SEC = 30;
         public const int SDL_VOLUME_STEP = (SDL.SDL_MIX_MAXVOLUME / 50);
-
-        public const int FF_ALLOC_EVENT = (SDL.SDL_USEREVENT);
-        public const int FF_QUIT_EVENT = (SDL.SDL_USEREVENT + 2);
-
         
         public const int MinFrames = 25;
         public const int ExternalClockMinFrames = 2;

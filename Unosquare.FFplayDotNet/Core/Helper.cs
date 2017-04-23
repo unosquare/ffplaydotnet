@@ -2,35 +2,24 @@
 {
     using FFmpeg.AutoGen;
     using System;
-    using System.ComponentModel;
     using System.IO;
     using System.Linq;
     using System.Reflection;
     using System.Runtime.CompilerServices;
     using System.Runtime.InteropServices;
-    using System.Windows;
+    using System.Text;
 
     /// <summary>
     /// Provides methods and constants for miscellaneous operations
     /// </summary>
     internal static class Helper
     {
-
-        /// <summary>
-        /// Miscellaneous native methods
-        /// </summary>
-        public static class NativeMethods
-        {
-            [DllImport("kernel32", SetLastError = true, CharSet = CharSet.Unicode)]
-            public static extern bool SetDllDirectory(string lpPathName);
-
-            [DllImport("kernel32")]
-            public static extern void RtlMoveMemory(IntPtr dest, IntPtr src, uint len);
-        }
-
         static private bool HasRegistered = false;
         static private bool? designTime;
 
+        /// <summary>
+        /// The register synchronization lock
+        /// </summary>
         static private readonly object RegisterLock = new object();
 
         /// <summary>
@@ -110,12 +99,12 @@
                     throw new BadImageFormatException(
                         string.Format("Cannot load FFmpeg for architecture '{0}'", assemblyMachineType.ToString()));
 
-                FFmpegPaths.BasePath = ExtractFFmpegDlls(resourceFolderName);
-                FFmpegPaths.FFmpeg = Path.Combine(FFmpegPaths.BasePath, "ffmpeg.exe");
-                FFmpegPaths.FFplay = Path.Combine(FFmpegPaths.BasePath, "ffplay.exe");
-                FFmpegPaths.FFprobe = Path.Combine(FFmpegPaths.BasePath, "ffprobe.exe");
+                Paths.BasePath = ExtractFFmpegDlls(resourceFolderName);
+                Paths.FFmpeg = Path.Combine(Paths.BasePath, "ffmpeg.exe");
+                Paths.FFplay = Path.Combine(Paths.BasePath, "ffplay.exe");
+                Paths.FFprobe = Path.Combine(Paths.BasePath, "ffprobe.exe");
 
-                NativeMethods.SetDllDirectory(FFmpegPaths.BasePath);
+                Native.SetDllDirectory(Paths.BasePath);
 
                 ffmpeg.av_log_set_flags(ffmpeg.AV_LOG_SKIP_REPEATED);
 
@@ -129,19 +118,36 @@
 
         }
 
+        /// <summary>
+        /// Determines whether [is no PTS value].
+        /// </summary>
+        /// <param name="timestamp">The timestamp.</param>
+        /// <returns>
+        ///   <c>true</c> if [is no PTS value] [the specified timestamp]; otherwise, <c>false</c>.
+        /// </returns>
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
-        public static bool IsNoPtsValue(long timestamp)
+        public static bool IsNoPtsValue(this long timestamp)
         {
             return Convert.ToDouble(timestamp) == -Convert.ToDouble(0x8000000000000000L);
         }
 
-        public static long RoundTicks(long ticks)
+        /// <summary>
+        /// Rounds the ticks.
+        /// </summary>
+        /// <param name="ticks">The ticks.</param>
+        /// <returns></returns>
+        public static long RoundTicks(this long ticks)
         {
             //return ticks;
             return Convert.ToInt64((Convert.ToDouble(ticks) / 1000d)) * 1000;
         }
 
-        public static decimal RoundSeconds(decimal seconds)
+        /// <summary>
+        /// Rounds the seconds to 4 decimals.
+        /// </summary>
+        /// <param name="seconds">The seconds.</param>
+        /// <returns></returns>
+        public static decimal RoundSeconds(this decimal seconds)
         {
             //return seconds;
             return Math.Round(seconds, 4);
@@ -172,23 +178,45 @@
         /// <summary>
         /// Converts a Timestamp to seconds.
         /// </summary>
-        /// <param name="ts">The ts.</param>
-        /// <param name="streamTimeBase">The stream time base.</param>
+        /// <param name="timestamp">The ts.</param>
+        /// <param name="streamTimebase">The stream time base.</param>
         /// <returns></returns>
-        public static decimal TimestampToSeconds(long ts, AVRational streamTimeBase)
+        public static decimal TimestampToSeconds(this long timestamp, AVRational streamTimebase)
         {
-            return Convert.ToDecimal(Convert.ToDouble(ts) * Convert.ToDouble(streamTimeBase.num) / Convert.ToDouble(streamTimeBase.den));
+            return Convert.ToDecimal(Convert.ToDouble(timestamp) * Convert.ToDouble(streamTimebase.num) / Convert.ToDouble(streamTimebase.den));
         }
 
         /// <summary>
         /// Converts seconds to a timestamp value.
         /// </summary>
         /// <param name="seconds">The seconds.</param>
-        /// <param name="streamTimeBase">The stream time base.</param>
+        /// <param name="streamTimebase">The stream time base.</param>
         /// <returns></returns>
-        public static long SecondsToTimestamp(decimal seconds, AVRational streamTimeBase)
+        public static long SecondsToTimestamp(this decimal seconds, AVRational streamTimebase)
         {
-            return Convert.ToInt64(Convert.ToDouble(seconds) * Convert.ToDouble(streamTimeBase.den) / Convert.ToDouble(streamTimeBase.num));
+            return Convert.ToInt64(Convert.ToDouble(seconds) * Convert.ToDouble(streamTimebase.den) / Convert.ToDouble(streamTimebase.num));
+        }
+
+        /// <summary>
+        /// Converts a timestamp to a timespan
+        /// </summary>
+        /// <param name="timestamp">The timestamp.</param>
+        /// <param name="streamTimebase">The stream timebase.</param>
+        /// <returns></returns>
+        public static TimeSpan TmestampToTimeSpan(this long timestamp, int streamTimebase)
+        {
+            var totalSeconds = (double)timestamp / streamTimebase;
+            return TimeSpan.FromSeconds(totalSeconds);
+        }
+
+        /// <summary>
+        /// Converts a timestamp to a timespan
+        /// </summary>
+        /// <param name="timestamp">The timestamp.</param>
+        /// <returns></returns>
+        public static TimeSpan TmestampToTimeSpan(this long timestamp)
+        {
+            return TmestampToTimeSpan(timestamp, ffmpeg.AV_TIME_BASE);
         }
 
         /// <summary>
@@ -199,18 +227,25 @@
         public static unsafe string GetFFmpegErrorMessage(int code)
         {
             var errorStrBytes = new byte[1024];
-            var errorStrPtr = Marshal.AllocHGlobal(System.Runtime.InteropServices.Marshal.SizeOf(typeof(byte)) * errorStrBytes.Length);
-
-            //var errorStrPtr = &errorStr;
+            var errorStrPtr = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(byte)) * errorStrBytes.Length);
             ffmpeg.av_strerror(code, (byte*)errorStrPtr, (ulong)errorStrBytes.Length);
             Marshal.Copy(errorStrPtr, errorStrBytes, 0, errorStrBytes.Length);
             Marshal.FreeHGlobal(errorStrPtr);
 
-            var errorMessage = System.Text.Encoding.ASCII.GetString(errorStrBytes).Split('\0').FirstOrDefault();
+            var errorMessage = Encoding.GetEncoding(0).GetString(errorStrBytes).Split('\0').FirstOrDefault();
             return errorMessage;
         }
 
-
+        /// <summary>
+        /// Gets a value indicating whether we are running windows
+        /// </summary>
+        /// <value>
+        ///   <c>true</c> if this instance is windows; otherwise, <c>false</c>.
+        /// </value>
+        public static bool IsWindows
+        {
+            get { return Environment.OSVersion.Platform == PlatformID.Win32NT; }
+        }
     }
 
 }

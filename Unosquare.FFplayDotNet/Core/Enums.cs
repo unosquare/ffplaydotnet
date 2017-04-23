@@ -8,7 +8,7 @@
         External,
     }
 
-    public enum EventAction
+    public enum MediaEventAction
     {
         AllocatePicture,
         Quit,
@@ -28,7 +28,6 @@
         SeekRight10,
         SeekLeft60,
         SeekLRight60,
-
     }
 
 }

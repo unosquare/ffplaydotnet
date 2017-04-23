@@ -3,12 +3,12 @@
     /// <summary>
     /// Provides access to the paths where FFmpeg binaries are extracted to
     /// </summary>
-    static public class FFmpegPaths
+    static public class Paths
     {
         /// <summary>
-        /// Initializes the <see cref="FFmpegPaths"/> class.
+        /// Initializes the <see cref="Paths"/> class.
         /// </summary>
-        static FFmpegPaths()
+        static Paths()
         {
             Helper.RegisterFFmpeg();
         }

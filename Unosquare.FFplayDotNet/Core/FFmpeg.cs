@@ -58,64 +58,25 @@
 
         #region Ported Methods
 
-        public static int MKTAG(params byte[] buff)
+        private static int MKTAG(params byte[] buff)
         {
             //  ((a) | ((b) << 8) | ((c) << 16) | ((unsigned)(d) << 24))
             return BitConverter.ToInt32(buff, 0);
         }
 
-        public static int MKTAG(byte a, char b, char c, char d)
+        private static int MKTAG(byte a, char b, char c, char d)
         {
             return MKTAG(new byte[] { a, (byte)b, (byte)c, (byte)d });
         }
 
-        public static void memset<T>(Array arr, T value, int repeat)
-        {
-            var typedArray = arr as T[];
-            for (var i = 0; i < repeat; i++)
-                typedArray[i] = value;
-        }
-
-        public static void memset(byte* arr, byte value, int repeat)
-        {
-            byte* pArr = arr;
-
-            // Copy the specified number of bytes from source to target.
-            for (int i = 0; i < repeat; i++)
-            {
-                *pArr = value;
-                pArr++;
-            }
-        }
-
-        public static void memcpy(byte* target, byte* source, int length)
-        {
-            // Set the starting points in source and target for the copying.
-            byte* ps = source;
-            byte* pt = target;
-
-            // Copy the specified number of bytes from source to target.
-            for (int i = 0; i < length; i++)
-            {
-                *pt = *ps;
-                pt++;
-                ps++;
-            }
-        }
-
-        public static TimeSpan ToTimeSpan(long ffmpegTimestamp)
-        {
-            var totalSeconds = (double)ffmpegTimestamp / ffmpeg.AV_TIME_BASE;
-            return TimeSpan.FromSeconds(totalSeconds);
-        }
+        
 
         #endregion
 
         #region Constant Definitions
 
         public const long AV_NOPTS_VALUE = long.MinValue;
-        public static readonly AVRational AV_TIME_BASE_Q = new AVRational { num = 1, den = AV_TIME_BASE }; // (AVRational){1, AV_TIME_BASE}
-
+        public static readonly AVRational AV_TIME_BASE_Q = new AVRational { num = 1, den = AV_TIME_BASE }; // (AVRational){1, AV_TIME_BASE
         public const int AVERROR_EOF = -32; // http://www-numi.fnal.gov/offline_software/srt_public_context/WebDocs/Errors/unix_system_errors.html
         public const int AVERROR_EAGAIN = -11;
         public const int AVERROR_ENOMEM = -12;

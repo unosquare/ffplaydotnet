@@ -191,12 +191,13 @@
 
         /// <summary>
         /// Dequeues the specified packet.
+        /// Also sets the PacketSerial of the Decoder
         /// Port of packet_queue_get
         /// </summary>
         /// <param name="packet">The packet.</param>
-        /// <param name="serial">The serial.</param>
+        /// <param name="packetSerial">The serial.</param>
         /// <returns></returns>
-        public int Dequeue(AVPacket* packet, ref int serial)
+        public int Dequeue(AVPacket* packet, ref int packetSerial)
         {
             PacketHolder node = null;
             var result = default(int);
@@ -223,8 +224,8 @@
 
                     packet = node.Packet;
 
-                    if (serial != 0)
-                        serial = node.Serial;
+                    if (packetSerial != 0)
+                        packetSerial = node.Serial;
 
                     result = 1;
                     break;

@@ -34,7 +34,12 @@ namespace Unosquare.FFplayDotNet
         public const double ExternalClockSpeedMax = 1.010;
         public const double ExternalClockSpeedStep = 0.001;
 
-        public const int AUDIO_DIFF_AVG_NB = 20;
+        /// <summary>
+        /// The audio skew minimum samples
+        /// Port of AUDIO_DIFF_AVG_NB
+        /// </summary>
+        public const int AudioSkewMinSamples = 20;
+
         public const double RefreshRate = 0.01;
 
         public const int VideoQueueSize = 3;

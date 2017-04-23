@@ -65,6 +65,8 @@
         internal FFplay Player { get; private set; }
 
 
+        public bool? IsPtsReorderingEnabled { get; private set; } = null;
+
         public bool IsAbortRequested { get; internal set; }
         public bool IsForceRefreshRequested { get; internal set; }
         public bool IsPaused { get; set; }
@@ -534,13 +536,13 @@
                     AudioOutputParams.CopyTo(AudioInputParams);
                     RenderAudioBufferLength = 0;
                     RenderAudioBufferIndex = 0;
-                    AudioSkewCoefficient = Math.Exp(Math.Log(0.01) / Constants.AUDIO_DIFF_AVG_NB);
+                    AudioSkewCoefficient = Math.Exp(Math.Log(0.01) / Constants.AudioSkewMinSamples);
                     AudioSkewAvgCount = 0;
                     AudioSkewThreshold = (double)(AudioHardwareBufferSize) / AudioOutputParams.BytesPerSecond;
                     AudioStreamIndex = streamIndex;
                     AudioStream = ic->streams[streamIndex];
 
-                    AudioDecoder = new Decoder(codecContext, AudioPackets, IsFrameDecoded);
+                    AudioDecoder = new Decoder(this, codecContext, AudioPackets, IsFrameDecoded);
 
                     if ((InputContext->iformat->flags & (ffmpeg.AVFMT_NOBINSEARCH | ffmpeg.AVFMT_NOGENSEARCH | ffmpeg.AVFMT_NO_BYTE_SEEK)) != 0 &&
                         InputContext->iformat->read_seek.Pointer == IntPtr.Zero)
@@ -557,7 +559,7 @@
                 case AVMediaType.AVMEDIA_TYPE_VIDEO:
                     VideoStreamIndex = streamIndex;
                     VideoStream = ic->streams[streamIndex];
-                    VideoDecoder = new Decoder(codecContext, VideoPackets, IsFrameDecoded);
+                    VideoDecoder = new Decoder(this, codecContext, VideoPackets, IsFrameDecoded);
                     if ((result = Player.decoder_start(VideoDecoder, Player.video_thread, this)) < 0)
                         goto final;
 
@@ -567,7 +569,8 @@
                 case AVMediaType.AVMEDIA_TYPE_SUBTITLE:
                     SubtitleStreamIndex = streamIndex;
                     SubtitleStream = ic->streams[streamIndex];
-                    SubtitleDecoder = new Decoder(codecContext, SubtitlePackets, IsFrameDecoded);
+                    SubtitleDecoder = new Decoder(this, codecContext, SubtitlePackets, IsFrameDecoded);
+
                     if ((result = Player.decoder_start(SubtitleDecoder, Player.subtitle_thread, this)) < 0)
                         goto final;
                     break;
@@ -959,7 +962,7 @@
                 if (!double.IsNaN(audioSkew) && Math.Abs(audioSkew) < Constants.AvNoSyncThreshold)
                 {
                     AudioSkewCummulative = audioSkew + AudioSkewCoefficient * AudioSkewCummulative;
-                    if (AudioSkewAvgCount < Constants.AUDIO_DIFF_AVG_NB)
+                    if (AudioSkewAvgCount < Constants.AudioSkewMinSamples)
                     {
                         /* not enough measures to have a correct estimate */
                         AudioSkewAvgCount++;

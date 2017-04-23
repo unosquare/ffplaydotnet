@@ -697,7 +697,7 @@
                     if (bufferLength < 0)
                     {
                         vst.RenderAudioBuffer = null;
-                        vst.RenderAudioBufferLength = Convert.ToUInt32(Constants.SDL_AUDIO_MIN_BUFFER_SIZE / vst.AudioOutputParams.FrameSize * vst.AudioOutputParams.FrameSize);
+                        vst.RenderAudioBufferLength = Convert.ToUInt32(Constants.SDL_AUDIO_MIN_BUFFER_SIZE / vst.AudioOutputParams.SampleBufferLength * vst.AudioOutputParams.SampleBufferLength);
                     }
                     else
                     {
@@ -737,39 +737,40 @@
             }
         }
 
-        public int audio_open(MediaState vst, long wanted_channel_layout, int wanted_nb_channels, int wanted_sample_rate, AudioParams audio_hw_params)
+        public int audio_open(MediaState vst, long wantedChannelLayout, int wantedChannelCount, int wantedSampleRate, AudioParams audioHardware)
         {
             var wanted_spec = new SDL_AudioSpec();
             var spec = new SDL_AudioSpec();
 
-            var next_nb_channels = new int[] { 0, 0, 1, 6, 2, 6, 4, 6 };
-            var next_sample_rates = new int[] { 0, 44100, 48000, 96000, 192000 };
-            int next_sample_rate_idx = next_sample_rates.Length - 1;
-            var env = SDL_getenv("SDL_AUDIO_CHANNELS");
+            var channelCountOptions = new int[] { 0, 0, 1, 6, 2, 6, 4, 6 };
+            var sampleRateOptions = new int[] { 0, 44100, 48000, 96000, 192000 };
+            int sampleRateId = sampleRateOptions.Length - 1;
 
-            if (string.IsNullOrWhiteSpace(env) == false)
+            var audioChannelsEnv = SDL_getenv("SDL_AUDIO_CHANNELS");
+
+            if (string.IsNullOrWhiteSpace(audioChannelsEnv) == false)
             {
-                wanted_nb_channels = int.Parse(env);
-                wanted_channel_layout = ffmpeg.av_get_default_channel_layout(wanted_nb_channels);
+                wantedChannelCount = int.Parse(audioChannelsEnv);
+                wantedChannelLayout = ffmpeg.av_get_default_channel_layout(wantedChannelCount);
             }
 
-            if (wanted_channel_layout == 0 || wanted_nb_channels != ffmpeg.av_get_channel_layout_nb_channels((ulong)wanted_channel_layout))
+            if (wantedChannelLayout == 0 || wantedChannelCount != ffmpeg.av_get_channel_layout_nb_channels((ulong)wantedChannelLayout))
             {
-                wanted_channel_layout = ffmpeg.av_get_default_channel_layout(wanted_nb_channels);
-                wanted_channel_layout &= ~ffmpeg.AV_CH_LAYOUT_STEREO_DOWNMIX;
+                wantedChannelLayout = ffmpeg.av_get_default_channel_layout(wantedChannelCount);
+                wantedChannelLayout &= ~ffmpeg.AV_CH_LAYOUT_STEREO_DOWNMIX;
             }
 
-            wanted_nb_channels = ffmpeg.av_get_channel_layout_nb_channels((ulong)wanted_channel_layout);
-            wanted_spec.channels = wanted_nb_channels;
-            wanted_spec.freq = wanted_sample_rate;
+            wantedChannelCount = ffmpeg.av_get_channel_layout_nb_channels((ulong)wantedChannelLayout);
+            wanted_spec.channels = wantedChannelCount;
+            wanted_spec.freq = wantedSampleRate;
             if (wanted_spec.freq <= 0 || wanted_spec.channels <= 0)
             {
                 ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, "Invalid sample rate or channel count!\n");
                 return -1;
             }
 
-            while (next_sample_rate_idx != 0 && next_sample_rates[next_sample_rate_idx] >= wanted_spec.freq)
-                next_sample_rate_idx--;
+            while (sampleRateId != 0 && sampleRateOptions[sampleRateId] >= wanted_spec.freq)
+                sampleRateId--;
 
             wanted_spec.format = AUDIO_S16SYS;
             wanted_spec.silence = 0;
@@ -783,11 +784,11 @@
             {
                 ffmpeg.av_log(null, ffmpeg.AV_LOG_WARNING, $"SDL_OpenAudio ({wanted_spec.channels} channels, {wanted_spec.freq} Hz): {SDL_GetError()}\n");
 
-                wanted_spec.channels = next_nb_channels[Math.Min(7, wanted_spec.channels)];
+                wanted_spec.channels = channelCountOptions[Math.Min(7, wanted_spec.channels)];
                 if (wanted_spec.channels == 0)
                 {
-                    wanted_spec.freq = next_sample_rates[next_sample_rate_idx--];
-                    wanted_spec.channels = wanted_nb_channels;
+                    wanted_spec.freq = sampleRateOptions[sampleRateId--];
+                    wanted_spec.channels = wantedChannelCount;
                     if (wanted_spec.freq == 0)
                     {
                         ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR,
@@ -795,7 +796,7 @@
                         return -1;
                     }
                 }
-                wanted_channel_layout = ffmpeg.av_get_default_channel_layout(wanted_spec.channels);
+                wantedChannelLayout = ffmpeg.av_get_default_channel_layout(wanted_spec.channels);
             }
             if (spec.format != AUDIO_S16SYS)
             {
@@ -805,8 +806,8 @@
             }
             if (spec.channels != wanted_spec.channels)
             {
-                wanted_channel_layout = ffmpeg.av_get_default_channel_layout(spec.channels);
-                if (wanted_channel_layout == 0)
+                wantedChannelLayout = ffmpeg.av_get_default_channel_layout(spec.channels);
+                if (wantedChannelLayout == 0)
                 {
                     ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR,
                            $"SDL advised channel count {spec.channels} is not supported!\n");
@@ -814,14 +815,14 @@
                 }
             }
 
-            audio_hw_params.SampleFormat = AVSampleFormat.AV_SAMPLE_FMT_S16;
-            audio_hw_params.Frequency = spec.freq;
-            audio_hw_params.ChannelLayout = wanted_channel_layout;
-            audio_hw_params.ChannelCount = spec.channels;
-            audio_hw_params.FrameSize = ffmpeg.av_samples_get_buffer_size(null, audio_hw_params.ChannelCount, 1, audio_hw_params.SampleFormat, 1);
-            audio_hw_params.BytesPerSecond = ffmpeg.av_samples_get_buffer_size(null, audio_hw_params.ChannelCount, audio_hw_params.Frequency, audio_hw_params.SampleFormat, 1);
+            audioHardware.SampleFormat = AVSampleFormat.AV_SAMPLE_FMT_S16;
+            audioHardware.Frequency = spec.freq;
+            audioHardware.ChannelLayout = wantedChannelLayout;
+            audioHardware.ChannelCount = spec.channels;
+            audioHardware.SampleBufferLength = ffmpeg.av_samples_get_buffer_size(null, audioHardware.ChannelCount, 1, audioHardware.SampleFormat, 1);
+            audioHardware.BytesPerSecond = ffmpeg.av_samples_get_buffer_size(null, audioHardware.ChannelCount, audioHardware.Frequency, audioHardware.SampleFormat, 1);
 
-            if (audio_hw_params.BytesPerSecond <= 0 || audio_hw_params.FrameSize <= 0)
+            if (audioHardware.BytesPerSecond <= 0 || audioHardware.SampleBufferLength <= 0)
             {
                 ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, "av_samples_get_buffer_size failed\n");
                 return -1;
@@ -846,6 +847,14 @@
             return vst.IsAbortRequested ? 1 : 0;
         }
 
+        /// <summary>
+        /// Initializes the Decoder
+        /// Port of decoder_start
+        /// </summary>
+        /// <param name="d">The d.</param>
+        /// <param name="fn">The function.</param>
+        /// <param name="vst">The VST.</param>
+        /// <returns></returns>
         public int decoder_start(Decoder d, Func<MediaState, int> fn, MediaState vst)
         {
             d.DecoderThread = SDL_CreateThread(fn, vst);
@@ -957,7 +966,7 @@
         public int subtitle_thread(MediaState vst)
         {
             FrameHolder sp = null;
-            int got_subtitle;
+            int gotSubtitle;
             double pts;
 
             while (true)
@@ -966,13 +975,13 @@
                 if (sp == null) return 0;
 
                 fixed (AVSubtitle* sp_sub = &sp.Subtitle)
-                    got_subtitle = vst.SubtitleDecoder.DecodeFrame(sp_sub);
+                    gotSubtitle = vst.SubtitleDecoder.DecodeFrame(sp_sub);
 
-                if (got_subtitle < 0) break;
+                if (gotSubtitle < 0) break;
 
                 pts = 0;
 
-                if (got_subtitle != 0 && sp.Subtitle.format == 0)
+                if (gotSubtitle != 0 && sp.Subtitle.format == 0)
                 {
                     if (sp.Subtitle.pts != ffmpeg.AV_NOPTS_VALUE)
                         pts = sp.Subtitle.pts / (double)ffmpeg.AV_TIME_BASE;
@@ -986,7 +995,7 @@
                     /* now we can update the picture count */
                     vst.SubtitleQueue.QueueNextWrite();
                 }
-                else if (got_subtitle != 0)
+                else if (gotSubtitle != 0)
                 {
                     fixed (AVSubtitle* sp_sub = &sp.Subtitle)
                         ffmpeg.avsubtitle_free(sp_sub);

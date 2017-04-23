@@ -1,59 +1,125 @@
-﻿using FFmpeg.AutoGen;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using static Unosquare.FFplayDotNet.SDL;
-
-namespace Unosquare.FFplayDotNet
+﻿namespace Unosquare.FFplayDotNet
 {
+    using FFmpeg.AutoGen;
+    using System;
+    using static Unosquare.FFplayDotNet.SDL;
 
-    public unsafe class Decoder
+    /// <summary>
+    /// A class that is used to decode Audio, Video, or Subtitle packets
+    /// into frames. Port of Decoder
+    /// </summary>
+    public unsafe partial class Decoder
     {
-        public int m_PacketSerial;
 
+        #region Private Declarations
+
+        /// <summary>
+        /// Port of pkt_serial
+        /// </summary>
+        private int m_PacketSerial;
+
+        /// <summary>
+        /// The packet queue
+        /// Port of *queue
+        /// </summary>
+        private readonly PacketQueue PacketQueue;
+
+        /// <summary>
+        /// The current packet
+        /// Port of pkt
+        /// </summary>
+        private AVPacket CurrentPacket;
+
+        private readonly LockCondition IsQueueEmpty;
+
+        #endregion
+
+
+        /// <summary>
+        /// The codec context.
+        /// Port of *avctx
+        /// </summary>
+        internal AVCodecContext* Codec;
+
+        internal MediaState MediaState { get; private set; }
+
+        #region Properties
+
+        /// <summary>
+        /// Gets the packet serial.
+        /// Port of pkt_serial
+        /// </summary>
         public int PacketSerial { get { return m_PacketSerial; } internal set { m_PacketSerial = value; } }
 
-        public AVPacket CurrentPacket;
-        internal PacketQueue PacketQueue;
-        public AVCodecContext* Codec;
-
-        public bool IsFinished;
-        public bool IsPacketPending;
+        /// <summary>
+        /// Gets a value indicating whether the input decoding has been completed
+        /// In other words, if there is no more packets to decode into frames.
+        /// Port of finished
+        /// </summary>
+        public bool IsFinished { get; private set; }
         
-        public long StartPts;
-        public AVRational StartPtsTimebase;
+        
+        public long StartPts { get; internal set; }
+        public AVRational StartPtsTimebase { get; internal set; }
 
-        private LockCondition IsQueueEmpty;
+        
         public SDL_Thread DecoderThread;
-        public bool? IsPtsReorderingEnabled { get; private set; } = null;
 
 
-        internal Decoder(AVCodecContext* codecContext, PacketQueue queue, LockCondition isReadyForNextRead)
+        #endregion
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="Decoder"/> class.
+        /// Port of decoder_init
+        /// </summary>
+        /// <param name="codecContext">The codec context.</param>
+        /// <param name="queue">The queue.</param>
+        /// <param name="isReadyForNextRead">The is ready for next read.</param>
+        internal Decoder(MediaState mediaState, AVCodecContext* codecContext, PacketQueue queue, LockCondition isReadyForNextRead)
         {
+            MediaState = mediaState;
             Codec = codecContext;
             PacketQueue = queue;
             IsQueueEmpty = isReadyForNextRead;
             StartPts = ffmpeg.AV_NOPTS_VALUE;
         }
 
+        /// <summary>
+        /// Decodes a video or audio frame
+        /// Port of decoder_decode_frame
+        /// </summary>
+        /// <param name="frame">The frame.</param>
+        /// <returns></returns>
         public int DecodeFrame(AVFrame* frame)
         {
             return DecodeFrame(frame, null);
         }
 
+        /// <summary>
+        /// Decodes a subtitle frame
+        /// Port of decoder_decode_frame
+        /// </summary>
+        /// <param name="subtitle">The subtitle.</param>
+        /// <returns></returns>
         public int DecodeFrame(AVSubtitle* subtitle)
         {
             return DecodeFrame(null, subtitle);
         }
 
+        /// <summary>
+        /// Decodes a video, audio or subtitle frame.
+        /// Port of decoder_decode_frame
+        /// </summary>
+        /// <param name="outputFrame">The output frame.</param>
+        /// <param name="subtitle">The subtitle.</param>
+        /// <returns></returns>
         private int DecodeFrame(AVFrame* outputFrame, AVSubtitle* subtitle)
         {
             var gotFrame = default(int);
             var inputPacket = new AVPacket();
             var nextPtsTimebase = new AVRational();
             var nextPts = default(long);
+            var isPacketPending = false;
 
             do
             {
@@ -62,7 +128,7 @@ namespace Unosquare.FFplayDotNet
                 if (PacketQueue.IsAborted)
                     return -1;
 
-                if (!IsPacketPending || PacketQueue.Serial != PacketSerial)
+                if (!isPacketPending || PacketQueue.Serial != PacketSerial)
                 {
                     var queuePacket = new AVPacket();
                     do
@@ -86,8 +152,10 @@ namespace Unosquare.FFplayDotNet
                     fixed (AVPacket* currentPacketPtr = &CurrentPacket)
                         ffmpeg.av_packet_unref(currentPacketPtr);
 
-                    inputPacket = CurrentPacket = queuePacket;
-                    IsPacketPending = true;
+                    CurrentPacket = queuePacket;
+                    inputPacket = CurrentPacket;
+
+                    isPacketPending = true;
                 }
 
                 switch (Codec->codec_type)
@@ -99,11 +167,11 @@ namespace Unosquare.FFplayDotNet
 
                         if (gotFrame != 0)
                         {
-                            if (IsPtsReorderingEnabled.HasValue == false)
+                            if (MediaState.IsPtsReorderingEnabled.HasValue == false)
                             {
                                 outputFrame->pts = ffmpeg.av_frame_get_best_effort_timestamp(outputFrame);
                             }
-                            else if (IsPtsReorderingEnabled.HasValue && IsPtsReorderingEnabled.Value == false)
+                            else if (MediaState.IsPtsReorderingEnabled.HasValue && MediaState.IsPtsReorderingEnabled.Value == false)
                             {
                                 outputFrame->pts = outputFrame->pkt_dts;
                             }
@@ -117,15 +185,15 @@ namespace Unosquare.FFplayDotNet
 
                         if (gotFrame != 0)
                         {
-                            var tb = new AVRational { num = 1, den = outputFrame->sample_rate };
+                            var audioTimebase = new AVRational { num = 1, den = outputFrame->sample_rate };
                             if (outputFrame->pts != ffmpeg.AV_NOPTS_VALUE)
-                                outputFrame->pts = ffmpeg.av_rescale_q(outputFrame->pts, ffmpeg.av_codec_get_pkt_timebase(Codec), tb);
+                                outputFrame->pts = ffmpeg.av_rescale_q(outputFrame->pts, ffmpeg.av_codec_get_pkt_timebase(Codec), audioTimebase);
                             else if (nextPts != ffmpeg.AV_NOPTS_VALUE)
-                                outputFrame->pts = ffmpeg.av_rescale_q(nextPts, nextPtsTimebase, tb);
+                                outputFrame->pts = ffmpeg.av_rescale_q(nextPts, nextPtsTimebase, audioTimebase);
                             if (outputFrame->pts != ffmpeg.AV_NOPTS_VALUE)
                             {
                                 nextPts = outputFrame->pts + outputFrame->nb_samples;
-                                nextPtsTimebase = tb;
+                                nextPtsTimebase = audioTimebase;
                             }
                         }
 
@@ -138,7 +206,7 @@ namespace Unosquare.FFplayDotNet
 
                 if (result < 0)
                 {
-                    IsPacketPending = false;
+                    isPacketPending = false;
                 }
                 else
                 {
@@ -153,13 +221,13 @@ namespace Unosquare.FFplayDotNet
                         inputPacket.data += result;
                         inputPacket.size -= result;
                         if (inputPacket.size <= 0)
-                            IsPacketPending = false;
+                            isPacketPending = false;
                     }
                     else
                     {
                         if (gotFrame == 0)
                         {
-                            IsPacketPending = false;
+                            isPacketPending = false;
                             IsFinished = Convert.ToBoolean(PacketSerial);
                         }
                     }

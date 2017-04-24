@@ -495,12 +495,15 @@
             });
         }
 
-        private double video_refresh(double remaining_time)
+        /// <summary>
+        /// Refreshes the video frame data and returns the remaining time
+        /// in seconds to sleep before a new frame is required to be presented.
+        /// Port of video_refresh
+        /// </summary>
+        /// <param name="remainingSeconds">The remaining time.</param>
+        /// <returns></returns>
+        private double video_refresh(double remainingSeconds)
         {
-            //double currentTimeSeconds;
-            var currentSubtitleFrame = new FrameHolder();
-            var nextSubtitleFrame = new FrameHolder();
-
             if (!State.IsPaused && State.MasterSyncMode == SyncMode.External && State.IsMediaRealtime)
                 State.AdjustExternalClockSpeedRatio();
 
@@ -533,7 +536,7 @@
 
                     if (currentTimeSeconds < State.VideoFrameTimeSeconds + delaySeconds)
                     {
-                        remaining_time = Math.Min(State.VideoFrameTimeSeconds + delaySeconds - currentTimeSeconds, remaining_time);
+                        remainingSeconds = Math.Min(State.VideoFrameTimeSeconds + delaySeconds - currentTimeSeconds, remainingSeconds);
                         goto display;
                     }
 
@@ -554,14 +557,14 @@
 
                     if (State.VideoQueue.PendingCount > 1)
                     {
-                        var nextVideoFrame = State.VideoQueue.Next;
-                        var durationSeconds = State.ComputeVideoFrameDurationSeconds(currentVideoFrame, nextVideoFrame);
+                        var durationSeconds = State.ComputeVideoFrameDurationSeconds(
+                            currentVideoFrame, State.VideoQueue.Next);
 
                         if (!State.IsFrameStepping
                             && EnableFrameDrops
                             && currentTimeSeconds > State.VideoFrameTimeSeconds + durationSeconds)
                         {
-                            State.frame_drops_late++;
+                            State.VideoFrameLateDrops++;
                             State.VideoQueue.QueueNextRead();
                             goto retry;
                         }
@@ -571,11 +574,8 @@
                     {
                         while (State.SubtitleQueue.PendingCount > 0)
                         {
-                            currentSubtitleFrame = State.SubtitleQueue.Current;
-                            if (State.SubtitleQueue.PendingCount > 1)
-                                nextSubtitleFrame = State.SubtitleQueue.Next;
-                            else
-                                nextSubtitleFrame = null;
+                            var currentSubtitleFrame = State.SubtitleQueue.Current;
+                            var nextSubtitleFrame = State.SubtitleQueue.PendingCount > 1 ? State.SubtitleQueue.Next : null;
 
                             if (currentSubtitleFrame.Serial != State.SubtitlePackets.Serial
                                     || (State.VideoClock.PtsSeconds > (currentSubtitleFrame.PtsSeconds + ((float)currentSubtitleFrame.Subtitle.end_display_time / 1000)))
@@ -585,6 +585,7 @@
                                 {
                                     for (var i = 0; i < currentSubtitleFrame.Subtitle.num_rects; i++)
                                     {
+                                        // TODO: This is all wrong. We need to offload the pixels correctly
                                         var sub_rect = currentSubtitleFrame.Subtitle.rects[i];
                                         byte** pixels = null;
 
@@ -614,6 +615,7 @@
                     if (State.IsFrameStepping && !State.IsPaused)
                         State.StreamTogglePause();
                 }
+
                 display:
                 if (State.IsForceRefreshRequested && State.VideoQueue.ReadIndexShown != 0)
                     video_display();
@@ -652,12 +654,12 @@
                 var faultyPts = State.VideoStream != null ? State.VideoDecoder.Codec->pts_correction_num_faulty_pts : 0;
 
                 ffmpeg.av_log(null, ffmpeg.AV_LOG_INFO,
-                       $"{State.MasterClockPositionSeconds} {mode}:{clockSkew} fd={State.frame_drops_early + State.frame_drops_late} aq={audioQueueSize / 1024}KB " +
+                       $"{State.MasterClockPositionSeconds} {mode}:{clockSkew} fd={State.VideoFrameEarlyDrops + State.VideoFrameLateDrops} aq={audioQueueSize / 1024}KB " +
                        $"vq={videoQueueSize / 1024}KB sq={subtitleQueueSize}dB f={faultyDts} / {faultyPts}\r");
             }
 
             LastVideoRefreshTimestamp = currentTimestamp;
-            return remaining_time;
+            return remainingSeconds;
         }
 
         private void sdl_audio_callback(MediaState vst, byte* stream, int length)

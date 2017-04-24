@@ -20,15 +20,25 @@
         internal readonly MonitorLock SyncLock;
         internal readonly LockCondition IsDoneWriting;
 
-        private static void DestroyFrame(FrameHolder frame)
+        /// <summary>
+        /// Releases unmanaged frame date from the provided frame wrapper.
+        /// Port of frame_queue_unref_item
+        /// </summary>
+        /// <param name="frame">The frame.</param>
+        private static void ReleaseDecodedFrame(FrameHolder frame)
         {
             ffmpeg.av_frame_unref(frame.DecodedFrame);
             fixed (AVSubtitle* vpsub = &frame.Subtitle)
-            {
                 ffmpeg.avsubtitle_free(vpsub);
-            }
         }
 
+        /// <summary>
+        /// Initializes a new instance of the <see cref="FrameQueue"/> class.
+        /// Port of frame_queue_init
+        /// </summary>
+        /// <param name="queue">The queue.</param>
+        /// <param name="maxSize">The maximum size.</param>
+        /// <param name="keepLast">if set to <c>true</c> [keep last].</param>
         internal FrameQueue(PacketQueue queue, int maxSize, bool keepLast)
         {
             SyncLock = new MonitorLock();
@@ -51,7 +61,7 @@
             for (var i = 0; i < Capacity; i++)
             {
                 var currentFrame = Frames[i];
-                DestroyFrame(currentFrame);
+                ReleaseDecodedFrame(currentFrame);
                 fixed (AVFrame** framePtr = &currentFrame.DecodedFrame)
                 {
                     ffmpeg.av_frame_free(framePtr);
@@ -172,7 +182,7 @@
                 return;
             }
 
-            DestroyFrame(Frames[ReadIndex]);
+            ReleaseDecodedFrame(Frames[ReadIndex]);
             if (++ReadIndex == Capacity)
                 ReadIndex = 0;
 
@@ -186,8 +196,6 @@
             {
                 SyncLock.Unlock();
             }
-
-            
         }
 
         public int PendingCount

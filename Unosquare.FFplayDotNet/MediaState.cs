@@ -48,16 +48,12 @@
         internal double AudioSkewThreshold;
         internal int AudioSkewAvgCount;
 
-        public int frame_drops_early;
-        public int frame_drops_late;
-
         /// <summary>
         /// Gets displayed video frame time in seconds.
         /// Port of frame_timer
         /// </summary>
         public double VideoFrameTimeSeconds { get; internal set; }
         public double frame_last_returned_time;
-        public double frame_last_filter_delay;
 
         public int xleft;
         public int ytop;
@@ -191,6 +187,18 @@
         /// above this, we consider the jump a timestamp discontinuity
         /// </summary>
         public double MaximumFrameDuration { get; internal set; }
+
+        /// <summary>
+        /// The amount of video frames that have been dropped early.
+        /// Port of frame_drops_early
+        /// </summary>
+        public int VideoFrameEarlyDrops { get; internal set; }
+
+        /// <summary>
+        /// The amount of video frames that have been dropped early.
+        /// Port of frame_drops_late
+        /// </summary>
+        public int VideoFrameLateDrops { get; internal set; }
 
         public bool IsAtEndOfFile { get; internal set; }
         public string MediaUrl { get; internal set; }

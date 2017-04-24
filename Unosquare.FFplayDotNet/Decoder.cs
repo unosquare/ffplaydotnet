@@ -289,23 +289,24 @@
 
             if (gotPicture != 0)
             {
-                var framePts = double.NaN;
+                var framePtsSecs = double.NaN;
 
                 if (frame->pts != ffmpeg.AV_NOPTS_VALUE)
-                    framePts = ffmpeg.av_q2d(MediaState.VideoStream->time_base) * frame->pts;
+                    framePtsSecs = ffmpeg.av_q2d(MediaState.VideoStream->time_base) * frame->pts;
 
                 frame->sample_aspect_ratio = ffmpeg.av_guess_sample_aspect_ratio(MediaState.InputContext, MediaState.VideoStream, frame);
                 if (MediaState.Player.EnableFrameDrops)
                 {
                     if (frame->pts != ffmpeg.AV_NOPTS_VALUE)
                     {
-                        double ptsSkew = framePts - MediaState.MasterClockPositionSeconds;
-                        if (!double.IsNaN(ptsSkew) && Math.Abs(ptsSkew) < Constants.AvNoSyncThresholdSecs &&
-                            ptsSkew - MediaState.frame_last_filter_delay < 0 &&
+                        double ptsSkewSecs = framePtsSecs - MediaState.MasterClockPositionSeconds;
+                        if (!double.IsNaN(ptsSkewSecs) && 
+                            Math.Abs(ptsSkewSecs) < Constants.AvNoSyncThresholdSecs &&
+                            ptsSkewSecs < 0 &&
                             MediaState.VideoDecoder.PacketSerial == MediaState.VideoClock.PacketSerial &&
                             MediaState.VideoPackets.Count != 0)
                         {
-                            MediaState.frame_drops_early++;
+                            MediaState.VideoFrameEarlyDrops++;
                             ffmpeg.av_frame_unref(frame);
                             gotPicture = 0;
                         }

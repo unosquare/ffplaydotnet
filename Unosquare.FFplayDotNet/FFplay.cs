@@ -216,16 +216,6 @@
 
         #region Methods
 
-        public static void free_picture(FrameHolder vp)
-        {
-            // TODO: free the BMP
-            //if (vp->bmp)
-            //{
-            //    SDL_FreeYUVOverlay(vp->bmp);
-            //    vp->bmp = NULL;
-            //}
-        }
-
         public static void calculate_display_rect(SDL_Rect rect, int scr_xleft, int scr_ytop, int scr_width, int scr_height, int pic_width, int pic_height, AVRational pic_sar)
         {
             double aspect_ratio;
@@ -263,39 +253,38 @@
         /// <returns></returns>
         public int FillBitmap(FrameHolder videoFrame)
         {
+            var frame = videoFrame.DecodedFrame;
+
+            if ((AVPixelFormat)frame->format == Constants.OutputPixelFormat)
+            {
+                // We don't need to do any colorspace transformation.
+                videoFrame.FillBitmapDataFromDecodedFrame();
+                return 0;
+            }
 
             fixed (SwsContext** scalerReference = &State.VideoScaler)
             {
-                var frame = videoFrame.DecodedFrame;
+                // Retrieve a suitable scaler or create it on the fly
+                *scalerReference = ffmpeg.sws_getCachedContext(*scalerReference,
+                        frame->width, frame->height, (AVPixelFormat)frame->format, frame->width, frame->height,
+                        Constants.OutputPixelFormat, VideoScalerFlags, null, null, null);
 
-                if ((AVPixelFormat)frame->format == AVPixelFormat.AV_PIX_FMT_BGRA)
+                // Check for scaler availability
+                if (*scalerReference == null)
                 {
-                    videoFrame.FillBitmapDataFromDecodedFrame();
-                    return 0;
+                    ffmpeg.av_log(null, ffmpeg.AV_LOG_FATAL, "Cannot initialize the conversion context\n");
+                    return -1;
                 }
-                else
-                {
-                    *scalerReference = ffmpeg.sws_getCachedContext(*scalerReference,
-                            frame->width, frame->height, (AVPixelFormat)frame->format, frame->width, frame->height,
-                            AVPixelFormat.AV_PIX_FMT_BGRA, VideoScalerFlags, null, null, null);
 
-                    if (*scalerReference == null)
-                    {
-                        ffmpeg.av_log(null, ffmpeg.AV_LOG_FATAL, "Cannot initialize the conversion context\n");
-                        return -1;
-                    }
-
-                    videoFrame.FillBitmapDataFromScaler(*scalerReference);
-
-                    return 0;
-                }
+                // Fill the buffer from scaler
+                videoFrame.FillBitmapDataFromScaler(*scalerReference);
             }
+
+            return 0;
         }
 
         private void do_exit()
         {
-
-
             if (State != null)
                 State.CloseStream();
 
@@ -758,7 +747,7 @@
                     while (!videoFrame.IsAllocated && !State.VideoPackets.IsAborted)
                         State.VideoQueue.IsDoneWriting.Wait(State.VideoQueue.SyncLock);
 
-                    if (State.VideoPackets.IsAborted && EventQueue.CountEvents(MediaEventAction.AllocatePicture) != 1)
+                    if (State.VideoPackets.IsAborted && EventQueue.DequeueEvents(MediaEventAction.AllocatePicture).Length != 1)
                     {
                         while (!videoFrame.IsAllocated && !State.IsAbortRequested)
                             State.VideoQueue.IsDoneWriting.Wait(State.VideoQueue.SyncLock);

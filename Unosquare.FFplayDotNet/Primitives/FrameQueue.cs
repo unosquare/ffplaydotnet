@@ -20,10 +20,10 @@
         internal readonly MonitorLock SyncLock;
         internal readonly LockCondition IsDoneWriting;
 
-        private static void DestroyFrame(FrameHolder vp)
+        private static void DestroyFrame(FrameHolder frame)
         {
-            ffmpeg.av_frame_unref(vp.DecodedFrame);
-            fixed (AVSubtitle* vpsub = &vp.Subtitle)
+            ffmpeg.av_frame_unref(frame.DecodedFrame);
+            fixed (AVSubtitle* vpsub = &frame.Subtitle)
             {
                 ffmpeg.avsubtitle_free(vpsub);
             }
@@ -50,16 +50,17 @@
         {
             for (var i = 0; i < Capacity; i++)
             {
-                var vp = Frames[i];
-                DestroyFrame(vp);
-                fixed (AVFrame** framePtr = &vp.DecodedFrame)
+                var currentFrame = Frames[i];
+                DestroyFrame(currentFrame);
+                fixed (AVFrame** framePtr = &currentFrame.DecodedFrame)
                 {
                     ffmpeg.av_frame_free(framePtr);
                 }
 
-                FFplay.free_picture(vp);
+                currentFrame.ReleaseBitmapData(false);
             }
 
+            GC.Collect();
             SyncLock.Destroy();
             IsDoneWriting.Dispose();
         }

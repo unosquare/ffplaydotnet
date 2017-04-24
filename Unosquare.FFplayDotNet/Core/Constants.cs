@@ -1,4 +1,5 @@
-﻿using System;
+﻿using FFmpeg.AutoGen;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
@@ -15,7 +16,10 @@ namespace Unosquare.FFplayDotNet.Core
         public const int SDL_AUDIO_MIN_BUFFER_SIZE = 512;
         public const int SDL_AUDIO_MAX_CALLBACKS_PER_SEC = 30;
         public const int SDL_VOLUME_STEP = (SDL.SDL_MIX_MAXVOLUME / 50);
-        
+
+        public const AVPixelFormat OutputPixelFormat = AVPixelFormat.AV_PIX_FMT_BGRA;
+        public const int OutputPixelFormatBpp = 4;
+
         public const int MinFrames = 25;
         public const int ExternalClockMinFrames = 2;
         public const int ExternalClockMaxFrames = 10;

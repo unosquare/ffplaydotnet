@@ -19,19 +19,33 @@
     public class MediaEventQueue
     {
         private readonly object SyncRoot = new object();
-        private readonly Queue<MediaEvent> Queue = new Queue<MediaEvent>();
+        private readonly List<MediaEvent> Queue = new List<MediaEvent>();
 
         public void PushEvent(FFplay sender, MediaEventAction action)
         {
             lock (SyncRoot)
-                Queue.Enqueue(new MediaEvent(sender, action));
+                Queue.Add(new MediaEvent(sender, action));
         }
 
-        public int CountEvents(MediaEventAction action)
+        /// <summary>
+        /// Gets the events.
+        /// Port of SDL_PeepEvents (with argument get event)
+        /// </summary>
+        /// <param name="action">The action.</param>
+        /// <returns></returns>
+        public MediaEvent[] DequeueEvents(MediaEventAction action)
         {
             lock (SyncRoot)
             {
-                return Queue.Count(c => c.Action == action);
+                var result = new List<MediaEvent>();
+                for(var i = Queue.Count - 1; i >= 0; i--)
+                {
+                    result.Add(Queue[i]);
+                    Queue.RemoveAt(i);
+                }
+
+                result.Reverse();
+                return result.ToArray();
             }
         }
 

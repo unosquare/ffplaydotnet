@@ -1,7 +1,9 @@
 ﻿namespace Unosquare.FFplayDotNet.Primitives
 {
     using FFmpeg.AutoGen;
+    using System;
     using System.Runtime.InteropServices;
+    using System.Threading.Tasks;
     using Unosquare.FFplayDotNet.Core;
     using static Unosquare.FFplayDotNet.SDL;
 
@@ -55,7 +57,11 @@
         /// </summary>
         public long BytePosition { get; internal set; }
 
-        public BitmapBuffer Bitmap;
+        /// <summary>
+        /// The bitmap.
+        /// Port of bmp
+        /// </summary>
+        public BitmapBuffer Bitmap { get; internal set; }
 
         public bool IsAllocated;
         public AVRational PictureAspectRatio;
@@ -63,6 +69,41 @@
         public int PictureHeight;
         public int format;
         public bool IsUploaded;
+
+        /// <summary>
+        /// Releases the bitmap data.
+        /// Port of free_picture
+        /// </summary>
+        internal void ReleaseBitmapData(bool forceCollection)
+        {
+            if (Bitmap == null || Bitmap.Data == null) return;
+            Bitmap.Data = null;
+            Bitmap = null;
+
+            if (forceCollection)
+                GC.Collect();
+        }
+
+        private void FillBitmapDataProperties(byte[] pixelData)
+        {
+            if (Bitmap == null)
+                Bitmap = new BitmapBuffer();
+
+            Bitmap.ImageHeight = PictureHeight;
+            Bitmap.ImageWidth = PictureWidth;
+            Bitmap.LineLength = PictureWidth * Constants.OutputPixelFormatBpp;
+            Bitmap.LineStride = ffmpeg.av_image_get_linesize(Constants.OutputPixelFormat, PictureWidth, PictureHeight);
+
+            if (Bitmap.Data != null && Bitmap.Data.Length == pixelData.Length)
+            {
+                var targetData = Bitmap.Data;
+                Buffer.BlockCopy(pixelData, 0, targetData, 0, targetData.Length);
+            }
+            else
+            {
+                Bitmap.Data = pixelData;
+            }
+        }
 
         /// <summary>
         /// Fills the bitmap data from the decoded frame.
@@ -83,15 +124,12 @@
             if (DecodedFrame == null)
                 return;
 
-            //var byteLength = DecodedFrame->linesize[0] * DecodedFrame->height;
             var targetPixels = new byte[byteLength];
             var pinnedArray = GCHandle.Alloc(targetPixels, GCHandleType.Pinned);
-            //Native.memcpy((byte*)pinnedArray.AddrOfPinnedObject(), DecodedFrame->data[0], byteLength);
             Native.memcpy((byte*)pinnedArray.AddrOfPinnedObject(), baseAddress, byteLength);
             pinnedArray.Free();
 
-            Bitmap = new BitmapBuffer();
-            Bitmap.Data = targetPixels;
+            FillBitmapDataProperties(targetPixels);
         }
 
         /// <summary>
@@ -103,8 +141,8 @@
         {
             var sourceScan0 = DecodedFrame->data[0];
             var sourceStride = DecodedFrame->linesize[0];
-            var targetStride = ffmpeg.av_image_get_linesize(AVPixelFormat.AV_PIX_FMT_BGRA, PictureWidth, PictureHeight);
-            var targetLength = ffmpeg.av_image_get_buffer_size(AVPixelFormat.AV_PIX_FMT_BGRA, PictureWidth, PictureHeight, 1);
+            var targetStride = ffmpeg.av_image_get_linesize(Constants.OutputPixelFormat, PictureWidth, PictureHeight);
+            var targetLength = ffmpeg.av_image_get_buffer_size(Constants.OutputPixelFormat, PictureWidth, PictureHeight, 1);
 
             var targetPixels = new byte[targetLength];
             var targetPixelsHandle = GCHandle.Alloc(targetPixels);
@@ -113,8 +151,7 @@
             ffmpeg.sws_scale(scaler, &sourceScan0, &sourceStride, 0, DecodedFrame->height, &targetScan0, &targetStride);
             targetPixelsHandle.Free();
 
-            if (Bitmap == null) Bitmap = new BitmapBuffer();
-            Bitmap.Data = targetPixels;
+            FillBitmapDataProperties(targetPixels);
         }
     }
 }

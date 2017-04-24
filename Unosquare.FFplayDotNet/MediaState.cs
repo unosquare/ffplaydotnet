@@ -806,88 +806,89 @@
 
             var videoFrame = VideoQueue.Last;
             FrameHolder subtitleFrame = null;
+            if (videoFrame.Bitmap == null) return;
 
-            if (videoFrame.Bitmap != null)
+
+            if (SubtitleStream != null)
             {
-                if (SubtitleStream != null)
+                if (SubtitleQueue.PendingCount > 0)
                 {
-                    if (SubtitleQueue.PendingCount > 0)
+                    subtitleFrame = SubtitleQueue.Current;
+                    var subtitleStartDisplayTime = subtitleFrame.Pts + ((float)subtitleFrame.Subtitle.start_display_time / 1000);
+                    if (videoFrame.Pts >= subtitleStartDisplayTime)
                     {
-                        subtitleFrame = SubtitleQueue.Current;
-                        if (videoFrame.Pts >= subtitleFrame.Pts + ((float)subtitleFrame.Subtitle.start_display_time / 1000))
+                        if (!subtitleFrame.IsUploaded)
                         {
-                            if (!subtitleFrame.IsUploaded)
+                            byte** pixels = null;
+                            int pitch = 0;
+
+                            if (subtitleFrame.PictureWidth == 0 || subtitleFrame.PictureHeight == 0)
                             {
-                                byte** pixels = null;
-                                int pitch = 0;
-
-                                if (subtitleFrame.PictureWidth == 0 || subtitleFrame.PictureHeight == 0)
-                                {
-                                    subtitleFrame.PictureWidth = videoFrame.PictureWidth;
-                                    subtitleFrame.PictureHeight = videoFrame.PictureHeight;
-                                }
-
-                                //if (FFplay.realloc_texture(sub_texture, SDL_PIXELFORMAT_ARGB8888, sp.PictureWidth, sp.PictureHeight, SDL_BLENDMODE_BLEND, 1) < 0)
-                                //    return;
-
-                                for (var i = 0; i < subtitleFrame.Subtitle.num_rects; i++)
-                                {
-                                    AVSubtitleRect* sub_rect = subtitleFrame.Subtitle.rects[i];
-                                    sub_rect->x = ffmpeg.av_clip(sub_rect->x, 0, subtitleFrame.PictureWidth);
-                                    sub_rect->y = ffmpeg.av_clip(sub_rect->y, 0, subtitleFrame.PictureHeight);
-                                    sub_rect->w = ffmpeg.av_clip(sub_rect->w, 0, subtitleFrame.PictureWidth - sub_rect->x);
-                                    sub_rect->h = ffmpeg.av_clip(sub_rect->h, 0, subtitleFrame.PictureHeight - sub_rect->y);
-
-                                    SubtitleScaler = ffmpeg.sws_getCachedContext(SubtitleScaler,
-                                        sub_rect->w, sub_rect->h, AVPixelFormat.AV_PIX_FMT_PAL8,
-                                        sub_rect->w, sub_rect->h, AVPixelFormat.AV_PIX_FMT_BGRA,
-                                        0, null, null, null);
-
-                                    if (SubtitleScaler == null)
-                                    {
-                                        ffmpeg.av_log(null, ffmpeg.AV_LOG_FATAL, "Cannot initialize the conversion context\n");
-                                        return;
-                                    }
-
-                                    if (SDL_LockTexture(subtitleTexture, sub_rect, pixels, &pitch) == 0)
-                                    {
-                                        var sourceData0 = sub_rect->data[0];
-                                        var sourceStride = sub_rect->linesize[0];
-
-                                        ffmpeg.sws_scale(SubtitleScaler, &sourceData0, &sourceStride,
-                                              0, sub_rect->h, pixels, &pitch);
-
-                                        SDL_UnlockTexture(subtitleTexture);
-                                    }
-                                }
-
-                                subtitleFrame.IsUploaded = true;
+                                subtitleFrame.PictureWidth = videoFrame.PictureWidth;
+                                subtitleFrame.PictureHeight = videoFrame.PictureHeight;
                             }
-                        }
-                        else
-                        {
-                            subtitleFrame = null;
+
+                            //if (FFplay.realloc_texture(sub_texture, SDL_PIXELFORMAT_ARGB8888, sp.PictureWidth, sp.PictureHeight, SDL_BLENDMODE_BLEND, 1) < 0)
+                            //    return;
+
+                            for (var i = 0; i < subtitleFrame.Subtitle.num_rects; i++)
+                            {
+                                AVSubtitleRect* sub_rect = subtitleFrame.Subtitle.rects[i];
+                                sub_rect->x = ffmpeg.av_clip(sub_rect->x, 0, subtitleFrame.PictureWidth);
+                                sub_rect->y = ffmpeg.av_clip(sub_rect->y, 0, subtitleFrame.PictureHeight);
+                                sub_rect->w = ffmpeg.av_clip(sub_rect->w, 0, subtitleFrame.PictureWidth - sub_rect->x);
+                                sub_rect->h = ffmpeg.av_clip(sub_rect->h, 0, subtitleFrame.PictureHeight - sub_rect->y);
+
+                                SubtitleScaler = ffmpeg.sws_getCachedContext(SubtitleScaler,
+                                    sub_rect->w, sub_rect->h, AVPixelFormat.AV_PIX_FMT_PAL8,
+                                    sub_rect->w, sub_rect->h, Constants.OutputPixelFormat,
+                                    0, null, null, null);
+
+                                if (SubtitleScaler == null)
+                                {
+                                    ffmpeg.av_log(null, ffmpeg.AV_LOG_FATAL, "Cannot initialize the conversion context\n");
+                                    return;
+                                }
+
+                                if (SDL_LockTexture(subtitleTexture, sub_rect, pixels, &pitch) == 0)
+                                {
+                                    var sourceData0 = sub_rect->data[0];
+                                    var sourceStride = sub_rect->linesize[0];
+
+                                    ffmpeg.sws_scale(SubtitleScaler, &sourceData0, &sourceStride,
+                                          0, sub_rect->h, pixels, &pitch);
+
+                                    SDL_UnlockTexture(subtitleTexture);
+                                }
+                            }
+
+                            subtitleFrame.IsUploaded = true;
                         }
                     }
-                }
-
-                FFplay.calculate_display_rect(rect, xleft, ytop, PictureWidth, PictureHeight, videoFrame.PictureWidth, videoFrame.PictureHeight, videoFrame.PictureAspectRatio);
-
-                if (!videoFrame.IsUploaded)
-                {
-                    if (Player.FillBitmap(videoFrame) < 0)
-                        return;
-
-                    videoFrame.IsUploaded = true;
-                }
-
-                SDL_RenderCopy(Player.renderer, videoFrame.Bitmap, null, rect);
-
-                if (subtitleFrame != null)
-                {
-                    SDL_RenderCopy(Player.renderer, subtitleTexture, null, rect);
+                    else
+                    {
+                        subtitleFrame = null;
+                    }
                 }
             }
+
+            FFplay.calculate_display_rect(rect, xleft, ytop, PictureWidth, PictureHeight, videoFrame.PictureWidth, videoFrame.PictureHeight, videoFrame.PictureAspectRatio);
+
+            if (!videoFrame.IsUploaded)
+            {
+                if (Player.FillBitmap(videoFrame) < 0)
+                    return;
+
+                videoFrame.IsUploaded = true;
+            }
+
+            SDL_RenderCopy(Player.renderer, videoFrame.Bitmap, null, rect);
+
+            if (subtitleFrame != null)
+            {
+                SDL_RenderCopy(Player.renderer, subtitleTexture, null, rect);
+            }
+
         }
 
         public void StreamTogglePause()

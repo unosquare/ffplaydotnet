@@ -25,11 +25,13 @@
         /// Port of frame_queue_unref_item
         /// </summary>
         /// <param name="frame">The frame.</param>
-        private static void ReleaseDecodedFrame(FrameHolder frame)
+        private static void ResetDecodedFrame(FrameHolder frame)
         {
-            ffmpeg.av_frame_unref(frame.DecodedFrame);
-            fixed (AVSubtitle* vpsub = &frame.Subtitle)
-                ffmpeg.avsubtitle_free(vpsub);
+            if (frame.DecodedFrame != null)
+                ffmpeg.av_frame_unref(frame.DecodedFrame);
+
+            fixed (AVSubtitle* subtitlePtr = &frame.Subtitle)
+                ffmpeg.avsubtitle_free(subtitlePtr);
         }
 
         /// <summary>
@@ -53,7 +55,7 @@
                 Frames[i] = new FrameHolder();
                 Frames[i].DecodedFrame = ffmpeg.av_frame_alloc();
             }
-                
+
         }
 
         public void Clear()
@@ -61,11 +63,9 @@
             for (var i = 0; i < Capacity; i++)
             {
                 var currentFrame = Frames[i];
-                ReleaseDecodedFrame(currentFrame);
+                ResetDecodedFrame(currentFrame);
                 fixed (AVFrame** framePtr = &currentFrame.DecodedFrame)
-                {
                     ffmpeg.av_frame_free(framePtr);
-                }
 
                 currentFrame.ReleaseBitmapData(false);
             }
@@ -92,7 +92,7 @@
             {
                 SyncLock.Unlock();
             }
-            
+
         }
 
         public FrameHolder Current
@@ -182,7 +182,7 @@
                 return;
             }
 
-            ReleaseDecodedFrame(Frames[ReadIndex]);
+            ResetDecodedFrame(Frames[ReadIndex]);
             if (++ReadIndex == Capacity)
                 ReadIndex = 0;
 

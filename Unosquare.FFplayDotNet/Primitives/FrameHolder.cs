@@ -22,12 +22,14 @@
         }
 
         /// <summary>
-        /// The decoded frame. Port of *frame
+        /// The decoded frame. 
+        /// Port of *frame
         /// </summary>
         internal AVFrame* DecodedFrame;
 
         /// <summary>
         /// The decoded subtitle (if it is a subtitle frame)
+        /// Port of sub
         /// </summary>
         internal AVSubtitle Subtitle;
 

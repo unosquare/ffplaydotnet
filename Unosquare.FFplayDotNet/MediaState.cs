@@ -12,7 +12,7 @@
 
     public unsafe class MediaState
     {
-        internal readonly GCHandle Handle;
+        internal readonly GCHandle Handle; // TODO: ensure free is called
 
         internal AVInputFormat* InputFormat;
         internal AVFormatContext* InputContext;

@@ -130,7 +130,7 @@
             }
 
             State = new MediaState(this, filename, InputForcedFormat);
-            MediaReadTask = Task.Run(() => { read_thread(); });
+            MediaReadTask = Task.Run(() => { ReaderThreadDoWork(); });
             event_loop();
 
             #endregion
@@ -906,36 +906,27 @@
 
         #endregion
 
-        public int read_thread()
+
+        private int SetupReaderThread()
         {
-            AVFormatContext* inputContext = null;
-            int err, i, ret;
+            var result = default(int);
             var streamIndexes = new int[(int)AVMediaType.AVMEDIA_TYPE_NB];
-            var pkt1 = new AVPacket();
-            AVPacket* pkt = &pkt1;
+            AVDictionaryEntry* optionEntry;
 
-            AVDictionaryEntry* t;
-            AVDictionary** opts;
-
-            var inputStreamCount = 0;
-            var isPacketInPlayRange = false;
-
-            var scan_all_pmts_set = false;
-            long pkt_ts;
-
-            var DecoderLock = new MonitorLock();
-
+            // Initial state setup
             Native.memset(streamIndexes, -1, streamIndexes.Length);
             State.LastVideoStreamIndex = State.VideoStreamIndex = -1;
             State.LastAudioStreamIndex = State.AudioStreamIndex = -1;
             State.LastSubtitleStreamIndex = State.SubtitleStreamIndex = -1;
             State.IsAtEndOfFile = false;
-            inputContext = ffmpeg.avformat_alloc_context();
+
+            // create the input context
+            var inputContext = ffmpeg.avformat_alloc_context();
+
             if (inputContext == null)
             {
                 ffmpeg.av_log(null, ffmpeg.AV_LOG_FATAL, "Could not allocate context.\n");
-                ret = ffmpeg.AVERROR_ENOMEM;
-                goto fail;
+                return ffmpeg.AVERROR_ENOMEM;
             }
 
             inputContext->interrupt_callback.callback = new AVIOInterruptCB_callback_func { Pointer = Marshal.GetFunctionPointerForDelegate(decode_interrupt_delegate) };
@@ -943,53 +934,53 @@
 
             fixed (AVDictionary** formatOptsPtr = &FormatOptions)
             {
+                var scanAllPmtsSet = false;
+
                 if (ffmpeg.av_dict_get(FormatOptions, "scan_all_pmts", null, ffmpeg.AV_DICT_MATCH_CASE) == null)
                 {
                     ffmpeg.av_dict_set(formatOptsPtr, "scan_all_pmts", "1", ffmpeg.AV_DICT_DONT_OVERWRITE);
-                    scan_all_pmts_set = true;
+                    scanAllPmtsSet = true;
                 }
 
-                err = ffmpeg.avformat_open_input(&inputContext, State.MediaUrl, State.InputFormat, formatOptsPtr);
-                if (err < 0)
+                var openResult = ffmpeg.avformat_open_input(&inputContext, State.MediaUrl, State.InputFormat, formatOptsPtr);
+                if (openResult < 0)
                 {
-                    Debug.WriteLine($"Error in read_thread. File '{State.MediaUrl}'. {err}");
-                    ret = -1;
-                    goto fail;
+                    Debug.WriteLine($"Error in read_thread. File '{State.MediaUrl}'. {openResult}");
+                    // TODO: throw open exception
+                    return -1;
                 }
 
-                if (scan_all_pmts_set)
+                if (scanAllPmtsSet)
                     ffmpeg.av_dict_set(formatOptsPtr, "scan_all_pmts", null, ffmpeg.AV_DICT_MATCH_CASE);
 
-                t = ffmpeg.av_dict_get(FormatOptions, "", null, ffmpeg.AV_DICT_IGNORE_SUFFIX);
+                optionEntry = ffmpeg.av_dict_get(FormatOptions, "", null, ffmpeg.AV_DICT_IGNORE_SUFFIX);
 
             }
 
-            if (t != null)
+            if (optionEntry != null)
             {
-                ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, $"Option {Native.BytePtrToString(t->key)} not found.\n");
-                ret = ffmpeg.AVERROR_OPTION_NOT_FOUND;
-                goto fail;
+                ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, $"Option {Native.BytePtrToString(optionEntry->key)} not found.\n");
+                return ffmpeg.AVERROR_OPTION_NOT_FOUND;
             }
 
             State.InputContext = inputContext;
-            if (GeneratePts)
-                inputContext->flags |= ffmpeg.AVFMT_FLAG_GENPTS;
 
+            if (GeneratePts) inputContext->flags |= ffmpeg.AVFMT_FLAG_GENPTS;
             ffmpeg.av_format_inject_global_side_data(inputContext);
 
-            opts = Helper.RetrieveStreamOptions(inputContext, CodecOptions);
-            inputStreamCount = Convert.ToInt32(inputContext->nb_streams);
-            err = ffmpeg.avformat_find_stream_info(inputContext, opts);
-            for (i = 0; i < inputStreamCount; i++)
-                ffmpeg.av_dict_free(&opts[i]);
+            var streamOptions = Helper.RetrieveStreamOptions(inputContext, CodecOptions);
+            var inputStreamCount = Convert.ToInt32(inputContext->nb_streams);
+            var findStreamInfoResult = ffmpeg.avformat_find_stream_info(inputContext, streamOptions);
 
-            ffmpeg.av_freep(&opts);
+            for (var i = 0; i < inputStreamCount; i++)
+                ffmpeg.av_dict_free(&streamOptions[i]);
 
-            if (err < 0)
+            ffmpeg.av_freep(&streamOptions);
+
+            if (findStreamInfoResult < 0)
             {
                 ffmpeg.av_log(null, ffmpeg.AV_LOG_WARNING, $"{State.MediaUrl}: could not find codec parameters\n");
-                ret = -1;
-                goto fail;
+                return -1;
             }
 
             if (inputContext->pb != null)
@@ -1004,28 +995,27 @@
 
             State.MaximumFrameDuration = isDiscontinuous ? 10.0 : 3600.0;
 
-            t = ffmpeg.av_dict_get(inputContext->metadata, "title", null, 0);
-            if (t != null)
-                MediaTitle = Native.BytePtrToString(t->value);
+            optionEntry = ffmpeg.av_dict_get(inputContext->metadata, "title", null, 0);
+            if (optionEntry != null)
+                MediaTitle = Native.BytePtrToString(optionEntry->value);
 
 
             if (MediaStartTimestamp != ffmpeg.AV_NOPTS_VALUE)
             {
-                long timestamp;
-                timestamp = MediaStartTimestamp;
+                var timestamp = MediaStartTimestamp;
                 if (inputContext->start_time != ffmpeg.AV_NOPTS_VALUE)
                     timestamp += inputContext->start_time;
 
-                ret = ffmpeg.avformat_seek_file(inputContext, -1, long.MinValue, timestamp, long.MaxValue, 0);
+                result = ffmpeg.avformat_seek_file(inputContext, -1, long.MinValue, timestamp, long.MaxValue, 0);
 
-                if (ret < 0)
+                if (result < 0)
                     ffmpeg.av_log(null, ffmpeg.AV_LOG_WARNING, $"{State.MediaUrl}: could not seek to position {((double)timestamp / ffmpeg.AV_TIME_BASE)}\n");
             }
 
             if (LogStatusMessages)
                 ffmpeg.av_dump_format(inputContext, 0, State.MediaUrl, 0);
 
-            for (i = 0; i < inputContext->nb_streams; i++)
+            for (var i = 0; i < inputContext->nb_streams; i++)
             {
                 var st = inputContext->streams[i];
                 var type = st->codecpar->codec_type;
@@ -1036,7 +1026,7 @@
                         streamIndexes[(int)type] = i;
             }
 
-            for (i = 0; i < (int)AVMediaType.AVMEDIA_TYPE_NB; i++)
+            for (var i = 0; i < (int)AVMediaType.AVMEDIA_TYPE_NB; i++)
             {
                 if (string.IsNullOrWhiteSpace(wanted_stream_spec[i]) == false && streamIndexes[i] == -1)
                 {
@@ -1077,35 +1067,48 @@
                 if (codecpar->width != 0)
                     set_default_window_size(codecpar->width, codecpar->height, sar);
             }
+
             if (streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_AUDIO] >= 0)
-            {
                 State.OpenStreamComponent(streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_AUDIO]);
-            }
 
-            ret = -1;
+            result = -1;
+
             if (streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_VIDEO] >= 0)
-            {
-                ret = State.OpenStreamComponent(streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_VIDEO]);
-            }
-
-            //if (vst.show_mode == ShowMode.SHOW_MODE_NONE)
-            //    vst.show_mode = ret >= 0 ? ShowMode.SHOW_MODE_VIDEO : ShowMode.SHOW_MODE_NONE;
+                result = State.OpenStreamComponent(streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_VIDEO]);
 
             if (streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_SUBTITLE] >= 0)
-            {
                 State.OpenStreamComponent(streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_SUBTITLE]);
-            }
 
             if (State.VideoStreamIndex < 0 && State.AudioStreamIndex < 0)
             {
                 ffmpeg.av_log(null, ffmpeg.AV_LOG_FATAL, $"Failed to open file '{State.MediaUrl}' or configure filtergraph\n");
-                ret = -1;
-                goto fail;
+                return -1;
             }
 
             if (EnableInfiniteBuffer < 0 && State.IsMediaRealtime)
                 EnableInfiniteBuffer = 1;
 
+            return result;
+        }
+
+        /// <summary>
+        /// Continuously reads from the input stream.
+        /// Port of read_thread
+        /// </summary>
+        /// <returns></returns>
+        public int ReaderThreadDoWork()
+        {
+
+            // Setup state variables
+            var result = SetupReaderThread();
+            var DecoderLock = new MonitorLock();
+            var inputContext = State.InputContext;
+
+            if (result < 0) goto fail;
+
+            var formatName = Native.BytePtrToString(inputContext->iformat->name);
+
+            // Loops by reading and acting on states
             while (true)
             {
                 if (State.IsAbortRequested)
@@ -1136,9 +1139,9 @@
                     // TODO: the +-2 is due to rounding being not done in the correct direction in generation
                     //      of the seek_pos/seek_rel variables
 
-                    ret = ffmpeg.avformat_seek_file(State.InputContext, -1, seekMin, seekTarget, seekMax, State.SeekModeFlags);
+                    result = ffmpeg.avformat_seek_file(State.InputContext, -1, seekMin, seekTarget, seekMax, State.SeekModeFlags);
 
-                    if (ret < 0)
+                    if (result < 0)
                     {
                         ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR,
                                $"{Encoding.GetEncoding(0).GetString(State.InputContext->filename)}: error while seeking\n");
@@ -1186,7 +1189,7 @@
                     if (State.VideoStream != null && (State.VideoStream->disposition & ffmpeg.AV_DISPOSITION_ATTACHED_PIC) != 0)
                     {
                         var copy = new AVPacket();
-                        if ((ret = ffmpeg.av_copy_packet(&copy, &State.VideoStream->attached_pic)) < 0)
+                        if ((result = ffmpeg.av_copy_packet(&copy, &State.VideoStream->attached_pic)) < 0)
                             goto fail;
 
                         State.VideoPackets.Enqueue(&copy);
@@ -1225,14 +1228,18 @@
                     }
                     else if (autoexit)
                     {
-                        ret = ffmpeg.AVERROR_EOF;
+                        result = ffmpeg.AVERROR_EOF;
                         goto fail;
                     }
                 }
-                ret = ffmpeg.av_read_frame(inputContext, pkt);
-                if (ret < 0)
+
+                var readPacket = new AVPacket();
+                var packetPtr = &readPacket;
+                result = ffmpeg.av_read_frame(inputContext, packetPtr);
+
+                if (result < 0)
                 {
-                    if ((ret == ffmpeg.AVERROR_EOF || ffmpeg.avio_feof(inputContext->pb) != 0) && !State.IsAtEndOfFile)
+                    if ((result == ffmpeg.AVERROR_EOF || ffmpeg.avio_feof(inputContext->pb) != 0) && !State.IsAtEndOfFile)
                     {
                         if (State.VideoStreamIndex >= 0)
                             State.VideoPackets.EnqueueEmptyPacket(State.VideoStreamIndex);
@@ -1264,42 +1271,35 @@
                     State.IsAtEndOfFile = false;
                 }
 
-                var stream_start_time = inputContext->streams[pkt->stream_index]->start_time;
-                pkt_ts = pkt->pts == ffmpeg.AV_NOPTS_VALUE ? pkt->dts : pkt->pts;
-                isPacketInPlayRange = MediaDuration == ffmpeg.AV_NOPTS_VALUE ||
-                        (pkt_ts - (stream_start_time != ffmpeg.AV_NOPTS_VALUE ? stream_start_time : 0)) *
-                        ffmpeg.av_q2d(inputContext->streams[pkt->stream_index]->time_base) -
+                var streamStartTimestamp = inputContext->streams[packetPtr->stream_index]->start_time;
+                var packetTimestamp = packetPtr->pts == ffmpeg.AV_NOPTS_VALUE ? packetPtr->dts : packetPtr->pts;
+                var isPacketInPlayRange = MediaDuration == ffmpeg.AV_NOPTS_VALUE ||
+                        (packetTimestamp - (streamStartTimestamp != ffmpeg.AV_NOPTS_VALUE ? streamStartTimestamp : 0)) *
+                        ffmpeg.av_q2d(inputContext->streams[packetPtr->stream_index]->time_base) -
                         (double)(MediaStartTimestamp != ffmpeg.AV_NOPTS_VALUE ? MediaStartTimestamp : 0) / ffmpeg.AV_TIME_BASE
                         <= ((double)MediaDuration / ffmpeg.AV_TIME_BASE);
 
-                if (pkt->stream_index == State.AudioStreamIndex && isPacketInPlayRange)
-                {
-                    State.AudioPackets.Enqueue(pkt);
-                }
-                else if (pkt->stream_index == State.VideoStreamIndex && isPacketInPlayRange
-                         && (State.VideoStream->disposition & ffmpeg.AV_DISPOSITION_ATTACHED_PIC) == 0)
-                {
-                    State.VideoPackets.Enqueue(pkt);
-                }
-                else if (pkt->stream_index == State.SubtitleStreamIndex && isPacketInPlayRange)
-                {
-                    State.SubtitlePackets.Enqueue(pkt);
-                }
+                // Enqueue the read packet depending on the the type of packet
+                if (packetPtr->stream_index == State.AudioStreamIndex && isPacketInPlayRange)
+                    State.AudioPackets.Enqueue(packetPtr);
+                else if (packetPtr->stream_index == State.VideoStreamIndex && isPacketInPlayRange 
+                    && (State.VideoStream->disposition & ffmpeg.AV_DISPOSITION_ATTACHED_PIC) == 0)
+                    State.VideoPackets.Enqueue(packetPtr);
+                else if (packetPtr->stream_index == State.SubtitleStreamIndex && isPacketInPlayRange)
+                    State.SubtitlePackets.Enqueue(packetPtr);
                 else
-                {
-                    ffmpeg.av_packet_unref(pkt);
-                }
+                    ffmpeg.av_packet_unref(packetPtr);
             }
 
-            ret = 0;
+            result = 0;
+
             fail:
             if (inputContext != null && State.InputContext == null)
                 ffmpeg.avformat_close_input(&inputContext);
 
-            if (ret != 0)
-            {
+            if (result != 0)
                 EventQueue.PushEvent(this, MediaEventAction.Quit);
-            }
+            
 
             DecoderLock.Destroy();
             return 0;

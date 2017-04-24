@@ -43,14 +43,15 @@
         public int Serial { get; internal set; }
 
         /// <summary>
-        /// The PTS: presentation timestamp for the frame
+        /// The PTS: presentation timestamp for the frame.
+        /// Port of pts
         /// </summary>
-        public double Pts { get; internal set; }
+        public double PtsSeconds { get; internal set; }
 
         /// <summary>
         /// The estimated duration of the frame
         /// </summary>
-        public double Duration { get; internal set; }
+        public double DurationSeconds { get; internal set; }
 
         /// <summary>
         /// The byte position of the frame in the input file

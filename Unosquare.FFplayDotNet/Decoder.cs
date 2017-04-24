@@ -299,8 +299,8 @@
                 {
                     if (frame->pts != ffmpeg.AV_NOPTS_VALUE)
                     {
-                        double ptsSkew = framePts - MediaState.MasterClockPosition;
-                        if (!double.IsNaN(ptsSkew) && Math.Abs(ptsSkew) < Constants.AvNoSyncThreshold &&
+                        double ptsSkew = framePts - MediaState.MasterClockPositionSeconds;
+                        if (!double.IsNaN(ptsSkew) && Math.Abs(ptsSkew) < Constants.AvNoSyncThresholdSecs &&
                             ptsSkew - MediaState.frame_last_filter_delay < 0 &&
                             MediaState.VideoDecoder.PacketSerial == MediaState.VideoClock.PacketSerial &&
                             MediaState.VideoPackets.Count != 0)

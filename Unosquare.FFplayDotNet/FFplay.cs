@@ -163,20 +163,22 @@
                 case AVLockOp.AV_LOCK_OBTAIN:
                     {
                         var mutex = GCHandle.FromIntPtr(new IntPtr(*mutexReference)).Target as MonitorLock;
-                        mutex.Lock();
+                        mutex?.Lock();
                         return 0;
                     }
                 case AVLockOp.AV_LOCK_RELEASE:
                     {
                         var mutex = GCHandle.FromIntPtr(new IntPtr(*mutexReference)).Target as MonitorLock;
-                        mutex.Unlock();
+                        mutex?.Unlock();
                         return 0;
                     }
                 case AVLockOp.AV_LOCK_DESTROY:
                     {
                         var mutexHandle = GCHandle.FromIntPtr(new IntPtr(*mutexReference));
                         (mutexHandle.Target as MonitorLock)?.Destroy();
-                        mutexHandle.Free();
+
+                        if (mutexHandle.IsAllocated)
+                            mutexHandle.Free();
 
                         return 0;
                     }
@@ -195,17 +197,17 @@
         /// <returns></returns>
         private MediaEvent refresh_loop_wait_event()
         {
-            double remaining_time = 0.0;
+            double remainingSeconds = 0.0;
             //SDL_PumpEvents();
             while (PollEvent() == 0)
             {
 
-                if (remaining_time > 0.0)
-                    Thread.Sleep(TimeSpan.FromSeconds(remaining_time * ffmpeg.AV_TIME_BASE));
+                if (remainingSeconds > 0.0)
+                    Thread.Sleep(TimeSpan.FromSeconds(remainingSeconds));
 
-                remaining_time = Constants.RefreshRate;
+                remainingSeconds = Constants.RefreshRateSeconds;
                 if (!State.IsPaused || State.IsForceRefreshRequested)
-                    video_refresh(ref remaining_time);
+                    remainingSeconds = video_refresh(remainingSeconds);
 
                 //SDL_PumpEvents();
             }
@@ -493,9 +495,9 @@
             });
         }
 
-        private void video_refresh(ref double remaining_time)
+        private double video_refresh(double remaining_time)
         {
-            double time;
+            //double currentTimeSeconds;
             var currentSubtitleFrame = new FrameHolder();
             var nextSubtitleFrame = new FrameHolder();
 
@@ -511,8 +513,6 @@
                 }
                 else
                 {
-                    double lastFrameDuration, duration, delay;
-
                     var lastVideoFrame = State.VideoQueue.Last;
                     var currentVideoFrame = State.VideoQueue.Current;
 
@@ -522,38 +522,44 @@
                         goto retry;
                     }
                     if (lastVideoFrame.Serial != currentVideoFrame.Serial)
-                        State.frame_timer = ffmpeg.av_gettime_relative() / 1000000.0;
+                        State.VideoFrameTimeSeconds = (double)ffmpeg.av_gettime_relative() / (double)ffmpeg.AV_TIME_BASE;
 
                     if (State.IsPaused)
                         goto display;
 
-                    lastFrameDuration = State.ComputeVideoFrameDuration(lastVideoFrame, currentVideoFrame);
-                    delay = State.ComputeVideoClockDelay(lastFrameDuration);
-                    time = ffmpeg.av_gettime_relative() / 1000000.0;
-                    if (time < State.frame_timer + delay)
+                    var lastFrameDuration = State.ComputeVideoFrameDurationSeconds(lastVideoFrame, currentVideoFrame);
+                    var delaySeconds = State.ComputeVideoClockDelay(lastFrameDuration);
+                    var currentTimeSeconds = ffmpeg.av_gettime_relative() / (double)ffmpeg.AV_TIME_BASE;
+
+                    if (currentTimeSeconds < State.VideoFrameTimeSeconds + delaySeconds)
                     {
-                        remaining_time = Math.Min(State.frame_timer + delay - time, remaining_time);
+                        remaining_time = Math.Min(State.VideoFrameTimeSeconds + delaySeconds - currentTimeSeconds, remaining_time);
                         goto display;
                     }
 
-                    State.frame_timer += delay;
-                    if (delay > 0 && time - State.frame_timer > Constants.AvSyncThresholdMax)
-                        State.frame_timer = time;
+                    State.VideoFrameTimeSeconds += delaySeconds;
+                    if (delaySeconds > 0 && currentTimeSeconds - State.VideoFrameTimeSeconds > Constants.AvSyncThresholdMaxSecs)
+                        State.VideoFrameTimeSeconds = currentTimeSeconds;
 
-                    State.VideoQueue.SyncLock.Lock();
-
-                    if (!double.IsNaN(currentVideoFrame.Pts))
-                        State.UpdateVideoPts(currentVideoFrame.Pts, currentVideoFrame.BytePosition, currentVideoFrame.Serial);
-
-                    State.VideoQueue.SyncLock.Unlock();
+                    try
+                    {
+                        State.VideoQueue.SyncLock.Lock();
+                        if (!double.IsNaN(currentVideoFrame.PtsSeconds))
+                            State.UpdateVideoPts(currentVideoFrame.PtsSeconds, currentVideoFrame.BytePosition, currentVideoFrame.Serial);
+                    }
+                    finally
+                    {
+                        State.VideoQueue.SyncLock.Unlock();
+                    }
 
                     if (State.VideoQueue.PendingCount > 1)
                     {
-                        var nextvp = State.VideoQueue.Next;
-                        duration = State.ComputeVideoFrameDuration(currentVideoFrame, nextvp);
+                        var nextVideoFrame = State.VideoQueue.Next;
+                        var durationSeconds = State.ComputeVideoFrameDurationSeconds(currentVideoFrame, nextVideoFrame);
+
                         if (!State.IsFrameStepping
-                            && (EnableFrameDrops)
-                            && time > State.frame_timer + duration)
+                            && EnableFrameDrops
+                            && currentTimeSeconds > State.VideoFrameTimeSeconds + durationSeconds)
                         {
                             State.frame_drops_late++;
                             State.VideoQueue.QueueNextRead();
@@ -572,8 +578,8 @@
                                 nextSubtitleFrame = null;
 
                             if (currentSubtitleFrame.Serial != State.SubtitlePackets.Serial
-                                    || (State.VideoClock.Pts > (currentSubtitleFrame.Pts + ((float)currentSubtitleFrame.Subtitle.end_display_time / 1000)))
-                                    || (nextSubtitleFrame != null && State.VideoClock.Pts > (nextSubtitleFrame.Pts + ((float)nextSubtitleFrame.Subtitle.start_display_time / 1000))))
+                                    || (State.VideoClock.PtsSeconds > (currentSubtitleFrame.PtsSeconds + ((float)currentSubtitleFrame.Subtitle.end_display_time / 1000)))
+                                    || (nextSubtitleFrame != null && State.VideoClock.PtsSeconds > (nextSubtitleFrame.PtsSeconds + ((float)nextSubtitleFrame.Subtitle.start_display_time / 1000))))
                             {
                                 if (currentSubtitleFrame.IsUploaded)
                                 {
@@ -634,11 +640,11 @@
                 var clockSkew = 0d;
 
                 if (State.AudioStream != null && State.VideoStream != null)
-                    clockSkew = State.AudioClock.Position - State.VideoClock.Position;
+                    clockSkew = State.AudioClock.PositionSeconds - State.VideoClock.PositionSeconds;
                 else if (State.VideoStream != null)
-                    clockSkew = State.MasterClockPosition - State.VideoClock.Position;
+                    clockSkew = State.MasterClockPositionSeconds - State.VideoClock.PositionSeconds;
                 else if (State.AudioStream != null)
-                    clockSkew = State.MasterClockPosition - State.AudioClock.Position;
+                    clockSkew = State.MasterClockPositionSeconds - State.AudioClock.PositionSeconds;
 
                 var mode = (State.AudioStream != null && State.VideoStream != null) ?
                     "A-V" : (State.VideoStream != null ? "M-V" : (State.AudioStream != null ? "M-A" : "   "));
@@ -646,11 +652,12 @@
                 var faultyPts = State.VideoStream != null ? State.VideoDecoder.Codec->pts_correction_num_faulty_pts : 0;
 
                 ffmpeg.av_log(null, ffmpeg.AV_LOG_INFO,
-                       $"{State.MasterClockPosition} {mode}:{clockSkew} fd={State.frame_drops_early + State.frame_drops_late} aq={audioQueueSize / 1024}KB " +
+                       $"{State.MasterClockPositionSeconds} {mode}:{clockSkew} fd={State.frame_drops_early + State.frame_drops_late} aq={audioQueueSize / 1024}KB " +
                        $"vq={videoQueueSize / 1024}KB sq={subtitleQueueSize}dB f={faultyDts} / {faultyPts}\r");
             }
 
             LastVideoRefreshTimestamp = currentTimestamp;
+            return remaining_time;
         }
 
         private void sdl_audio_callback(MediaState vst, byte* stream, int length)
@@ -699,7 +706,7 @@
                 var pendingAudioBytes = Convert.ToInt32(vst.RenderAudioBufferLength - vst.RenderAudioBufferIndex);
                 vst.AudioClock.SetPosition(
                     vst.DecodedAudioClockPosition - (double)(2 * vst.AudioHardwareBufferSize + pendingAudioBytes) / vst.AudioOutputParams.BytesPerSecond,
-                    vst.DecodedAudioClockSerial, RednerAudioCallbackTimestamp / 1000000.0);
+                    vst.DecodedAudioClockSerial, RednerAudioCallbackTimestamp / (double)ffmpeg.AV_TIME_BASE);
 
                 vst.ExternalClock.SyncTo(vst.AudioClock);
             }
@@ -742,8 +749,9 @@
 
                 EventQueue.PushEvent(this, MediaEventAction.AllocatePicture);
 
-                State.VideoQueue.SyncLock.Lock();
+                try
                 {
+                    State.VideoQueue.SyncLock.Lock();
                     while (!videoFrame.IsAllocated && !State.VideoPackets.IsAborted)
                         State.VideoQueue.IsDoneWriting.Wait(State.VideoQueue.SyncLock);
 
@@ -753,8 +761,10 @@
                             State.VideoQueue.IsDoneWriting.Wait(State.VideoQueue.SyncLock);
                     }
                 }
-
-                State.VideoQueue.SyncLock.Unlock();
+                finally
+                {
+                    State.VideoQueue.SyncLock.Unlock();
+                }
 
                 if (State.VideoPackets.IsAborted)
                     return -1;
@@ -762,8 +772,8 @@
 
             if (videoFrame.Bitmap != null)
             {
-                videoFrame.Pts = pts;
-                videoFrame.Duration = duration;
+                videoFrame.PtsSeconds = pts;
+                videoFrame.DurationSeconds = duration;
                 videoFrame.BytePosition = streamPosition;
                 videoFrame.Serial = serial;
 
@@ -834,10 +844,10 @@
 
                     if (audioFrame == null) break;
 
-                    audioFrame.Pts = (decodedFrame->pts == ffmpeg.AV_NOPTS_VALUE) ? double.NaN : decodedFrame->pts * ffmpeg.av_q2d(timeBase);
+                    audioFrame.PtsSeconds = (decodedFrame->pts == ffmpeg.AV_NOPTS_VALUE) ? double.NaN : decodedFrame->pts * ffmpeg.av_q2d(timeBase);
                     audioFrame.BytePosition = ffmpeg.av_frame_get_pkt_pos(decodedFrame);
                     audioFrame.Serial = mediaState.AudioDecoder.PacketSerial;
-                    audioFrame.Duration = ffmpeg.av_q2d(new AVRational { num = decodedFrame->nb_samples, den = decodedFrame->sample_rate });
+                    audioFrame.DurationSeconds = ffmpeg.av_q2d(new AVRational { num = decodedFrame->nb_samples, den = decodedFrame->sample_rate });
 
                     ffmpeg.av_frame_move_ref(audioFrame.DecodedFrame, decodedFrame);
                     mediaState.AudioQueue.QueueNextWrite();
@@ -874,7 +884,7 @@
 
                 if (hasDecoded != 0 && decodedFrame.Subtitle.format == 0)
                 {
-                    decodedFrame.Pts = (decodedFrame.Subtitle.pts != ffmpeg.AV_NOPTS_VALUE) ?
+                    decodedFrame.PtsSeconds = (decodedFrame.Subtitle.pts != ffmpeg.AV_NOPTS_VALUE) ?
                         decodedFrame.Subtitle.pts / (double)ffmpeg.AV_TIME_BASE : 0;
                     decodedFrame.Serial = mediaState.SubtitleDecoder.PacketSerial;
                     decodedFrame.PictureWidth = mediaState.SubtitleDecoder.Codec->width;
@@ -1190,9 +1200,16 @@
                         State.VideoPackets.HasEnoughPackets(State.VideoStream, State.VideoStreamIndex) &&
                         State.SubtitlePackets.HasEnoughPackets(State.SubtitleStream, State.SubtitleStreamIndex))))
                 {
-                    DecoderLock.Lock();
-                    State.IsFrameDecoded.Wait(DecoderLock, 10);
-                    DecoderLock.Unlock();
+                    try
+                    {
+                        DecoderLock.Lock();
+                        State.IsFrameDecoded.Wait(DecoderLock, 10);
+                    }
+                    finally
+                    {
+                        DecoderLock.Unlock();
+                    }
+
                     continue;
                 }
 
@@ -1228,9 +1245,16 @@
                     if (inputContext->pb != null && inputContext->pb->error != 0)
                         break;
 
-                    DecoderLock.Lock();
-                    State.IsFrameDecoded.Wait(DecoderLock, 10);
-                    DecoderLock.Unlock();
+                    try
+                    {
+                        DecoderLock.Lock();
+                        State.IsFrameDecoded.Wait(DecoderLock, 10);
+                    }
+                    finally
+                    {
+                        DecoderLock.Unlock();
+                    }
+
                     continue;
                 }
                 else
@@ -1243,8 +1267,8 @@
                 isPacketInPlayRange = MediaDuration == ffmpeg.AV_NOPTS_VALUE ||
                         (pkt_ts - (stream_start_time != ffmpeg.AV_NOPTS_VALUE ? stream_start_time : 0)) *
                         ffmpeg.av_q2d(inputContext->streams[pkt->stream_index]->time_base) -
-                        (double)(MediaStartTimestamp != ffmpeg.AV_NOPTS_VALUE ? MediaStartTimestamp : 0) / 1000000
-                        <= ((double)MediaDuration / 1000000);
+                        (double)(MediaStartTimestamp != ffmpeg.AV_NOPTS_VALUE ? MediaStartTimestamp : 0) / ffmpeg.AV_TIME_BASE
+                        <= ((double)MediaDuration / ffmpeg.AV_TIME_BASE);
 
                 if (pkt->stream_index == State.AudioStreamIndex && isPacketInPlayRange)
                 {
@@ -1377,7 +1401,7 @@
                         }
                         else
                         {
-                            pos = State.MasterClockPosition;
+                            pos = State.MasterClockPositionSeconds;
                             if (double.IsNaN(pos))
                                 pos = (double)State.SeekTargetPosition / ffmpeg.AV_TIME_BASE;
 

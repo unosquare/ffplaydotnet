@@ -72,10 +72,17 @@
 
         public void SignalDoneWriting(Action onAfterLock)
         {
-            SyncLock.Lock();
-            onAfterLock?.Invoke();
-            IsDoneWriting.Signal();
-            SyncLock.Unlock();
+            try
+            {
+                SyncLock.Lock();
+                onAfterLock?.Invoke();
+                IsDoneWriting.Signal();
+            }
+            finally
+            {
+                SyncLock.Unlock();
+            }
+            
         }
 
         public FrameHolder Current
@@ -104,12 +111,16 @@
 
         public FrameHolder PeekWritableFrame()
         {
-            SyncLock.Lock();
-
-            while (Length >= Capacity && !Packets.IsAborted)
-                IsDoneWriting.Wait(SyncLock);
-
-            SyncLock.Unlock();
+            try
+            {
+                SyncLock.Lock();
+                while (Length >= Capacity && !Packets.IsAborted)
+                    IsDoneWriting.Wait(SyncLock);
+            }
+            finally
+            {
+                SyncLock.Unlock();
+            }
 
             if (Packets.IsAborted)
                 return null;
@@ -119,12 +130,16 @@
 
         public FrameHolder PeekReadableFrame()
         {
-            SyncLock.Lock();
-
-            while (Length - ReadIndexShown <= 0 && !Packets.IsAborted)
-                IsDoneWriting.Wait(SyncLock);
-
-            SyncLock.Unlock();
+            try
+            {
+                SyncLock.Lock();
+                while (Length - ReadIndexShown <= 0 && !Packets.IsAborted)
+                    IsDoneWriting.Wait(SyncLock);
+            }
+            finally
+            {
+                SyncLock.Unlock();
+            }
 
             if (Packets.IsAborted)
                 return null;
@@ -137,11 +152,16 @@
             if (++WriteIndex == Capacity)
                 WriteIndex = 0;
 
-            SyncLock.Lock();
-            Length++;
-
-            IsDoneWriting.Signal();
-            SyncLock.Unlock();
+            try
+            {
+                SyncLock.Lock();
+                Length++;
+                IsDoneWriting.Signal();
+            }
+            finally
+            {
+                SyncLock.Unlock();
+            }
         }
 
         public void QueueNextRead()
@@ -156,12 +176,18 @@
             if (++ReadIndex == Capacity)
                 ReadIndex = 0;
 
-            SyncLock.Lock();
+            try
+            {
+                SyncLock.Lock();
+                Length--;
+                IsDoneWriting.Signal();
+            }
+            finally
+            {
+                SyncLock.Unlock();
+            }
 
-            Length--;
-
-            IsDoneWriting.Signal();
-            SyncLock.Unlock();
+            
         }
 
         public int PendingCount

@@ -29,7 +29,7 @@
         /// Clock base minus time at which we updated the clock
         /// Port of pts_drift
         /// </summary>
-        private double PtsDrift;
+        private double PtsDriftSeconds;
 
         #endregion
 
@@ -62,13 +62,13 @@
         /// Gets the PTS. (clock base is the presentation timestamp)
         /// Port of pts
         /// </summary>
-        public double Pts { get; private set; }
+        public double PtsSeconds { get; private set; }
 
         /// <summary>
         /// Gets the last updated timestamp.
         /// Port of last_updated
         /// </summary>
-        public double LastUpdated { get; private set; }
+        public double LastUpdatedSeconds { get; private set; }
 
         /// <summary>
         /// Gets the packet serial.
@@ -89,7 +89,7 @@
             }
             set
             {
-                SetPosition(Position, PacketSerial);
+                SetPosition(PositionSeconds, PacketSerial);
                 m_SpeedRatio = value;
             }
         }
@@ -111,7 +111,7 @@
         /// Gets the position.
         /// Port of get_clock
         /// </summary>
-        public double Position
+        public double PositionSeconds
         {
             get
             {
@@ -120,12 +120,12 @@
 
                 if (IsPaused)
                 {
-                    return Pts;
+                    return PtsSeconds;
                 }
                 else
                 {
-                    var time = ffmpeg.av_gettime_relative() / 1000000.0;
-                    return PtsDrift + time - (time - LastUpdated) * (1.0 - SpeedRatio);
+                    var currentSeconds = ffmpeg.av_gettime_relative() / (double)ffmpeg.AV_TIME_BASE;
+                    return PtsDriftSeconds + currentSeconds - (currentSeconds - LastUpdatedSeconds) * (1.0 - SpeedRatio);
                 }
             }
         }
@@ -139,14 +139,14 @@
         /// Port of set_clock
         /// </summary>
         /// <param name="pts">The PTS.</param>
-        /// <param name="serial">The serial.</param>
-        /// <param name="time">The time.</param>
-        public void SetPosition(double pts, int serial, double time)
+        /// <param name="packetSerial">The serial.</param>
+        /// <param name="timeInSeconds">The time.</param>
+        public void SetPosition(double pts, int packetSerial, double timeInSeconds)
         {
-            Pts = pts;
-            LastUpdated = time;
-            PtsDrift = Pts - time;
-            PacketSerial = serial;
+            PtsSeconds = pts;
+            LastUpdatedSeconds = timeInSeconds;
+            PtsDriftSeconds = PtsSeconds - timeInSeconds;
+            PacketSerial = packetSerial;
         }
 
         /// <summary>
@@ -157,8 +157,8 @@
         /// <param name="serial">The serial.</param>
         public void SetPosition(double pts, int serial)
         {
-            var time = ffmpeg.av_gettime_relative() / 1000000.0;
-            SetPosition(pts, serial, time);
+            var timeSeconds = ffmpeg.av_gettime_relative() / (double)ffmpeg.AV_TIME_BASE;
+            SetPosition(pts, serial, timeSeconds);
         }
 
         /// <summary>
@@ -168,12 +168,12 @@
         /// <param name="slave">The slave.</param>
         public void SyncTo(Clock slave)
         {
-            var currentPosition = Position;
-            var slavePosition = slave.Position;
+            var currentPosition = PositionSeconds;
+            var slavePosition = slave.PositionSeconds;
             if (double.IsNaN(slavePosition)) return;
 
             if (double.IsNaN(currentPosition) 
-                || Math.Abs(currentPosition - slavePosition) > Constants.AvNoSyncThreshold)
+                || Math.Abs(currentPosition - slavePosition) > Constants.AvNoSyncThresholdSecs)
             {
                 SetPosition(slavePosition, slave.PacketSerial);
             }

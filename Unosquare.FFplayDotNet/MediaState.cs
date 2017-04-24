@@ -50,7 +50,12 @@
 
         public int frame_drops_early;
         public int frame_drops_late;
-        public double frame_timer;
+
+        /// <summary>
+        /// Gets displayed video frame time in seconds.
+        /// Port of frame_timer
+        /// </summary>
+        public double VideoFrameTimeSeconds { get; internal set; }
         public double frame_last_returned_time;
         public double frame_last_filter_delay;
 
@@ -119,6 +124,10 @@
 
         public SyncMode MediaSyncMode { get; set; }
 
+        /// <summary>
+        /// Gets the master synchronize mode.
+        /// Port of get_master_sync_type
+        /// </summary>
         public SyncMode MasterSyncMode
         {
             get
@@ -144,25 +153,25 @@
             }
         }
 
-        public double MasterClockPosition
+        /// <summary>
+        /// Gets the master clock position seconds.
+        /// Port of get_master_clock
+        public double MasterClockPositionSeconds
         {
             get
             {
-                double val;
                 switch (MasterSyncMode)
                 {
                     case SyncMode.Video:
-                        val = VideoClock.Position;
-                        break;
-                    case SyncMode.Audio:
-                        val = AudioClock.Position;
-                        break;
-                    default:
-                        val = ExternalClock.Position;
-                        break;
-                }
-                return val;
+                        return VideoClock.PositionSeconds;
 
+                    case SyncMode.Audio:
+                        return AudioClock.PositionSeconds;
+
+                    default:
+                        return ExternalClock.PositionSeconds;
+
+                }
             }
         }
 
@@ -253,7 +262,7 @@
 
         public void SeekChapter(int increment)
         {
-            long pos = Convert.ToInt64(MasterClockPosition * ffmpeg.AV_TIME_BASE);
+            long pos = Convert.ToInt64(MasterClockPositionSeconds * ffmpeg.AV_TIME_BASE);
             int i = 0;
 
             if (InputContext->nb_chapters == 0)
@@ -750,8 +759,8 @@
             }
 
             /* update the audio clock with the pts */
-            if (!double.IsNaN(audioFrame.Pts))
-                DecodedAudioClockPosition = audioFrame.Pts + (double)audioFrame.DecodedFrame->nb_samples / audioFrame.DecodedFrame->sample_rate;
+            if (!double.IsNaN(audioFrame.PtsSeconds))
+                DecodedAudioClockPosition = audioFrame.PtsSeconds + (double)audioFrame.DecodedFrame->nb_samples / audioFrame.DecodedFrame->sample_rate;
             else
                 DecodedAudioClockPosition = double.NaN;
 
@@ -760,41 +769,41 @@
             return resampledDataSize;
         }
 
-        internal double ComputeVideoClockDelay(double delay)
+        internal double ComputeVideoClockDelay(double delaySeconds)
         {
             var skew = 0d;
 
             if (MasterSyncMode != SyncMode.Video)
             {
-                skew = VideoClock.Position - MasterClockPosition;
+                skew = VideoClock.PositionSeconds - MasterClockPositionSeconds;
                 var syncThreshold = Math.Max(
-                    Constants.AvSyncThresholdMin,
-                    Math.Min(Constants.AvSyncThresholdMax, delay));
+                    Constants.AvSyncThresholdMinSecs,
+                    Math.Min(Constants.AvSyncThresholdMaxSecs, delaySeconds));
 
                 if (!double.IsNaN(skew) && Math.Abs(skew) < MaximumFrameDuration)
                 {
                     if (skew <= -syncThreshold)
-                        delay = Math.Max(0, delay + skew);
-                    else if (skew >= syncThreshold && delay > Constants.AvSuncFrameDupThreshold)
-                        delay = delay + skew;
+                        delaySeconds = Math.Max(0, delaySeconds + skew);
+                    else if (skew >= syncThreshold && delaySeconds > Constants.AvSuncFrameDupThresholdSecs)
+                        delaySeconds = delaySeconds + skew;
                     else if (skew >= syncThreshold)
-                        delay = 2 * delay;
+                        delaySeconds = 2 * delaySeconds;
                 }
             }
 
-            ffmpeg.av_log(null, ffmpeg.AV_LOG_TRACE, $"video: delay={delay} A-V={-skew}\n");
-            return delay;
+            ffmpeg.av_log(null, ffmpeg.AV_LOG_TRACE, $"video: delay={delaySeconds} A-V={-skew}\n");
+            return delaySeconds;
         }
 
-        internal double ComputeVideoFrameDuration(FrameHolder videoFrame, FrameHolder nextVideoFrame)
+        internal double ComputeVideoFrameDurationSeconds(FrameHolder videoFrame, FrameHolder nextVideoFrame)
         {
             if (videoFrame.Serial == nextVideoFrame.Serial)
             {
-                var duration = nextVideoFrame.Pts - videoFrame.Pts;
-                if (double.IsNaN(duration) || duration <= 0 || duration > MaximumFrameDuration)
-                    return videoFrame.Duration;
+                var durationSeconds = nextVideoFrame.PtsSeconds - videoFrame.PtsSeconds;
+                if (double.IsNaN(durationSeconds) || durationSeconds <= 0 || durationSeconds > MaximumFrameDuration)
+                    return videoFrame.DurationSeconds;
                 else
-                    return duration;
+                    return durationSeconds;
             }
 
             return 0.0;
@@ -814,8 +823,8 @@
                 if (SubtitleQueue.PendingCount > 0)
                 {
                     subtitleFrame = SubtitleQueue.Current;
-                    var subtitleStartDisplayTime = subtitleFrame.Pts + ((float)subtitleFrame.Subtitle.start_display_time / 1000);
-                    if (videoFrame.Pts >= subtitleStartDisplayTime)
+                    var subtitleStartDisplayTime = subtitleFrame.PtsSeconds + ((float)subtitleFrame.Subtitle.start_display_time / 1000);
+                    if (videoFrame.PtsSeconds >= subtitleStartDisplayTime)
                     {
                         if (!subtitleFrame.IsUploaded)
                         {
@@ -895,16 +904,16 @@
         {
             if (IsPaused)
             {
-                frame_timer += ffmpeg.av_gettime_relative() / 1000000.0 - VideoClock.LastUpdated;
+                VideoFrameTimeSeconds += ffmpeg.av_gettime_relative() / (double)ffmpeg.AV_TIME_BASE - VideoClock.LastUpdatedSeconds;
                 if (ReadPauseResult != ffmpeg.AVERROR_NOTSUPP)
                 {
                     VideoClock.IsPaused = false;
                 }
 
-                VideoClock.SetPosition(VideoClock.Position, VideoClock.PacketSerial);
+                VideoClock.SetPosition(VideoClock.PositionSeconds, VideoClock.PacketSerial);
             }
 
-            ExternalClock.SetPosition(ExternalClock.Position, ExternalClock.PacketSerial);
+            ExternalClock.SetPosition(ExternalClock.PositionSeconds, ExternalClock.PacketSerial);
             IsPaused = AudioClock.IsPaused = VideoClock.IsPaused = ExternalClock.IsPaused = !IsPaused;
         }
 
@@ -952,9 +961,9 @@
             /* if not master, then */
             if (MasterSyncMode != SyncMode.Audio)
             {
-                var audioSkew = AudioClock.Position - MasterClockPosition;
+                var audioSkew = AudioClock.PositionSeconds - MasterClockPositionSeconds;
 
-                if (!double.IsNaN(audioSkew) && Math.Abs(audioSkew) < Constants.AvNoSyncThreshold)
+                if (!double.IsNaN(audioSkew) && Math.Abs(audioSkew) < Constants.AvNoSyncThresholdSecs)
                 {
                     AudioSkewCummulative = audioSkew + AudioSkewCoefficient * AudioSkewCummulative;
                     if (AudioSkewAvgCount < Constants.AudioSkewMinSamples)

@@ -24,10 +24,30 @@ namespace Unosquare.FFplayDotNet.Core
         public const int ExternalClockMinFrames = 2;
         public const int ExternalClockMaxFrames = 10;
 
-        public const double AvSyncThresholdMin = 0.04;
-        public const double AvSyncThresholdMax = 0.1;
-        public const double AvSuncFrameDupThreshold = 0.1;
-        public const double AvNoSyncThreshold = 10.0;
+        /// <summary>
+        /// No AV sync correction is done if below the minimum AV sync threshold.
+        /// Port of AV_SYNC_THRESHOLD_MIN 
+        /// </summary>
+        public const double AvSyncThresholdMinSecs = 0.04;
+
+        /// <summary>
+        /// AV sync correction is done if above the maximum AV sync threshold.
+        /// Port of AV_SYNC_THRESHOLD_MAX 
+        /// </summary>
+        public const double AvSyncThresholdMaxSecs = 0.1;
+
+        /// <summary>
+        /// If a frame duration is longer than this, it will not be duplicated to compensate AV sync.
+        /// Port of AV_SYNC_FRAMEDUP_THRESHOLD 
+        /// </summary>
+        public const double AvSuncFrameDupThresholdSecs = 0.1;
+
+        /// <summary>
+        /// No AV correction is done if too big error. Unit is Seconds.
+        /// Port of AV_NOSYNC_THRESHOLD
+        /// </summary>
+        public const double AvNoSyncThresholdSecs = 10.0;
+
         public const int SampleCorrectionPercentMax = 10;
 
         public const double ExternalClockSpeedMin = 0.900;
@@ -40,7 +60,11 @@ namespace Unosquare.FFplayDotNet.Core
         /// </summary>
         public const int AudioSkewMinSamples = 20;
 
-        public const double RefreshRate = 0.01;
+        /// <summary>
+        /// The refresh rate in seconds (10 milliseconds = 0.01 seoconds).
+        /// Port of REFRESH_RATE
+        /// </summary>
+        public const double RefreshRateSeconds = 0.01;
 
         public const int VideoQueueSize = 3;
         public const int SubtitleQueueSize = 16;

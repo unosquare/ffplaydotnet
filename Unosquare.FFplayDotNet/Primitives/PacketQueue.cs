@@ -46,7 +46,7 @@
         /// Gets the number of items in the queue.
         /// </summary>
         public int Count { get; private set; }
-        
+
         /// <summary>
         /// Gets the length of bytes of this queue.
         /// </summary>
@@ -82,10 +82,16 @@
             SyncLock = new MonitorLock();
             IsDoneWriting = new LockCondition();
 
-            SyncLock.Lock();
-            IsAborted = false;
-            EnqueueInternal(PacketQueue.FlushPacket);
-            SyncLock.Unlock();
+            try
+            {
+                SyncLock.Lock();
+                IsAborted = false;
+                EnqueueInternal(PacketQueue.FlushPacket);
+            }
+            finally
+            {
+                SyncLock.Unlock();
+            }
         }
 
         #endregion
@@ -118,7 +124,7 @@
 
             Last = currentPacket;
             Count++;
-            ByteLength += currentPacket.Packet->size + PacketHolder.SizeOf; // + sizeof(*pkt1); // TODO: unsure how to do this or if needed
+            ByteLength += currentPacket.Packet->size + PacketHolder.SizeOf; // + sizeof(*pkt1);
             Duration += currentPacket.Packet->duration;
 
             IsDoneWriting.Signal();
@@ -133,11 +139,17 @@
         /// <returns></returns>
         public int Enqueue(AVPacket* packet)
         {
-            var result = 0;
+            var result = default(int);
 
-            SyncLock.Lock();
-            result = EnqueueInternal(packet);
-            SyncLock.Unlock();
+            try
+            {
+                SyncLock.Lock();
+                result = EnqueueInternal(packet);
+            }
+            finally
+            {
+                SyncLock.Unlock();
+            }
 
             if (packet != PacketQueue.FlushPacket && result < 0)
                 ffmpeg.av_packet_unref(packet);
@@ -171,21 +183,26 @@
             PacketHolder currentNode = null;
             PacketHolder nextNode = null;
 
-            SyncLock.Lock();
-
-            for (currentNode = First; currentNode != null; currentNode = nextNode)
+            try
             {
-                nextNode = currentNode.Next;
-                ffmpeg.av_packet_unref(currentNode.Packet);
+                SyncLock.Lock();
+
+                for (currentNode = First; currentNode != null; currentNode = nextNode)
+                {
+                    nextNode = currentNode.Next;
+                    ffmpeg.av_packet_unref(currentNode.Packet);
+                }
+
+                Last = null;
+                First = null;
+                Count = 0;
+                ByteLength = 0;
+                Duration = 0;
             }
-
-            Last = null;
-            First = null;
-            Count = 0;
-            ByteLength = 0;
-            Duration = 0;
-
-            SyncLock.Unlock();
+            finally
+            {
+                SyncLock.Unlock();
+            }
         }
 
         /// <summary>
@@ -200,42 +217,48 @@
         {
             PacketHolder node = null;
             var result = default(int);
-            SyncLock.Lock();
 
-            while (true)
+            try
             {
-                if (IsAborted)
+                SyncLock.Lock();
+
+                while (true)
                 {
-                    result = -1;
-                    break;
-                }
+                    if (IsAborted)
+                    {
+                        result = -1;
+                        break;
+                    }
 
-                node = First;
-                if (node != null)
-                {
-                    First = node.Next;
-                    if (First == null)
-                        Last = null;
+                    node = First;
+                    if (node != null)
+                    {
+                        First = node.Next;
+                        if (First == null)
+                            Last = null;
 
-                    Count--;
-                    ByteLength -= node.Packet->size; // + sizeof(*pkt1); // TODO: Verify
-                    Duration -= node.Packet->duration;
+                        Count--;
+                        ByteLength -= node.Packet->size + PacketHolder.SizeOf; // + sizeof(*pkt1)
+                        Duration -= node.Packet->duration;
 
-                    packet = node.Packet;
+                        packet = node.Packet;
 
-                    if (packetSerial != 0)
-                        packetSerial = node.Serial;
+                        if (packetSerial != 0)
+                            packetSerial = node.Serial;
 
-                    result = 1;
-                    break;
-                }
-                else
-                {
-                    IsDoneWriting.Wait(SyncLock);
+                        result = 1;
+                        break;
+                    }
+                    else
+                    {
+                        IsDoneWriting.Wait(SyncLock);
+                    }
                 }
             }
-
-            SyncLock.Unlock();
+            finally
+            {
+                SyncLock.Unlock();
+            }
 
             return result;
         }
@@ -246,10 +269,16 @@
         /// </summary>
         public void Abort()
         {
-            SyncLock.Lock();
-            IsAborted = true;
-            IsDoneWriting.Signal();
-            SyncLock.Unlock();
+            try
+            {
+                SyncLock.Lock();
+                IsAborted = true;
+                IsDoneWriting.Signal();
+            }
+            finally
+            {
+                SyncLock.Unlock();
+            }
         }
 
         public bool HasEnoughPackets(AVStream* stream, int streamIndex)

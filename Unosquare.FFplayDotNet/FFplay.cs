@@ -255,14 +255,23 @@
             rect.h = Math.Max(height, 1);
         }
 
-        public int upload_texture(SDL_Texture tex, AVFrame* frame)
+        /// <summary>
+        /// Fills the Bitmap property of a Video frame.
+        /// Port of upload_texture
+        /// </summary>
+        /// <param name="videoFrame">The video frame.</param>
+        /// <returns></returns>
+        public int FillBitmap(FrameHolder videoFrame)
         {
+
             fixed (SwsContext** scalerReference = &State.VideoScaler)
             {
+                var frame = videoFrame.DecodedFrame;
 
                 if ((AVPixelFormat)frame->format == AVPixelFormat.AV_PIX_FMT_BGRA)
                 {
-                    return SDL_UpdateTexture(tex, null, frame->data[0], frame->linesize[0]);
+                    videoFrame.FillBitmapDataFromDecodedFrame();
+                    return 0;
                 }
                 else
                 {
@@ -276,21 +285,7 @@
                         return -1;
                     }
 
-                    byte** targetData0 = null;
-                    int targetStride = 0;
-
-                    if (SDL_LockTexture(tex, null, targetData0, &targetStride) == 0)
-                    {
-                        var sourceScan0 = frame->data[0];
-                        var sourceStride = frame->linesize[0];
-
-                        // TODO: pixels and pitch must be filled by the prior function
-                        ffmpeg.sws_scale(*scalerReference,
-                            &sourceScan0, &sourceStride, 0, frame->height,
-                            targetData0, &targetStride);
-
-                        SDL_UnlockTexture(tex);
-                    }
+                    videoFrame.FillBitmapDataFromScaler(*scalerReference);
 
                     return 0;
                 }
@@ -656,7 +651,7 @@
                 else if (State.AudioStream != null)
                     clockSkew = State.MasterClockPosition - State.AudioClock.Position;
 
-                var mode = (State.AudioStream != null && State.VideoStream != null) ? 
+                var mode = (State.AudioStream != null && State.VideoStream != null) ?
                     "A-V" : (State.VideoStream != null ? "M-V" : (State.AudioStream != null ? "M-A" : "   "));
                 var faultyDts = State.VideoStream != null ? State.VideoDecoder.Codec->pts_correction_num_faulty_dts : 0;
                 var faultyPts = State.VideoStream != null ? State.VideoDecoder.Codec->pts_correction_num_faulty_pts : 0;
@@ -745,7 +740,7 @@
             videoFrame.PictureAspectRatio = sourceFrame->sample_aspect_ratio;
             videoFrame.IsUploaded = false;
 
-            if (videoFrame.bmp == null || !videoFrame.IsAllocated ||
+            if (videoFrame.Bitmap == null || !videoFrame.IsAllocated ||
                 videoFrame.PictureWidth != sourceFrame->width ||
                 videoFrame.PictureHeight != sourceFrame->height ||
                 videoFrame.format != sourceFrame->format)
@@ -776,7 +771,7 @@
                     return -1;
             }
 
-            if (videoFrame.bmp != null)
+            if (videoFrame.Bitmap != null)
             {
                 videoFrame.Pts = pts;
                 videoFrame.Duration = duration;

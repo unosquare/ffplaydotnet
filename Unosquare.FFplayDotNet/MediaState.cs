@@ -60,7 +60,7 @@
 
 
         public LockCondition IsFrameDecoded;
-        public SDL_Texture subtitleTexture;
+        public BitmapBuffer subtitleTexture;
 
         internal FFplay Player { get; private set; }
 
@@ -802,41 +802,41 @@
 
         public void video_image_display()
         {
-            var vp = new FrameHolder();
-            FrameHolder sp = null;
             var rect = new SDL_Rect();
 
-            vp = VideoQueue.Last;
-            if (vp.bmp != null)
+            var videoFrame = VideoQueue.Last;
+            FrameHolder subtitleFrame = null;
+
+            if (videoFrame.Bitmap != null)
             {
                 if (SubtitleStream != null)
                 {
                     if (SubtitleQueue.PendingCount > 0)
                     {
-                        sp = SubtitleQueue.Current;
-                        if (vp.Pts >= sp.Pts + ((float)sp.Subtitle.start_display_time / 1000))
+                        subtitleFrame = SubtitleQueue.Current;
+                        if (videoFrame.Pts >= subtitleFrame.Pts + ((float)subtitleFrame.Subtitle.start_display_time / 1000))
                         {
-                            if (!sp.IsUploaded)
+                            if (!subtitleFrame.IsUploaded)
                             {
                                 byte** pixels = null;
                                 int pitch = 0;
 
-                                if (sp.PictureWidth == 0 || sp.PictureHeight == 0)
+                                if (subtitleFrame.PictureWidth == 0 || subtitleFrame.PictureHeight == 0)
                                 {
-                                    sp.PictureWidth = vp.PictureWidth;
-                                    sp.PictureHeight = vp.PictureHeight;
+                                    subtitleFrame.PictureWidth = videoFrame.PictureWidth;
+                                    subtitleFrame.PictureHeight = videoFrame.PictureHeight;
                                 }
 
                                 //if (FFplay.realloc_texture(sub_texture, SDL_PIXELFORMAT_ARGB8888, sp.PictureWidth, sp.PictureHeight, SDL_BLENDMODE_BLEND, 1) < 0)
                                 //    return;
 
-                                for (var i = 0; i < sp.Subtitle.num_rects; i++)
+                                for (var i = 0; i < subtitleFrame.Subtitle.num_rects; i++)
                                 {
-                                    AVSubtitleRect* sub_rect = sp.Subtitle.rects[i];
-                                    sub_rect->x = ffmpeg.av_clip(sub_rect->x, 0, sp.PictureWidth);
-                                    sub_rect->y = ffmpeg.av_clip(sub_rect->y, 0, sp.PictureHeight);
-                                    sub_rect->w = ffmpeg.av_clip(sub_rect->w, 0, sp.PictureWidth - sub_rect->x);
-                                    sub_rect->h = ffmpeg.av_clip(sub_rect->h, 0, sp.PictureHeight - sub_rect->y);
+                                    AVSubtitleRect* sub_rect = subtitleFrame.Subtitle.rects[i];
+                                    sub_rect->x = ffmpeg.av_clip(sub_rect->x, 0, subtitleFrame.PictureWidth);
+                                    sub_rect->y = ffmpeg.av_clip(sub_rect->y, 0, subtitleFrame.PictureHeight);
+                                    sub_rect->w = ffmpeg.av_clip(sub_rect->w, 0, subtitleFrame.PictureWidth - sub_rect->x);
+                                    sub_rect->h = ffmpeg.av_clip(sub_rect->h, 0, subtitleFrame.PictureHeight - sub_rect->y);
 
                                     SubtitleScaler = ffmpeg.sws_getCachedContext(SubtitleScaler,
                                         sub_rect->w, sub_rect->h, AVPixelFormat.AV_PIX_FMT_PAL8,
@@ -861,29 +861,29 @@
                                     }
                                 }
 
-                                sp.IsUploaded = true;
+                                subtitleFrame.IsUploaded = true;
                             }
                         }
                         else
                         {
-                            sp = null;
+                            subtitleFrame = null;
                         }
                     }
                 }
 
-                FFplay.calculate_display_rect(rect, xleft, ytop, PictureWidth, PictureHeight, vp.PictureWidth, vp.PictureHeight, vp.PictureAspectRatio);
+                FFplay.calculate_display_rect(rect, xleft, ytop, PictureWidth, PictureHeight, videoFrame.PictureWidth, videoFrame.PictureHeight, videoFrame.PictureAspectRatio);
 
-                if (!vp.IsUploaded)
+                if (!videoFrame.IsUploaded)
                 {
-                    if (Player.upload_texture(vp.bmp, vp.DecodedFrame) < 0)
+                    if (Player.FillBitmap(videoFrame) < 0)
                         return;
 
-                    vp.IsUploaded = true;
+                    videoFrame.IsUploaded = true;
                 }
 
-                SDL_RenderCopy(Player.renderer, vp.bmp, null, rect);
+                SDL_RenderCopy(Player.renderer, videoFrame.Bitmap, null, rect);
 
-                if (sp != null)
+                if (subtitleFrame != null)
                 {
                     SDL_RenderCopy(Player.renderer, subtitleTexture, null, rect);
                 }

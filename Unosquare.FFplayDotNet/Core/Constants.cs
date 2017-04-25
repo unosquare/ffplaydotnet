@@ -24,6 +24,8 @@ namespace Unosquare.FFplayDotNet.Core
         public const int ExternalClockMinFrames = 2;
         public const int ExternalClockMaxFrames = 10;
 
+        public const int AVMEDIA_TYPE_COUNT = (int)AVMediaType.AVMEDIA_TYPE_NB;
+
         /// <summary>
         /// No AV sync correction is done if below the minimum AV sync threshold.
         /// Port of AV_SYNC_THRESHOLD_MIN 

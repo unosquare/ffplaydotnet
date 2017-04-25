@@ -452,7 +452,7 @@
         {
             var ic = InputContext;
             string forcedCodecName = null;
-            AVDictionaryEntry* kvp = null;
+            FFDictionaryEntry kvp = null;
 
             var sampleRate = 0;
             var channelCount = 0;
@@ -516,23 +516,23 @@
 
             var opts = Helper.FilterCodecOptions(Player.CodecOptions, codecContext->codec_id, ic, ic->streams[streamIndex], decoder);
 
-            if (ffmpeg.av_dict_get(opts, "threads", null, 0) == null)
-                ffmpeg.av_dict_set(&opts, "threads", "auto", 0);
+            if (opts.KeyExists("threads") == false)
+                opts["threads"] = "auto";
 
             if (lowResIndex != 0)
-                ffmpeg.av_dict_set_int(&opts, "lowres", lowResIndex, 0);
+                opts["lowres"] = lowResIndex.ToString();
 
             if (codecContext->codec_type == AVMediaType.AVMEDIA_TYPE_VIDEO || codecContext->codec_type == AVMediaType.AVMEDIA_TYPE_AUDIO)
-                ffmpeg.av_dict_set(&opts, "refcounted_frames", "1", 0);
+                opts["refcounted_frames"] = "1";
 
-            if ((result = ffmpeg.avcodec_open2(codecContext, decoder, &opts)) < 0)
+            if ((result = ffmpeg.avcodec_open2(codecContext, decoder, opts.Reference)) < 0)
             {
                 goto fail;
             }
 
-            if ((kvp = ffmpeg.av_dict_get(opts, "", null, ffmpeg.AV_DICT_IGNORE_SUFFIX)) != null)
+            if ((kvp = opts.Next(null)) != null)
             {
-                ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, $"Option {Native.BytePtrToString(kvp->key)} not found.\n");
+                ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, $"Option {kvp.Key} not found.\n");
                 result = ffmpeg.AVERROR_OPTION_NOT_FOUND;
                 goto fail;
             }
@@ -591,8 +591,8 @@
             goto final;
             fail:
             ffmpeg.avcodec_free_context(&codecContext);
+
             final:
-            ffmpeg.av_dict_free(&opts);
             return result;
         }
 

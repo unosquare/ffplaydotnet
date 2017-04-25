@@ -2,12 +2,14 @@
 {
     using FFmpeg.AutoGen;
     using System;
+    using System.Collections.Generic;
     using System.IO;
     using System.Linq;
     using System.Reflection;
     using System.Runtime.CompilerServices;
     using System.Runtime.InteropServices;
     using System.Text;
+    using Unosquare.FFplayDotNet.Primitives;
 
     /// <summary>
     /// Provides methods and constants for miscellaneous operations
@@ -261,19 +263,16 @@
         /// <param name="format">The format.</param>
         /// <param name="codecOptions">The codec options.</param>
         /// <returns></returns>
-        unsafe public static AVDictionary** RetrieveStreamOptions(AVFormatContext* format, AVDictionary* codecOptions)
+        unsafe public static FFDictionary[] RetrieveStreamOptions(AVFormatContext* format, FFDictionary codecOptions)
         {
             if (format->nb_streams == 0)
                 return null;
 
-            var orginalOpts = new AVDictionary();
-            var optsReference = &orginalOpts;
-            var streamOptions = &optsReference;
-
+            var result = new FFDictionary[format->nb_streams];
             for (var i = 0; i < format->nb_streams; i++)
-                streamOptions[i] = FilterCodecOptions(codecOptions, format->streams[i]->codecpar->codec_id, format, format->streams[i], null);
+                result[i] = FilterCodecOptions(codecOptions, format->streams[i]->codecpar->codec_id, format, format->streams[i], null);
 
-            return streamOptions;
+            return result;
         }
 
         /// <summary>
@@ -286,12 +285,13 @@
         /// <param name="stream">The stream.</param>
         /// <param name="codec">The codec.</param>
         /// <returns></returns>
-        unsafe public static AVDictionary* FilterCodecOptions(AVDictionary* allOptions, AVCodecID codecId, AVFormatContext* format, AVStream* stream, AVCodec* codec)
+        unsafe public static FFDictionary FilterCodecOptions(FFDictionary allOptions, AVCodecID codecId, AVFormatContext* format, AVStream* stream, AVCodec* codec)
         {
             // TODO: https://github.com/FFmpeg/FFmpeg/blob/d7896e9b4228e5b7ffc7ef0d0f1cf145f518c819/cmdutils.c#L2002
 
-            AVDictionary* result = null;
-            AVDictionaryEntry* currentEntry = null;
+            var result = new FFDictionary();
+
+            FFDictionaryEntry currentEntry = null;
             var flags = format->oformat != null ?
                 ffmpeg.AV_OPT_FLAG_ENCODING_PARAM : ffmpeg.AV_OPT_FLAG_DECODING_PARAM;
 
@@ -320,12 +320,12 @@
 
             //E.g. -codec:a:1 ac3 contains the a:1 stream specifier
             //E.g. the stream specifier in -b:a 128k
-            while ((currentEntry = ffmpeg.av_dict_get(allOptions, "", currentEntry, ffmpeg.AV_DICT_IGNORE_SUFFIX)) != null)
+            while ((currentEntry = allOptions.Next(currentEntry)) != null)
             {
-                var key = Native.BytePtrToString(currentEntry->key);
+                var key = currentEntry.Key;
                 if (string.IsNullOrWhiteSpace(key)) continue;
 
-                var value = Native.BytePtrToString(currentEntry->value);
+                var value = currentEntry.Value;
                 var keyParts = key.Split(new char[] { ':' }, 2);
 
                 /* check stream specification in opt name */
@@ -339,17 +339,18 @@
                     }
                 }
 
+                // TODO: this code needs to be re-checked.
 
                 if (ffmpeg.av_opt_find(&cc, key, null, flags, ffmpeg.AV_OPT_SEARCH_FAKE_OBJ) != null ||
                     codec == null ||
                     (codec->priv_class != null &&
                      ffmpeg.av_opt_find(&codec->priv_class, key, null, flags, ffmpeg.AV_OPT_SEARCH_FAKE_OBJ) != null))
                 {
-                    ffmpeg.av_dict_set(&result, key, value, 0);
+                    result[key] = value;
                 }
                 else if (key[0] == prefix && keyParts.Length > 1 && ffmpeg.av_opt_find(&cc, keyParts[1], null, flags, ffmpeg.AV_OPT_SEARCH_FAKE_OBJ) != null)
                 {
-                    ffmpeg.av_dict_set(&result, key + 1, value, 0);
+                    result[key] = keyParts[1];
                 }
             }
 

@@ -64,6 +64,7 @@
     <Compile Include="Core\Constants.cs" />
     <Compile Include="FFplay.cs" />
     <Compile Include="Core\Enums.cs" />
+    <Compile Include="Primitives\FFDictionary.cs" />
     <Compile Include="Primitives\FrameHolder.cs" />
     <Compile Include="Primitives\FrameQueue.cs" />
     <Compile Include="Primitives\LockCondition.cs" />

@@ -189,23 +189,19 @@
         /// <returns></returns>
         private MediaEvent refresh_loop_wait_event()
         {
-            double remainingSeconds = 0.0;
-            //SDL_PumpEvents();
-            while (PollEvent() == 0)
-            {
+            var remainingSeconds = 0.0d;
 
+            while (EventQueue.Count == 0)
+            {
                 if (remainingSeconds > 0.0)
                     Thread.Sleep(TimeSpan.FromSeconds(remainingSeconds));
 
                 remainingSeconds = Constants.RefreshRateSeconds;
-                if (!State.IsPaused || State.IsVideoRefreshRequested)
+                if (State.IsPaused == false || State.IsVideoRefreshRequested)
                     remainingSeconds = video_refresh(remainingSeconds);
-
-                //SDL_PumpEvents();
             }
 
-            // TODO: still missing some code here
-            return new MediaEvent(this, MediaEventAction.AllocatePicture);
+            return EventQueue.Dequeue();
         }
 
         #region Methods
@@ -368,25 +364,6 @@
             RaiseOnVideoDataAvailable(videoFrame); // Port: Previoulsy just a call to SDL_RenderCopy(renderer, videoFrame.Bitmap, null, rect);
             RaiseOnSubtitleDataAvailable(subtitleFrame); // Port:  Previoulsy just a call to SDL_RenderCopy
 
-        }
-
-        /// <summary>
-        /// Allocates the picture. Not sure if we need this at all...
-        /// Port of alloc_picture
-        /// </summary>
-        private void alloc_picture()
-        {
-            var videoFrame = State.VideoQueue.Frames[State.VideoQueue.WriteIndex];
-            // video_open(videoFrame); // Previously just a call to video_open still don't understand why it need to be allocated... Maybe SDL-related?
-            // I would rather NOT allocate because we are not dealing with SDL at all...
-
-            State.PictureWidth = videoFrame.PictureWidth;
-            State.PictureHeight = videoFrame.PictureHeight;
-
-            State.VideoQueue.SignalDoneWriting(() =>
-            {
-                videoFrame.IsAllocated = true;
-            });
         }
 
         /// <summary>
@@ -624,30 +601,22 @@
             videoFrame.PictureAspectRatio = sourceFrame->sample_aspect_ratio;
             videoFrame.IsUploaded = false;
 
-            if (videoFrame.Bitmap == null || !videoFrame.IsAllocated ||
+            if (videoFrame.Bitmap == null ||
                 videoFrame.PictureWidth != sourceFrame->width ||
                 videoFrame.PictureHeight != sourceFrame->height ||
                 videoFrame.format != sourceFrame->format)
             {
-
-                videoFrame.IsAllocated = false;
                 videoFrame.PictureWidth = sourceFrame->width;
                 videoFrame.PictureHeight = sourceFrame->height;
                 videoFrame.format = sourceFrame->format;
 
-                EventQueue.PushEvent(this, MediaEventAction.AllocatePicture);
-
                 try
                 {
+                    /* wait until the picture is allocated */
                     State.VideoQueue.SyncLock.Lock();
-                    while (!videoFrame.IsAllocated && !State.VideoPackets.IsAborted)
+                    if (State.VideoPackets.IsAborted == false)
                         State.VideoQueue.IsDoneWriting.Wait(State.VideoQueue.SyncLock);
 
-                    if (State.VideoPackets.IsAborted && EventQueue.DequeueEvents(MediaEventAction.AllocatePicture).Length != 1)
-                    {
-                        while (!videoFrame.IsAllocated && !State.IsAbortRequested)
-                            State.VideoQueue.IsDoneWriting.Wait(State.VideoQueue.SyncLock);
-                    }
                 }
                 finally
                 {
@@ -827,7 +796,7 @@
 
                 var inputContext = State.InputContext;
 
-                // TODO: Maybe manual interrupts are not even necessary
+                // TODO: Maybe manual interrupt callbacks are not even necessary. Tempted to remove them
                 inputContext->interrupt_callback.callback = new AVIOInterruptCB_callback_func { Pointer = Marshal.GetFunctionPointerForDelegate(decode_interrupt_delegate) };
                 inputContext->interrupt_callback.opaque = (void*)State.Handle.AddrOfPinnedObject();
 
@@ -846,18 +815,13 @@
 
                 FormatOptions.Remove("scan_all_pmts");
 
-                // TODO: The below logic does not make sense to me...
-                // Maybe because FormatOptions is removed its options as they are set in the avformat_open_input call?
+                // On return FormatOptions will be filled with options that were not found.
                 if ((optionEntry = FormatOptions.First()) != null)
                 {
                     ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, $"Option {optionEntry.Key} not found.\n");
                     return false; // ffmpeg.AVERROR_OPTION_NOT_FOUND;
                 }
-
-                // Make the active input context available in the State
-                
             }
-
 
             #endregion
 
@@ -1349,9 +1313,6 @@
 
                             State.RequestSeekTo((long)(pos * ffmpeg.AV_TIME_BASE), (long)(incr * ffmpeg.AV_TIME_BASE), false);
                         }
-                        break;
-                    case MediaEventAction.AllocatePicture:
-                        alloc_picture();
                         break;
                     default:
                         break;

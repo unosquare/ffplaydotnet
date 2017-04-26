@@ -27,25 +27,24 @@
                 Queue.Add(new MediaEvent(sender, action));
         }
 
-        /// <summary>
-        /// Gets the events.
-        /// Port of SDL_PeepEvents (with argument get event)
-        /// </summary>
-        /// <param name="action">The action.</param>
-        /// <returns></returns>
-        public MediaEvent[] DequeueEvents(MediaEventAction action)
+
+        public MediaEvent Dequeue()
         {
             lock (SyncRoot)
             {
-                var result = new List<MediaEvent>();
-                for(var i = Queue.Count - 1; i >= 0; i--)
-                {
-                    result.Add(Queue[i]);
-                    Queue.RemoveAt(i);
-                }
+                if (Queue.Count <= 0) return new MediaEvent(this, MediaEventAction.None);
+                var item = Queue[0];
+                Queue.RemoveAt(0);
+                return item;
+            }
+        }
 
-                result.Reverse();
-                return result.ToArray();
+        public int Count
+        {
+            get
+            {
+                lock (SyncRoot)
+                    return Queue.Count;
             }
         }
 

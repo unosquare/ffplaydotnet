@@ -19,8 +19,6 @@
 
         public class SDL_AudioSpec { public int channels; public int freq; public int format; public int silence; public int samples; public MediaState userdata; public SDL_AudioCallback callback; public int size; }
 
-        public static void SDL_UnlockTexture(BitmapBuffer tex) { }
-        public static int SDL_LockTexture(BitmapBuffer tex, AVSubtitleRect* other, byte** pixels, int* pitch) { return 0; }
 
         public static void SDL_CloseAudio() { }
         public static void SDL_Quit() { }

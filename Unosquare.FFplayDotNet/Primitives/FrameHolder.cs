@@ -66,7 +66,7 @@
         /// </summary>
         public BitmapBuffer Bitmap { get; internal set; }
 
-        public bool IsAllocated;
+
         public AVRational PictureAspectRatio;
         public int PictureWidth;
         public int PictureHeight;

@@ -539,8 +539,7 @@
                 goto fail;
             }
 
-            // TODO: I do not understand this logic. Maybe by now the opts should be empty
-            // after setting them?
+            // On return opts will be filled with options that were not found.
             if ((kvp = opts.First()) != null)
             {
                 ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, $"Option {kvp.Key} not found.\n");
@@ -651,6 +650,9 @@
         /// <returns></returns>
         public bool FillBitmap(FrameHolder videoFrame)
         {
+            if (videoFrame == null || videoFrame.DecodedFrame == null)
+                return false;
+
             var frame = videoFrame.DecodedFrame;
 
             if ((AVPixelFormat)frame->format == Constants.OutputPixelFormat)

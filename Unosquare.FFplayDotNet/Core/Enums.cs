@@ -10,7 +10,7 @@
 
     public enum MediaEventAction
     {
-        AllocatePicture,
+        None,
         Quit,
         ToggleFullScreen,
         TogglePause,

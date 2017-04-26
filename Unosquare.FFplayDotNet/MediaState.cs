@@ -56,8 +56,7 @@
         public double VideoFrameTimeSeconds { get; internal set; }
 
 
-        public LockCondition IsFrameDecoded;
-        public BitmapBuffer subtitleTexture; // TODO: Move to Player
+        internal readonly LockCondition IsFrameDecoded;
 
         internal FFplay Player { get; private set; }
 

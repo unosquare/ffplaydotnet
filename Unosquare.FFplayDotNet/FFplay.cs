@@ -344,53 +344,10 @@
                     var subtitleStartDisplayTime = subtitleFrame.PtsSeconds + ((float)subtitleFrame.Subtitle.start_display_time / 1000);
                     if (videoFrame.PtsSeconds >= subtitleStartDisplayTime)
                     {
-                        if (!subtitleFrame.IsUploaded)
-                        {
-                            byte** pixels = null;
-                            int pitch = 0;
-
-                            if (subtitleFrame.PictureWidth == 0 || subtitleFrame.PictureHeight == 0)
-                            {
-                                subtitleFrame.PictureWidth = videoFrame.PictureWidth;
-                                subtitleFrame.PictureHeight = videoFrame.PictureHeight;
-                            }
-
-                            //if (FFplay.realloc_texture(sub_texture, SDL_PIXELFORMAT_ARGB8888, sp.PictureWidth, sp.PictureHeight, SDL_BLENDMODE_BLEND, 1) < 0)
-                            //    return;
-
-                            for (var i = 0; i < subtitleFrame.Subtitle.num_rects; i++)
-                            {
-                                AVSubtitleRect* sub_rect = subtitleFrame.Subtitle.rects[i];
-                                sub_rect->x = ffmpeg.av_clip(sub_rect->x, 0, subtitleFrame.PictureWidth);
-                                sub_rect->y = ffmpeg.av_clip(sub_rect->y, 0, subtitleFrame.PictureHeight);
-                                sub_rect->w = ffmpeg.av_clip(sub_rect->w, 0, subtitleFrame.PictureWidth - sub_rect->x);
-                                sub_rect->h = ffmpeg.av_clip(sub_rect->h, 0, subtitleFrame.PictureHeight - sub_rect->y);
-
-                                State.SubtitleScaler = ffmpeg.sws_getCachedContext(State.SubtitleScaler,
-                                    sub_rect->w, sub_rect->h, AVPixelFormat.AV_PIX_FMT_PAL8,
-                                    sub_rect->w, sub_rect->h, Constants.OutputPixelFormat,
-                                    0, null, null, null);
-
-                                if (State.SubtitleScaler == null)
-                                {
-                                    ffmpeg.av_log(null, ffmpeg.AV_LOG_FATAL, "Cannot initialize the conversion context\n");
-                                    return;
-                                }
-
-                                if (SDL_LockTexture(State.subtitleTexture, sub_rect, pixels, &pitch) == 0)
-                                {
-                                    var sourceData0 = sub_rect->data[0];
-                                    var sourceStride = sub_rect->linesize[0];
-
-                                    ffmpeg.sws_scale(State.SubtitleScaler, &sourceData0, &sourceStride,
-                                          0, sub_rect->h, pixels, &pitch);
-
-                                    SDL_UnlockTexture(State.subtitleTexture);
-                                }
-                            }
-
+                        // We are not going to be rendering subtitle textures. I removed the code to render the subtitles
+                        if (subtitleFrame.IsUploaded == false)
                             subtitleFrame.IsUploaded = true;
-                        }
+                            
                     }
                     else
                     {
@@ -523,26 +480,8 @@
                                         || (State.VideoClock.PtsSeconds > (currentSubtitleFrame.PtsSeconds + ((float)currentSubtitleFrame.Subtitle.end_display_time / 1000)))
                                         || (nextSubtitleFrame != null && State.VideoClock.PtsSeconds > (nextSubtitleFrame.PtsSeconds + ((float)nextSubtitleFrame.Subtitle.start_display_time / 1000))))
                                 {
-                                    if (currentSubtitleFrame.IsUploaded)
-                                    {
-                                        for (var i = 0; i < currentSubtitleFrame.Subtitle.num_rects; i++)
-                                        {
-                                            // TODO: This is all wrong. We need to offload the pixels correctly
-                                            var sub_rect = currentSubtitleFrame.Subtitle.rects[i];
-                                            byte** pixels = null;
-
-                                            var pitch = 0;
-
-                                            if (SDL_LockTexture(State.subtitleTexture, sub_rect, pixels, &pitch) == 0)
-                                            {
-                                                for (var j = 0; j < sub_rect->h; j++, pixels += pitch)
-                                                    Native.memset(*pixels, 0, sub_rect->w << 2);
-
-                                                SDL_UnlockTexture(State.subtitleTexture);
-                                            }
-                                        }
-                                    }
-
+                                    // The code here was removed. It used to lock the texture and
+                                    // clear all the pixels in the previously created subtitle_texture
                                     State.SubtitleQueue.QueueNextRead();
                                 }
                                 else

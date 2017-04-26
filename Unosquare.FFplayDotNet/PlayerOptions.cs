@@ -65,8 +65,17 @@ namespace Unosquare.FFplayDotNet
 
         /// <summary>
         /// If set to > 0, don't limit the input buffer size (useful with realtime streams).
+        /// If set to less than 0, it means automatic
         /// Port of infinite_buffer
         /// </summary>
-        internal int EnableInfiniteBuffer { get; set; } = -1;
+        public int EnableInfiniteBuffer { get; set; } = -1;
+
+        /// <summary>
+        /// A dictionary of Format options.
+        /// Supported format options are specified in https://www.ffmpeg.org/ffmpeg-formats.html#Format-Options
+        /// </summary>
+        public Dictionary<string, string> FormatOptions { get; } = new Dictionary<string, string>();
+
+        public OptionsCollection CodecOptions { get; } = new OptionsCollection();
     }
 }

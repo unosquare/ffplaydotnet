@@ -25,6 +25,19 @@ namespace Unosquare.FFplayDotNet.Primitives
             DictionaryHandleReference = GCHandle.Alloc(DictionaryHandle, GCHandleType.Pinned);
         }
 
+        /// <summary>
+        /// Fills this dictionary with a set of options
+        /// </summary>
+        /// <param name="other"></param>
+        public void Fill(Dictionary<string, string> other)
+        {
+            if (other == null) return;
+            foreach (var kvp in other)
+            {
+                this[kvp.Key] = kvp.Value;
+            }
+        }
+
         public AVDictionary* Pointer { get { return DictionaryHandle.IsAllocated ? (AVDictionary*)DictionaryHandle.AddrOfPinnedObject() : null; } }
         public AVDictionary** Reference { get { return DictionaryHandleReference.IsAllocated ? (AVDictionary**)DictionaryHandleReference.AddrOfPinnedObject() : null; } }
 

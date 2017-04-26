@@ -526,24 +526,24 @@
             if ((decoder->capabilities & ffmpeg.AV_CODEC_CAP_DR1) != 0)
                 codecContext->flags |= ffmpeg.CODEC_FLAG_EMU_EDGE;
 
-            var opts = Helper.FilterCodecOptions(Player.CodecOptions, codecContext->codec_id, ic, ic->streams[streamIndex], decoder);
+            var codecOptions = Player.Options.CodecOptions.FilterOptions(codecContext->codec_id, ic, ic->streams[streamIndex], decoder);
 
-            if (opts.KeyExists("threads") == false)
-                opts["threads"] = "auto";
+            if (codecOptions.KeyExists("threads") == false)
+                codecOptions["threads"] = "auto";
 
             if (lowResIndex != 0)
-                opts["lowres"] = lowResIndex.ToString();
+                codecOptions["lowres"] = lowResIndex.ToString();
 
             if (codecContext->codec_type == AVMediaType.AVMEDIA_TYPE_VIDEO || codecContext->codec_type == AVMediaType.AVMEDIA_TYPE_AUDIO)
-                opts["refcounted_frames"] = "1";
+                codecOptions["refcounted_frames"] = "1";
 
-            if ((result = ffmpeg.avcodec_open2(codecContext, decoder, opts.Reference)) < 0)
+            if ((result = ffmpeg.avcodec_open2(codecContext, decoder, codecOptions.Reference)) < 0)
             {
                 goto fail;
             }
 
             // On return opts will be filled with options that were not found.
-            if ((kvp = opts.First()) != null)
+            if ((kvp = codecOptions.First()) != null)
             {
                 ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, $"Option {kvp.Key} not found.\n");
                 result = ffmpeg.AVERROR_OPTION_NOT_FOUND;
@@ -578,7 +578,7 @@
                         AudioDecoder.StartPtsTimebase = AudioStream->time_base;
                     }
 
-                    AudioDecoder.Start(FFplay.DecodeAudioQueue);
+                    AudioDecoder.Start(FFplay.DecodeAudioQueueContinuously);
                     SDL_PauseAudio(0);
                     break;
 
@@ -586,7 +586,7 @@
                     VideoStreamIndex = streamIndex;
                     VideoStream = ic->streams[streamIndex];
                     VideoDecoder = new Decoder(this, codecContext, VideoPackets, IsFrameDecoded);
-                    result = VideoDecoder.Start(FFplay.DecodeVideoQueue);
+                    result = VideoDecoder.Start(FFplay.DecodeVideoQueueContinuously);
                     EnqueuePacketAttachments = true;
                     break;
 
@@ -594,7 +594,7 @@
                     SubtitleStreamIndex = streamIndex;
                     SubtitleStream = ic->streams[streamIndex];
                     SubtitleDecoder = new Decoder(this, codecContext, SubtitlePackets, IsFrameDecoded);
-                    result = SubtitleDecoder.Start(FFplay.DecodeSubtitlesQueue);
+                    result = SubtitleDecoder.Start(FFplay.DecodeSubtitlesQueueContinuously);
                     break;
 
                 default:

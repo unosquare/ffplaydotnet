@@ -68,7 +68,7 @@
         public string VideoCodecName { get; private set; }
 
 
-        internal readonly MediaEventQueue EventQueue = new MediaEventQueue();
+        internal readonly MediaActionQueue ActionQueue = new MediaActionQueue();
         internal Task MediaReadTask;
 
         internal readonly InterruptCallbackDelegate decode_interrupt_delegate = new InterruptCallbackDelegate(decode_interrupt_cb);
@@ -79,8 +79,10 @@
         public delegate int InterruptCallbackDelegate(void* opaque);
         public delegate int LockManagerCallbackDelegate(void** mutex, AVLockOp op);
 
+        /// <summary>
+        /// Port of format_opts
+        /// </summary>
         internal readonly FFDictionary FormatOptions = null;
-        internal readonly FFDictionary CodecOptions = null;
 
         internal readonly MediaState State = null;
 
@@ -100,8 +102,9 @@
             Helper.RegisterFFmpeg();
 
             // Inlining init_opts
-            CodecOptions = new FFDictionary();
+
             FormatOptions = new FFDictionary();
+            FormatOptions.Fill(Options.FormatOptions);
 
             #region main
 
@@ -179,29 +182,28 @@
             return 1;
         }
 
-        private int PollEvent() { return 0; }
-
         /// <summary>
-        /// Retrieves the next event to process
+        /// Retrieves the next event to process.
+        /// If there are no new events, it simply refreshes the video.
         /// Port of refresh_loop_wait_event
         /// </summary>
         /// <param name="vst">The VST.</param>
         /// <returns></returns>
-        private MediaEvent refresh_loop_wait_event()
+        private MediaActionItem DequeueNextAction()
         {
             var remainingSeconds = 0.0d;
 
-            while (EventQueue.Count == 0)
+            while (ActionQueue.Count == 0)
             {
                 if (remainingSeconds > 0.0)
                     Thread.Sleep(TimeSpan.FromSeconds(remainingSeconds));
 
                 remainingSeconds = Constants.RefreshRateSeconds;
                 if (State.IsPaused == false || State.IsVideoRefreshRequested)
-                    remainingSeconds = video_refresh(remainingSeconds);
+                    remainingSeconds = RefreshVideoAndSubtitles(remainingSeconds);
             }
 
-            return EventQueue.Dequeue();
+            return ActionQueue.Dequeue();
         }
 
         #region Methods
@@ -212,7 +214,7 @@
                 State.CloseStream();
 
             // Do not process any more events
-            EventQueue.Clear();
+            ActionQueue.Clear();
 
             ffmpeg.av_lockmgr_register(null);
 
@@ -321,16 +323,17 @@
 
 
         /// <summary>
-        /// 
+        /// Raises events providing video and subtitle rendering data to the
+        /// event subsribers
         /// Port of video_image_display
         /// </summary>
-        public void video_image_display()
+        private void BroadcastVideoAndSubtitlesDataEvents()
         {
             var videoFrame = State.VideoQueue.Last;
             FrameHolder subtitleFrame = null;
+
             if (videoFrame.Bitmap == null)
                 return;
-
 
             if (State.SubtitleStream != null)
             {
@@ -343,7 +346,7 @@
                         // We are not going to be rendering subtitle textures. I removed the code to render the subtitles
                         if (subtitleFrame.IsUploaded == false)
                             subtitleFrame.IsUploaded = true;
-                            
+
                     }
                     else
                     {
@@ -373,9 +376,9 @@
         /// </summary>
         /// <param name="remainingSeconds">The remaining time.</param>
         /// <returns></returns>
-        private double video_refresh(double remainingSeconds)
+        private double RefreshVideoAndSubtitles(double remainingSeconds)
         {
-            if (!State.IsPaused && State.MasterSyncMode == SyncMode.External && State.IsMediaRealtime)
+            if (State.IsPaused == false && State.MasterSyncMode == SyncMode.External && State.IsMediaRealtime)
                 State.AdjustExternalClockSpeedRatio();
 
             if (State.VideoStream != null)
@@ -388,106 +391,111 @@
                     retry = false;
 
                     // check if we have a picture to display in the queue
-                    if (State.VideoQueue.PendingCount > 0)
-                    {
-                        var lastVideoFrame = State.VideoQueue.Last;
-                        var currentVideoFrame = State.VideoQueue.Current;
+                    // otherwise, there is nothing to do, no picture to display in the queue
+                    if (State.VideoQueue.PendingCount <= 0)
+                        break;
 
-                        if (currentVideoFrame.Serial != State.VideoPackets.Serial)
+                    var lastVideoFrame = State.VideoQueue.Last;
+                    var currentVideoFrame = State.VideoQueue.Current;
+
+                    // Catch up with the read stream
+                    if (currentVideoFrame.Serial != State.VideoPackets.Serial)
+                    {
+                        State.VideoQueue.QueueNextRead();
+                        retry = true;
+                        continue;
+                    }
+
+                    if (lastVideoFrame.Serial != currentVideoFrame.Serial)
+                        State.VideoFrameTimeSeconds = (double)ffmpeg.av_gettime_relative() / ffmpeg.AV_TIME_BASE;
+
+                    if (State.IsPaused)
+                        break;
+
+                    var lastFrameDuration = State.ComputeVideoFrameDurationSeconds(lastVideoFrame, currentVideoFrame);
+                    var delaySeconds = State.ComputeVideoClockDelay(lastFrameDuration);
+                    var currentTimeSeconds = ffmpeg.av_gettime_relative() / (double)ffmpeg.AV_TIME_BASE;
+
+                    if (currentTimeSeconds < State.VideoFrameTimeSeconds + delaySeconds)
+                    {
+                        remainingSeconds = Math.Min(State.VideoFrameTimeSeconds + delaySeconds - currentTimeSeconds, remainingSeconds);
+                        break;
+                    }
+
+                    State.VideoFrameTimeSeconds += delaySeconds;
+                    if (delaySeconds > 0 && currentTimeSeconds - State.VideoFrameTimeSeconds > Constants.AvSyncThresholdMaxSecs)
+                        State.VideoFrameTimeSeconds = currentTimeSeconds;
+
+                    try
+                    {
+                        State.VideoQueue.SyncLock.Lock();
+                        if (!double.IsNaN(currentVideoFrame.PtsSeconds))
+                            State.UpdateVideoPts(currentVideoFrame.PtsSeconds, currentVideoFrame.BytePosition, currentVideoFrame.Serial);
+                    }
+                    finally
+                    {
+                        State.VideoQueue.SyncLock.Unlock();
+                    }
+
+                    if (State.VideoQueue.PendingCount > 1)
+                    {
+                        var durationSeconds = State.ComputeVideoFrameDurationSeconds(
+                            currentVideoFrame, State.VideoQueue.Next);
+
+                        if (!State.IsFrameStepping
+                            && Options.EnableFrameDrops
+                            && currentTimeSeconds > State.VideoFrameTimeSeconds + durationSeconds)
                         {
+                            State.VideoFrameLateDrops++;
                             State.VideoQueue.QueueNextRead();
                             retry = true;
                             continue;
                         }
-                        if (lastVideoFrame.Serial != currentVideoFrame.Serial)
-                            State.VideoFrameTimeSeconds = (double)ffmpeg.av_gettime_relative() / (double)ffmpeg.AV_TIME_BASE;
-
-                        if (State.IsPaused)
-                            break;
-
-                        var lastFrameDuration = State.ComputeVideoFrameDurationSeconds(lastVideoFrame, currentVideoFrame);
-                        var delaySeconds = State.ComputeVideoClockDelay(lastFrameDuration);
-                        var currentTimeSeconds = ffmpeg.av_gettime_relative() / (double)ffmpeg.AV_TIME_BASE;
-
-                        if (currentTimeSeconds < State.VideoFrameTimeSeconds + delaySeconds)
-                        {
-                            remainingSeconds = Math.Min(State.VideoFrameTimeSeconds + delaySeconds - currentTimeSeconds, remainingSeconds);
-                            break;
-                        }
-
-                        State.VideoFrameTimeSeconds += delaySeconds;
-                        if (delaySeconds > 0 && currentTimeSeconds - State.VideoFrameTimeSeconds > Constants.AvSyncThresholdMaxSecs)
-                            State.VideoFrameTimeSeconds = currentTimeSeconds;
-
-                        try
-                        {
-                            State.VideoQueue.SyncLock.Lock();
-                            if (!double.IsNaN(currentVideoFrame.PtsSeconds))
-                                State.UpdateVideoPts(currentVideoFrame.PtsSeconds, currentVideoFrame.BytePosition, currentVideoFrame.Serial);
-                        }
-                        finally
-                        {
-                            State.VideoQueue.SyncLock.Unlock();
-                        }
-
-                        if (State.VideoQueue.PendingCount > 1)
-                        {
-                            var durationSeconds = State.ComputeVideoFrameDurationSeconds(
-                                currentVideoFrame, State.VideoQueue.Next);
-
-                            if (!State.IsFrameStepping
-                                && Options.EnableFrameDrops
-                                && currentTimeSeconds > State.VideoFrameTimeSeconds + durationSeconds)
-                            {
-                                State.VideoFrameLateDrops++;
-                                State.VideoQueue.QueueNextRead();
-                                retry = true;
-                                continue;
-                            }
-                        }
-
-                        if (State.SubtitleStream != null)
-                        {
-                            while (State.SubtitleQueue.PendingCount > 0)
-                            {
-                                var currentSubtitleFrame = State.SubtitleQueue.Current;
-                                var nextSubtitleFrame = State.SubtitleQueue.PendingCount > 1 ? State.SubtitleQueue.Next : null;
-
-                                if (currentSubtitleFrame.Serial != State.SubtitlePackets.Serial
-                                        || (State.VideoClock.PtsSeconds > (currentSubtitleFrame.PtsSeconds + ((float)currentSubtitleFrame.Subtitle.end_display_time / 1000)))
-                                        || (nextSubtitleFrame != null && State.VideoClock.PtsSeconds > (nextSubtitleFrame.PtsSeconds + ((float)nextSubtitleFrame.Subtitle.start_display_time / 1000))))
-                                {
-                                    // The code here was removed. It used to lock the texture and
-                                    // clear all the pixels in the previously created subtitle_texture
-                                    State.SubtitleQueue.QueueNextRead();
-                                }
-                                else
-                                {
-                                    break;
-                                }
-                            }
-                        }
-
-                        State.VideoQueue.QueueNextRead();
-                        State.IsVideoRefreshRequested = true;
-                        if (State.IsFrameStepping && !State.IsPaused)
-                            State.StreamTogglePause();
                     }
+
+                    // Queue Subtitle Reads
+                    if (State.SubtitleStream != null)
+                    {
+                        while (State.SubtitleQueue.PendingCount > 0)
+                        {
+                            var currentSubtitleFrame = State.SubtitleQueue.Current;
+                            var nextSubtitleFrame = State.SubtitleQueue.PendingCount > 1 ? State.SubtitleQueue.Next : null;
+
+                            if (currentSubtitleFrame.Serial != State.SubtitlePackets.Serial
+                                    || (State.VideoClock.PtsSeconds > (currentSubtitleFrame.PtsSeconds + ((float)currentSubtitleFrame.Subtitle.end_display_time / 1000)))
+                                    || (nextSubtitleFrame != null && State.VideoClock.PtsSeconds > (nextSubtitleFrame.PtsSeconds + ((float)nextSubtitleFrame.Subtitle.start_display_time / 1000))))
+                            {
+                                // The code here was removed. It used to lock the texture and
+                                // clear all the pixels in the previously created subtitle_texture
+                                State.SubtitleQueue.QueueNextRead();
+                            }
+                            else
+                            {
+                                break;
+                            }
+                        }
+                    }
+
+                    State.VideoQueue.QueueNextRead();
+                    State.IsVideoRefreshRequested = true;
+                    if (State.IsFrameStepping && !State.IsPaused)
+                        State.StreamTogglePause();
+
 
                 }
 
-                // Finally let's send the subtitle and image data
+                // Finally let's send the subtitle and image data as events if required
                 if (State.IsVideoRefreshRequested && State.VideoQueue.ReadIndexShown != 0)
                 {
                     // video_display // Port: previously just a call to Video display and SDL-related methods
-                    video_image_display();
+                    BroadcastVideoAndSubtitlesDataEvents();
                 }
-                    
+
             }
 
             State.IsVideoRefreshRequested = false;
-            var currentTimestamp = ffmpeg.av_gettime_relative();
 
+            var currentTimestamp = ffmpeg.av_gettime_relative();
             if (LogStatusMessages && (LastVideoRefreshTimestamp == 0 || (currentTimestamp - LastVideoRefreshTimestamp) >= 30000))
             {
                 var audioQueueSize = 0;
@@ -584,7 +592,16 @@
             return vst.IsAbortRequested ? 1 : 0;
         }
 
-        public int EnqueuePicture(AVFrame* sourceFrame, double pts, double duration)
+
+        /// <summary>
+        /// Prepares the next writable frame to be uploaded (Bitmap-filled).
+        /// Port of queue_picture
+        /// </summary>
+        /// <param name="sourceFrame"></param>
+        /// <param name="pts"></param>
+        /// <param name="duration"></param>
+        /// <returns></returns>
+        private int EnqueueVideoFrameBitmapFill(AVFrame* sourceFrame, double pts, double duration)
         {
             var videoFrame = State.VideoQueue.PeekWritableFrame();
             videoFrame.MediaType = AVMediaType.AVMEDIA_TYPE_VIDEO;
@@ -649,7 +666,7 @@
         /// Port of video_thread
         /// </summary>
         /// <param name="mediaState">The media state object</param>
-        internal static void DecodeVideoQueue(MediaState mediaState)
+        internal static void DecodeVideoQueueContinuously(MediaState mediaState)
         {
             var decodedFrame = ffmpeg.av_frame_alloc();
             var frameTimebase = mediaState.VideoStream->time_base;
@@ -666,7 +683,7 @@
                 var frameDuration = frameRate.num != 0 && frameRate.den != 0 ?
                     ffmpeg.av_q2d(new AVRational { num = frameRate.den, den = frameRate.num }) : 0;
 
-                result = mediaState.Player.EnqueuePicture(decodedFrame, framePts, frameDuration);
+                result = mediaState.Player.EnqueueVideoFrameBitmapFill(decodedFrame, framePts, frameDuration);
                 ffmpeg.av_frame_unref(decodedFrame);
 
                 if (result < 0) break;
@@ -676,12 +693,12 @@
         }
 
         /// <summary>
-        /// Continuously decodes video frames from the audio frame queue
+        /// Continuously decodes audio frames from the audio frame queue
         /// using the audio decoder.
         /// Port of audio_thread
         /// </summary>
         /// <param name="mediaState">The media state object.</param>
-        internal static void DecodeAudioQueue(MediaState mediaState)
+        internal static void DecodeAudioQueueContinuously(MediaState mediaState)
         {
             var decodedFrame = ffmpeg.av_frame_alloc();
             int gotFrame = 0;
@@ -721,7 +738,7 @@
         /// Port of subtitle_thread
         /// </summary>
         /// <param name="mediaState">The media state object</param>
-        internal static void DecodeSubtitlesQueue(MediaState mediaState)
+        internal static void DecodeSubtitlesQueueContinuously(MediaState mediaState)
         {
             var hasDecoded = 0;
 
@@ -818,8 +835,9 @@
                 // On return FormatOptions will be filled with options that were not found.
                 if ((optionEntry = FormatOptions.First()) != null)
                 {
-                    ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, $"Option {optionEntry.Key} not found.\n");
-                    return false; // ffmpeg.AVERROR_OPTION_NOT_FOUND;
+                    ffmpeg.av_log(null, ffmpeg.AV_LOG_WARNING, $"Format Option '{optionEntry.Key}' not found.\n");
+                    // Don't fail just because an option was not found
+                    //return false; // ffmpeg.AVERROR_OPTION_NOT_FOUND;
                 }
             }
 
@@ -832,12 +850,12 @@
                 if (Options.GeneratePts) inputContext->flags |= ffmpeg.AVFMT_FLAG_GENPTS;
                 ffmpeg.av_format_inject_global_side_data(inputContext);
 
-                var streamOptions = Helper.RetrieveStreamOptions(inputContext, CodecOptions);
+                var streamOptions = Options.CodecOptions.GetPerStreamOptions(inputContext);
                 var inputStreamCount = Convert.ToInt32(inputContext->nb_streams);
 
                 // Build the options array, one dictionary per stream
                 var streamOptionsArr = new AVDictionary*[streamOptions.Length];
-                for(var i = 0; i< streamOptions.Length; i++)
+                for (var i = 0; i < streamOptions.Length; i++)
                     streamOptionsArr[i] = streamOptions[i].Pointer;
 
                 var streamOptionsHandle = GCHandle.Alloc(streamOptionsArr, GCHandleType.Pinned);
@@ -845,11 +863,11 @@
                 streamOptionsHandle.Free();
 
                 // Memory management nor required. (removed 2 blocks with ffmpeg.av_dict_free and av_freep
-
                 if (findStreamInfoResult < 0)
                 {
                     ffmpeg.av_log(null, ffmpeg.AV_LOG_WARNING, $"{State.MediaUrl}: could not find codec parameters\n");
-                    return false; // -1;
+                    // Dont't fail just because a Codec option was not validated
+                    //return false; // -1;
                 }
             }
             #endregion
@@ -1127,7 +1145,7 @@
                         // TODO: Raise event Media Finished
                         // if (Reqind afterFinished)
                         //     State.RequestSeekToStart();
-                        break;                        
+                        break;
                     }
 
                     var readPacket = new AVPacket();
@@ -1211,46 +1229,46 @@
 
             while (true)
             {
-                var actionEvent = refresh_loop_wait_event();
+                var actionEvent = DequeueNextAction();
                 switch (actionEvent.Action)
                 {
-                    case MediaEventAction.Quit:
+                    case MediaAction.Quit:
                         do_exit();
                         break;
-                    case MediaEventAction.ToggleFullScreen:
+                    case MediaAction.ToggleFullScreen:
                         //toggle_full_screen(cur_stream);
                         State.IsVideoRefreshRequested = true;
                         break;
-                    case MediaEventAction.TogglePause:
+                    case MediaAction.TogglePause:
                         State.TogglePause();
                         break;
-                    case MediaEventAction.ToggleMute:
+                    case MediaAction.ToggleMute:
                         State.ToggleMute();
                         break;
-                    case MediaEventAction.VolumeUp:
+                    case MediaAction.VolumeUp:
                         State.UpdateVolume(1, Constants.SDL_VOLUME_STEP);
                         break;
-                    case MediaEventAction.VolumeDown:
+                    case MediaAction.VolumeDown:
                         State.UpdateVolume(-1, Constants.SDL_VOLUME_STEP);
                         break;
-                    case MediaEventAction.StepNextFrame:
+                    case MediaAction.StepNextFrame:
                         State.StepToNextFrame();
                         break;
-                    case MediaEventAction.CycleAudio:
+                    case MediaAction.CycleAudio:
                         State.CycleStreamChannel(AVMediaType.AVMEDIA_TYPE_AUDIO);
                         break;
-                    case MediaEventAction.CycleVideo:
+                    case MediaAction.CycleVideo:
                         State.CycleStreamChannel(AVMediaType.AVMEDIA_TYPE_VIDEO);
                         break;
-                    case MediaEventAction.CycleAll:
+                    case MediaAction.CycleAll:
                         State.CycleStreamChannel(AVMediaType.AVMEDIA_TYPE_VIDEO);
                         State.CycleStreamChannel(AVMediaType.AVMEDIA_TYPE_AUDIO);
                         State.CycleStreamChannel(AVMediaType.AVMEDIA_TYPE_SUBTITLE);
                         break;
-                    case MediaEventAction.CycleSubtitles:
+                    case MediaAction.CycleSubtitles:
                         State.CycleStreamChannel(AVMediaType.AVMEDIA_TYPE_SUBTITLE);
                         break;
-                    case MediaEventAction.NextChapter:
+                    case MediaAction.NextChapter:
                         if (State.InputContext->nb_chapters <= 1)
                         {
                             incr = 600.0;
@@ -1259,7 +1277,7 @@
 
                         State.SeekChapter(1);
                         break;
-                    case MediaEventAction.PreviousChapter:
+                    case MediaAction.PreviousChapter:
                         if (State.InputContext->nb_chapters <= 1)
                         {
                             incr = -600.0;
@@ -1268,16 +1286,16 @@
 
                         State.SeekChapter(-1);
                         break;
-                    case MediaEventAction.SeekLeft10:
+                    case MediaAction.SeekLeft10:
                         incr = -10.0;
                         goto do_seek;
-                    case MediaEventAction.SeekRight10:
+                    case MediaAction.SeekRight10:
                         incr = 10.0;
                         goto do_seek;
-                    case MediaEventAction.SeekLRight60:
+                    case MediaAction.SeekLRight60:
                         incr = 60.0;
                         goto do_seek;
-                    case MediaEventAction.SeekLeft60:
+                    case MediaAction.SeekLeft60:
                         incr = -60.0;
                         do_seek:
                         if (MediaSeekByBytes.HasValue && MediaSeekByBytes.Value == true)

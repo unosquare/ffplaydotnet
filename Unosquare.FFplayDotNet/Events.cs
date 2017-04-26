@@ -30,7 +30,9 @@ namespace Unosquare.FFplayDotNet
     {
         internal SubtitleDataEventArgs(FrameHolder frame)
         {
-
+            // TODO: Insert subtitle info here...
+            //frame->Subtitle.end_display_time
+            //frame->Subtitle.rects[0]->type == FFmpeg.AutoGen.AVSubtitleType.
         }
 
     }

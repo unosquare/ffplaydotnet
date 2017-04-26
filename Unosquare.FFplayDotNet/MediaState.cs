@@ -21,6 +21,7 @@
         internal AVStream* SubtitleStream;
         internal AVStream* VideoStream;
 
+        // TODO: Move rendering scalers to Player
         internal SwrContext* AudioScaler;
         internal SwsContext* VideoScaler;
         internal SwsContext* SubtitleScaler;
@@ -53,15 +54,10 @@
         /// Port of frame_timer
         /// </summary>
         public double VideoFrameTimeSeconds { get; internal set; }
-        public double frame_last_returned_time;
-
-        public int xleft;
-        public int ytop;
-        public int xpos;
 
 
         public LockCondition IsFrameDecoded;
-        public BitmapBuffer subtitleTexture;
+        public BitmapBuffer subtitleTexture; // TODO: Move to Player
 
         internal FFplay Player { get; private set; }
 
@@ -69,7 +65,12 @@
         public bool? IsPtsReorderingEnabled { get; private set; } = null;
 
         public bool IsAbortRequested { get; internal set; }
-        public bool IsForceRefreshRequested { get; internal set; }
+        
+        /// <summary>
+        /// Port of force_refresh
+        /// </summary>
+        public bool IsVideoRefreshRequested { get; internal set; }
+
         public bool IsPaused { get; set; }
 
         public bool IsSeekRequested { get; internal set; }
@@ -183,7 +184,7 @@
         public int AudioHardwareBufferSize { get; internal set; }
 
         /// <summary>
-        /// Gets the maximum duration of the frame.
+        /// Gets the maximum duration of the frame in seconds.
         /// above this, we consider the jump a timestamp discontinuity
         /// </summary>
         public double MaximumFrameDuration { get; internal set; }
@@ -207,15 +208,13 @@
         public bool IsFrameStepping { get; internal set; }
 
 
-        internal MediaState(FFplay player, string filename, AVInputFormat* iformat)
+        internal MediaState(FFplay player)
         {
             Handle = GCHandle.Alloc(this, GCHandleType.Pinned);
 
             Player = player;
-            MediaUrl = filename;
-            InputFormat = iformat;
-            ytop = 0;
-            xleft = 0;
+            MediaUrl = player.Options.MediaInputUrl;
+            InputFormat = player.InputForcedFormat;
 
             VideoQueue = new FrameQueue(VideoPackets, Constants.VideoQueueSize, true);
             SubtitleQueue = new FrameQueue(SubtitlePackets, Constants.SubtitleQueueSize, false);
@@ -230,7 +229,7 @@
             DecodedAudioClockSerial = -1;
             AudioVolume = SDL_MIX_MAXVOLUME;
             IsAudioMuted = false;
-            MediaSyncMode = MediaSyncMode;
+            MediaSyncMode = player.Options.MediaSyncMode;
 
         }
 
@@ -252,6 +251,11 @@
                 if (speedRatio != 1.0)
                     ExternalClock.SpeedRatio = (speedRatio + Constants.ExternalClockSpeedStep * (1.0 - speedRatio) / Math.Abs(1.0 - speedRatio));
             }
+        }
+
+        public void RequestSeekToStart()
+        {
+            RequestSeekTo(Player.MediaStartTimestamp != ffmpeg.AV_NOPTS_VALUE ? Player.MediaStartTimestamp : 0, 0, false);
         }
 
         public void RequestSeekTo(long pos, long rel, bool seekByBytes)
@@ -448,6 +452,12 @@
             }
         }
 
+        /// <summary>
+        /// Opens a stream component based on the specified stream index
+        /// Port of stream_component_open
+        /// </summary>
+        /// <param name="streamIndex">The stream index component</param>
+        /// <returns></returns>
         public int OpenStreamComponent(int streamIndex)
         {
             var ic = InputContext;
@@ -459,7 +469,7 @@
             var channelLayout = 0L;
             var result = 0;
 
-            int lowResIndex = Convert.ToInt32(Player.EnableLowRes);
+            int lowResIndex = Convert.ToInt32(Player.Options.EnableLowRes);
             if (streamIndex < 0 || streamIndex >= ic->nb_streams)
                 return -1;
 
@@ -508,7 +518,7 @@
             if (lowResIndex != 0)
                 codecContext->flags |= ffmpeg.CODEC_FLAG_EMU_EDGE;
 
-            if (Player.EnableFastDecoding)
+            if (Player.Options.EnableFastDecoding)
                 codecContext->flags2 |= ffmpeg.AV_CODEC_FLAG2_FAST;
 
             if ((decoder->capabilities & ffmpeg.AV_CODEC_CAP_DR1) != 0)
@@ -530,7 +540,9 @@
                 goto fail;
             }
 
-            if ((kvp = opts.Next(null)) != null)
+            // TODO: I do not understand this logic. Maybe by now the opts should be empty
+            // after setting them?
+            if ((kvp = opts.First()) != null)
             {
                 ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, $"Option {kvp.Key} not found.\n");
                 result = ffmpeg.AVERROR_OPTION_NOT_FOUND;
@@ -597,7 +609,7 @@
         }
 
         /// <summary>
-        /// Closes the media along with all of its streams.
+        /// Closes the media along with all of its stream components.
         /// Port of stream_close
         /// </summary>
         public void CloseStream()
@@ -630,8 +642,44 @@
             ffmpeg.sws_freeContext(VideoScaler);
             ffmpeg.sws_freeContext(SubtitleScaler);
 
-            if (subtitleTexture != null)
-                SDL_DestroyTexture(subtitleTexture);
+        }
+
+        /// <summary>
+        /// Fills the Bitmap property of a Video frame.
+        /// Port of upload_texture
+        /// </summary>
+        /// <param name="videoFrame">The video frame.</param>
+        /// <returns></returns>
+        public bool FillBitmap(FrameHolder videoFrame)
+        {
+            var frame = videoFrame.DecodedFrame;
+
+            if ((AVPixelFormat)frame->format == Constants.OutputPixelFormat)
+            {
+                // We don't need to do any colorspace transformation.
+                videoFrame.FillBitmapDataFromDecodedFrame();
+                return true;
+            }
+
+            fixed (SwsContext** scalerReference = &VideoScaler)
+            {
+                // Retrieve a suitable scaler or create it on the fly
+                *scalerReference = ffmpeg.sws_getCachedContext(*scalerReference,
+                        frame->width, frame->height, (AVPixelFormat)frame->format, frame->width, frame->height,
+                        Constants.OutputPixelFormat, Player.Options.VideoScalerFlags, null, null, null);
+
+                // Check for scaler availability
+                if (*scalerReference == null)
+                {
+                    ffmpeg.av_log(null, ffmpeg.AV_LOG_FATAL, "Cannot initialize the conversion context\n");
+                    return false;
+                }
+
+                // Fill the buffer from scaler
+                videoFrame.FillBitmapDataFromScaler(*scalerReference);
+            }
+
+            return true;
         }
 
         /// <summary>
@@ -779,27 +827,27 @@
 
         internal double ComputeVideoClockDelay(double delaySeconds)
         {
-            var skew = 0d;
+            var clockSkewSeconds = 0d;
 
             if (MasterSyncMode != SyncMode.Video)
             {
-                skew = VideoClock.PositionSeconds - MasterClockPositionSeconds;
+                clockSkewSeconds = VideoClock.PositionSeconds - MasterClockPositionSeconds;
                 var syncThreshold = Math.Max(
                     Constants.AvSyncThresholdMinSecs,
                     Math.Min(Constants.AvSyncThresholdMaxSecs, delaySeconds));
 
-                if (!double.IsNaN(skew) && Math.Abs(skew) < MaximumFrameDuration)
+                if (!double.IsNaN(clockSkewSeconds) && Math.Abs(clockSkewSeconds) < MaximumFrameDuration)
                 {
-                    if (skew <= -syncThreshold)
-                        delaySeconds = Math.Max(0, delaySeconds + skew);
-                    else if (skew >= syncThreshold && delaySeconds > Constants.AvSuncFrameDupThresholdSecs)
-                        delaySeconds = delaySeconds + skew;
-                    else if (skew >= syncThreshold)
+                    if (clockSkewSeconds <= -syncThreshold)
+                        delaySeconds = Math.Max(0, delaySeconds + clockSkewSeconds);
+                    else if (clockSkewSeconds >= syncThreshold && delaySeconds > Constants.AvSuncFrameDupThresholdSecs)
+                        delaySeconds = delaySeconds + clockSkewSeconds;
+                    else if (clockSkewSeconds >= syncThreshold)
                         delaySeconds = 2 * delaySeconds;
                 }
             }
 
-            ffmpeg.av_log(null, ffmpeg.AV_LOG_TRACE, $"video: delay={delaySeconds} A-V={-skew}\n");
+            ffmpeg.av_log(null, ffmpeg.AV_LOG_TRACE, $"video: delay={delaySeconds} A-V={-clockSkewSeconds}\n");
             return delaySeconds;
         }
 
@@ -815,97 +863,6 @@
             }
 
             return 0.0;
-        }
-
-        public void video_image_display()
-        {
-            var rect = new SDL_Rect();
-
-            var videoFrame = VideoQueue.Last;
-            FrameHolder subtitleFrame = null;
-            if (videoFrame.Bitmap == null) return;
-
-
-            if (SubtitleStream != null)
-            {
-                if (SubtitleQueue.PendingCount > 0)
-                {
-                    subtitleFrame = SubtitleQueue.Current;
-                    var subtitleStartDisplayTime = subtitleFrame.PtsSeconds + ((float)subtitleFrame.Subtitle.start_display_time / 1000);
-                    if (videoFrame.PtsSeconds >= subtitleStartDisplayTime)
-                    {
-                        if (!subtitleFrame.IsUploaded)
-                        {
-                            byte** pixels = null;
-                            int pitch = 0;
-
-                            if (subtitleFrame.PictureWidth == 0 || subtitleFrame.PictureHeight == 0)
-                            {
-                                subtitleFrame.PictureWidth = videoFrame.PictureWidth;
-                                subtitleFrame.PictureHeight = videoFrame.PictureHeight;
-                            }
-
-                            //if (FFplay.realloc_texture(sub_texture, SDL_PIXELFORMAT_ARGB8888, sp.PictureWidth, sp.PictureHeight, SDL_BLENDMODE_BLEND, 1) < 0)
-                            //    return;
-
-                            for (var i = 0; i < subtitleFrame.Subtitle.num_rects; i++)
-                            {
-                                AVSubtitleRect* sub_rect = subtitleFrame.Subtitle.rects[i];
-                                sub_rect->x = ffmpeg.av_clip(sub_rect->x, 0, subtitleFrame.PictureWidth);
-                                sub_rect->y = ffmpeg.av_clip(sub_rect->y, 0, subtitleFrame.PictureHeight);
-                                sub_rect->w = ffmpeg.av_clip(sub_rect->w, 0, subtitleFrame.PictureWidth - sub_rect->x);
-                                sub_rect->h = ffmpeg.av_clip(sub_rect->h, 0, subtitleFrame.PictureHeight - sub_rect->y);
-
-                                SubtitleScaler = ffmpeg.sws_getCachedContext(SubtitleScaler,
-                                    sub_rect->w, sub_rect->h, AVPixelFormat.AV_PIX_FMT_PAL8,
-                                    sub_rect->w, sub_rect->h, Constants.OutputPixelFormat,
-                                    0, null, null, null);
-
-                                if (SubtitleScaler == null)
-                                {
-                                    ffmpeg.av_log(null, ffmpeg.AV_LOG_FATAL, "Cannot initialize the conversion context\n");
-                                    return;
-                                }
-
-                                if (SDL_LockTexture(subtitleTexture, sub_rect, pixels, &pitch) == 0)
-                                {
-                                    var sourceData0 = sub_rect->data[0];
-                                    var sourceStride = sub_rect->linesize[0];
-
-                                    ffmpeg.sws_scale(SubtitleScaler, &sourceData0, &sourceStride,
-                                          0, sub_rect->h, pixels, &pitch);
-
-                                    SDL_UnlockTexture(subtitleTexture);
-                                }
-                            }
-
-                            subtitleFrame.IsUploaded = true;
-                        }
-                    }
-                    else
-                    {
-                        subtitleFrame = null;
-                    }
-                }
-            }
-
-            FFplay.calculate_display_rect(rect, xleft, ytop, PictureWidth, PictureHeight, videoFrame.PictureWidth, videoFrame.PictureHeight, videoFrame.PictureAspectRatio);
-
-            if (!videoFrame.IsUploaded)
-            {
-                if (Player.FillBitmap(videoFrame) < 0)
-                    return;
-
-                videoFrame.IsUploaded = true;
-            }
-
-            SDL_RenderCopy(Player.renderer, videoFrame.Bitmap, null, rect);
-
-            if (subtitleFrame != null)
-            {
-                SDL_RenderCopy(Player.renderer, subtitleTexture, null, rect);
-            }
-
         }
 
         public void StreamTogglePause()

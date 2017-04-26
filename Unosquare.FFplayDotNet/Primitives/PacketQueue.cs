@@ -131,6 +131,11 @@
             return 0;
         }
 
+        public int EnqueueFlushPacket()
+        {
+            return Enqueue(FlushPacket);
+        }
+
         /// <summary>
         /// Enqueues the specified packet.
         /// Port of packet_queue_put

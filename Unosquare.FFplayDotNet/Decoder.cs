@@ -295,7 +295,7 @@
                     framePtsSecs = ffmpeg.av_q2d(MediaState.VideoStream->time_base) * frame->pts;
 
                 frame->sample_aspect_ratio = ffmpeg.av_guess_sample_aspect_ratio(MediaState.InputContext, MediaState.VideoStream, frame);
-                if (MediaState.Player.EnableFrameDrops)
+                if (MediaState.Player.Options.EnableFrameDrops)
                 {
                     if (frame->pts != ffmpeg.AV_NOPTS_VALUE)
                     {

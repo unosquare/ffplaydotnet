@@ -31,55 +31,42 @@
 
         #endregion
 
+        #region Events
+
+        public event EventHandler<VideoDataEventArgs> OnVideoDataAvailable;
+        public event EventHandler<SubtitleDataEventArgs> OnSubtitleDataAvailable;
+
+        private void RaiseOnVideoDataAvailable(FrameHolder frame)
+        {
+            if (frame == null) return;
+            OnVideoDataAvailable?.Invoke(this, new VideoDataEventArgs(frame));
+        }
+
+        private void RaiseOnSubtitleDataAvailable(FrameHolder frame)
+        {
+            if (frame == null) return;
+            OnSubtitleDataAvailable?.Invoke(this, new SubtitleDataEventArgs(frame));
+        }
+
+        #endregion
+
+        #region User Options (To be moved to options object)
+
+
+        #endregion
+
         #region Properties
-
-        public int VideoScalerFlags { get; private set; } = ffmpeg.SWS_BICUBIC;
-        public AVInputFormat* InputForcedFormat { get; private set; }
-
-        public string MediaInputUrl { get; private set; }
+        public PlayerOptions Options { get; private set; }
         public string MediaTitle { get; private set; }
-
-        internal SyncMode MediaSyncMode { get; set; } = SyncMode.Audio;
+        public AVInputFormat* InputForcedFormat { get; private set; }
         public long MediaStartTimestamp { get; private set; } = ffmpeg.AV_NOPTS_VALUE;
         public long MediaDuration { get; private set; } = ffmpeg.AV_NOPTS_VALUE;
         public bool? MediaSeekByBytes { get; private set; } = null;
-
-
-        internal int default_width { get; set; } = 640;
-        internal int default_height { get; set; } = 480;
-        internal int screen_width { get; set; } = 0;
-        internal int screen_height { get; set; } = 0;
-
-        public bool IsAudioDisabled { get; private set; } = false;
-        public bool IsVideoDisabled { get; private set; } = false;
-        public bool IsSubtitleDisabled { get; private set; } = false;
-
-        internal bool EnableFastDecoding { get; set; } = false;
-        internal bool GeneratePts { get; set; } = false;
-        internal bool EnableLowRes { get; set; } = false;
-
-        internal bool autoexit { get; set; }
-        internal int loop { get; set; } = 1;
-
-        /// <summary>
-        /// Enable dropping frames when cpu is too slow.
-        /// Port of framedrop
-        /// </summary>
-        internal bool EnableFrameDrops { get; set; } = true;
-
-        /// <summary>
-        /// If set to > 0, don't limit the input buffer size (useful with realtime streams).
-        /// Port of infinite_buffer
-        /// </summary>
-        internal int EnableInfiniteBuffer { get; set; } = -1;
 
         public string AudioCodecName { get; private set; }
         public string SubtitleCodecName { get; private set; }
         public string VideoCodecName { get; private set; }
 
-        internal bool is_full_screen { get; set; }
-        internal SDL_Window window { get; set; }
-        internal SDL_Renderer renderer { get; set; }
 
         internal readonly MediaEventQueue EventQueue = new MediaEventQueue();
         internal Task MediaReadTask;
@@ -92,8 +79,8 @@
         public delegate int InterruptCallbackDelegate(void* opaque);
         public delegate int LockManagerCallbackDelegate(void** mutex, AVLockOp op);
 
-        internal FFDictionary FormatOptions = null;
-        internal FFDictionary CodecOptions = null;
+        internal readonly FFDictionary FormatOptions = null;
+        internal readonly FFDictionary CodecOptions = null;
 
         internal readonly MediaState State = null;
 
@@ -101,24 +88,27 @@
         /// Initializes a new instance of the <see cref="FFplay"/> class.
         /// </summary>
         /// <param name="filename">The filename.</param>
-        /// <param name="fromatName">Name of the fromat. Leave null for automatic selection</param>
-        public FFplay(string filename, string fromatName = null)
+        /// <param name="formatName">Name of the fromat. Leave null for automatic selection</param>
+        public FFplay(string filename, string formatName = null)
         {
+            Options = new PlayerOptions
+            {
+                MediaInputUrl = filename,
+                InputFormatName = formatName
+            };
+
             Helper.RegisterFFmpeg();
 
-            #region init_opts
-
+            // Inlining init_opts
             CodecOptions = new FFDictionary();
             FormatOptions = new FFDictionary();
-
-            #endregion
 
             #region main
 
             ffmpeg.avformat_network_init();
 
-            if (string.IsNullOrWhiteSpace(fromatName) == false)
-                InputForcedFormat = ffmpeg.av_find_input_format(fromatName);
+            if (string.IsNullOrWhiteSpace(Options.InputFormatName) == false)
+                InputForcedFormat = ffmpeg.av_find_input_format(Options.InputFormatName);
 
             var lockManagerCallback = new av_lockmgr_register_cb_func
             {
@@ -131,7 +121,7 @@
                 do_exit();
             }
 
-            State = new MediaState(this, filename, InputForcedFormat);
+            State = new MediaState(this);
             MediaReadTask = Task.Run(() => { ReaderThreadDoWork(); });
             event_loop();
 
@@ -208,7 +198,7 @@
                     Thread.Sleep(TimeSpan.FromSeconds(remainingSeconds));
 
                 remainingSeconds = Constants.RefreshRateSeconds;
-                if (!State.IsPaused || State.IsForceRefreshRequested)
+                if (!State.IsPaused || State.IsVideoRefreshRequested)
                     remainingSeconds = video_refresh(remainingSeconds);
 
                 //SDL_PumpEvents();
@@ -220,73 +210,6 @@
 
         #region Methods
 
-        public static void calculate_display_rect(SDL_Rect rect, int scr_xleft, int scr_ytop, int scr_width, int scr_height, int pic_width, int pic_height, AVRational pic_sar)
-        {
-            double aspect_ratio;
-            int width, height, x, y;
-            if (pic_sar.num == 0)
-                aspect_ratio = 0;
-            else
-                aspect_ratio = Convert.ToSingle(ffmpeg.av_q2d(pic_sar));
-
-            if (aspect_ratio <= 0.0)
-                aspect_ratio = 1.0F;
-
-            aspect_ratio *= (double)pic_width / (double)pic_height;
-            height = scr_height;
-            width = Convert.ToInt32(Math.Round(height * aspect_ratio)) & ~1;
-            if (width > scr_width)
-            {
-                width = scr_width;
-                height = Convert.ToInt32(Math.Round(width / aspect_ratio)) & ~1;
-            }
-
-            x = (scr_width - width) / 2;
-            y = (scr_height - height) / 2;
-            rect.x = scr_xleft + x;
-            rect.y = scr_ytop + y;
-            rect.w = Math.Max(width, 1);
-            rect.h = Math.Max(height, 1);
-        }
-
-        /// <summary>
-        /// Fills the Bitmap property of a Video frame.
-        /// Port of upload_texture
-        /// </summary>
-        /// <param name="videoFrame">The video frame.</param>
-        /// <returns></returns>
-        public int FillBitmap(FrameHolder videoFrame)
-        {
-            var frame = videoFrame.DecodedFrame;
-
-            if ((AVPixelFormat)frame->format == Constants.OutputPixelFormat)
-            {
-                // We don't need to do any colorspace transformation.
-                videoFrame.FillBitmapDataFromDecodedFrame();
-                return 0;
-            }
-
-            fixed (SwsContext** scalerReference = &State.VideoScaler)
-            {
-                // Retrieve a suitable scaler or create it on the fly
-                *scalerReference = ffmpeg.sws_getCachedContext(*scalerReference,
-                        frame->width, frame->height, (AVPixelFormat)frame->format, frame->width, frame->height,
-                        Constants.OutputPixelFormat, VideoScalerFlags, null, null, null);
-
-                // Check for scaler availability
-                if (*scalerReference == null)
-                {
-                    ffmpeg.av_log(null, ffmpeg.AV_LOG_FATAL, "Cannot initialize the conversion context\n");
-                    return -1;
-                }
-
-                // Fill the buffer from scaler
-                videoFrame.FillBitmapDataFromScaler(*scalerReference);
-            }
-
-            return 0;
-        }
-
         private void do_exit()
         {
             if (State != null)
@@ -294,12 +217,6 @@
 
             // Do not process any more events
             EventQueue.Clear();
-
-            if (renderer != null)
-                SDL_DestroyRenderer(renderer);
-
-            if (window != null)
-                SDL_DestroyWindow(window);
 
             ffmpeg.av_lockmgr_register(null);
 
@@ -310,67 +227,6 @@
             SDL_Quit();
             ffmpeg.av_log(null, ffmpeg.AV_LOG_QUIET, "");
             // exit
-        }
-
-        private void set_default_window_size(int width, int height, AVRational sar)
-        {
-            var rect = new SDL_Rect();
-            calculate_display_rect(rect, 0, 0, int.MaxValue, height, width, height, sar);
-            default_width = rect.w;
-            default_height = rect.h;
-        }
-
-        private int video_open(FrameHolder vp)
-        {
-            int w, h;
-            if (vp != null && vp.PictureWidth != 0)
-                set_default_window_size(vp.PictureWidth, vp.PictureHeight, vp.PictureAspectRatio);
-
-            if (screen_width != 0)
-            {
-                w = screen_width;
-                h = screen_height;
-            }
-            else
-            {
-                w = default_width;
-                h = default_height;
-            }
-
-            if (window != null)
-            {
-                int flags = SDL_WINDOW_SHOWN | SDL_WINDOW_RESIZABLE;
-
-                if (is_full_screen)
-                    flags |= SDL_WINDOW_FULLSCREEN_DESKTOP;
-
-                window = SDL_CreateWindow(string.Empty, SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, w, h, flags);
-                SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "linear");
-                if (window != null)
-                {
-                    var info = new SDL_RendererInfo();
-                    renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
-                    if (renderer != null)
-                    {
-                        if (SDL_GetRendererInfo(renderer, info) == 0)
-                            ffmpeg.av_log(null, ffmpeg.AV_LOG_VERBOSE, $"Initialized renderer.\n");
-                    }
-                }
-            }
-            else
-            {
-                SDL_SetWindowSize(window, w, h);
-            }
-
-            if (window == null || renderer == null)
-            {
-                ffmpeg.av_log(null, ffmpeg.AV_LOG_FATAL, "SDL: could not set video mode - exiting\n");
-                do_exit();
-            }
-
-            State.PictureWidth = w;
-            State.PictureHeight = h;
-            return 0;
         }
 
         public int audio_open(long wantedChannelLayout, int wantedChannelCount, int wantedSampleRate, AudioParams audioHardware)
@@ -468,28 +324,107 @@
         }
 
 
-        private void video_display()
+        /// <summary>
+        /// 
+        /// Port of video_image_display
+        /// </summary>
+        public void video_image_display()
         {
-            if (window == null)
-                video_open(null);
+            var videoFrame = State.VideoQueue.Last;
+            FrameHolder subtitleFrame = null;
+            if (videoFrame.Bitmap == null)
+                return;
 
-            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-            SDL_RenderClear(renderer);
 
-            if (State.VideoStream != null)
-                State.video_image_display();
+            if (State.SubtitleStream != null)
+            {
+                if (State.SubtitleQueue.PendingCount > 0)
+                {
+                    subtitleFrame = State.SubtitleQueue.Current;
+                    var subtitleStartDisplayTime = subtitleFrame.PtsSeconds + ((float)subtitleFrame.Subtitle.start_display_time / 1000);
+                    if (videoFrame.PtsSeconds >= subtitleStartDisplayTime)
+                    {
+                        if (!subtitleFrame.IsUploaded)
+                        {
+                            byte** pixels = null;
+                            int pitch = 0;
 
-            SDL_RenderPresent(renderer);
+                            if (subtitleFrame.PictureWidth == 0 || subtitleFrame.PictureHeight == 0)
+                            {
+                                subtitleFrame.PictureWidth = videoFrame.PictureWidth;
+                                subtitleFrame.PictureHeight = videoFrame.PictureHeight;
+                            }
+
+                            //if (FFplay.realloc_texture(sub_texture, SDL_PIXELFORMAT_ARGB8888, sp.PictureWidth, sp.PictureHeight, SDL_BLENDMODE_BLEND, 1) < 0)
+                            //    return;
+
+                            for (var i = 0; i < subtitleFrame.Subtitle.num_rects; i++)
+                            {
+                                AVSubtitleRect* sub_rect = subtitleFrame.Subtitle.rects[i];
+                                sub_rect->x = ffmpeg.av_clip(sub_rect->x, 0, subtitleFrame.PictureWidth);
+                                sub_rect->y = ffmpeg.av_clip(sub_rect->y, 0, subtitleFrame.PictureHeight);
+                                sub_rect->w = ffmpeg.av_clip(sub_rect->w, 0, subtitleFrame.PictureWidth - sub_rect->x);
+                                sub_rect->h = ffmpeg.av_clip(sub_rect->h, 0, subtitleFrame.PictureHeight - sub_rect->y);
+
+                                State.SubtitleScaler = ffmpeg.sws_getCachedContext(State.SubtitleScaler,
+                                    sub_rect->w, sub_rect->h, AVPixelFormat.AV_PIX_FMT_PAL8,
+                                    sub_rect->w, sub_rect->h, Constants.OutputPixelFormat,
+                                    0, null, null, null);
+
+                                if (State.SubtitleScaler == null)
+                                {
+                                    ffmpeg.av_log(null, ffmpeg.AV_LOG_FATAL, "Cannot initialize the conversion context\n");
+                                    return;
+                                }
+
+                                if (SDL_LockTexture(State.subtitleTexture, sub_rect, pixels, &pitch) == 0)
+                                {
+                                    var sourceData0 = sub_rect->data[0];
+                                    var sourceStride = sub_rect->linesize[0];
+
+                                    ffmpeg.sws_scale(State.SubtitleScaler, &sourceData0, &sourceStride,
+                                          0, sub_rect->h, pixels, &pitch);
+
+                                    SDL_UnlockTexture(State.subtitleTexture);
+                                }
+                            }
+
+                            subtitleFrame.IsUploaded = true;
+                        }
+                    }
+                    else
+                    {
+                        subtitleFrame = null;
+                    }
+                }
+            }
+
+            if (videoFrame.IsUploaded == false)
+            {
+                if (State.FillBitmap(videoFrame) == false)
+                    return;
+
+                videoFrame.IsUploaded = true;
+            }
+
+            // Combine Video and Subtitle textures
+            RaiseOnVideoDataAvailable(videoFrame); // Port: Previoulsy just a call to SDL_RenderCopy(renderer, videoFrame.Bitmap, null, rect);
+            RaiseOnSubtitleDataAvailable(subtitleFrame); // Port:  Previoulsy just a call to SDL_RenderCopy
+
         }
 
         /// <summary>
-        /// Allocs the picture.
+        /// Allocates the picture. Not sure if we need this at all...
         /// Port of alloc_picture
         /// </summary>
         private void alloc_picture()
         {
             var videoFrame = State.VideoQueue.Frames[State.VideoQueue.WriteIndex];
-            video_open(videoFrame);
+            // video_open(videoFrame); // Previously just a call to video_open still don't understand why it need to be allocated... Maybe SDL-related?
+            // I would rather NOT allocate because we are not dealing with SDL at all...
+
+            State.PictureWidth = videoFrame.PictureWidth;
+            State.PictureHeight = videoFrame.PictureHeight;
 
             State.VideoQueue.SignalDoneWriting(() =>
             {
@@ -511,119 +446,130 @@
 
             if (State.VideoStream != null)
             {
-                retry:
-                if (State.VideoQueue.PendingCount == 0)
+
+                var retry = true;
+
+                while (retry)
                 {
-                    // nothing to do, no picture to display in the queue
-                }
-                else
-                {
-                    var lastVideoFrame = State.VideoQueue.Last;
-                    var currentVideoFrame = State.VideoQueue.Current;
+                    retry = false;
 
-                    if (currentVideoFrame.Serial != State.VideoPackets.Serial)
+                    // check if we have a picture to display in the queue
+                    if (State.VideoQueue.PendingCount > 0)
                     {
-                        State.VideoQueue.QueueNextRead();
-                        goto retry;
-                    }
-                    if (lastVideoFrame.Serial != currentVideoFrame.Serial)
-                        State.VideoFrameTimeSeconds = (double)ffmpeg.av_gettime_relative() / (double)ffmpeg.AV_TIME_BASE;
+                        var lastVideoFrame = State.VideoQueue.Last;
+                        var currentVideoFrame = State.VideoQueue.Current;
 
-                    if (State.IsPaused)
-                        goto display;
-
-                    var lastFrameDuration = State.ComputeVideoFrameDurationSeconds(lastVideoFrame, currentVideoFrame);
-                    var delaySeconds = State.ComputeVideoClockDelay(lastFrameDuration);
-                    var currentTimeSeconds = ffmpeg.av_gettime_relative() / (double)ffmpeg.AV_TIME_BASE;
-
-                    if (currentTimeSeconds < State.VideoFrameTimeSeconds + delaySeconds)
-                    {
-                        remainingSeconds = Math.Min(State.VideoFrameTimeSeconds + delaySeconds - currentTimeSeconds, remainingSeconds);
-                        goto display;
-                    }
-
-                    State.VideoFrameTimeSeconds += delaySeconds;
-                    if (delaySeconds > 0 && currentTimeSeconds - State.VideoFrameTimeSeconds > Constants.AvSyncThresholdMaxSecs)
-                        State.VideoFrameTimeSeconds = currentTimeSeconds;
-
-                    try
-                    {
-                        State.VideoQueue.SyncLock.Lock();
-                        if (!double.IsNaN(currentVideoFrame.PtsSeconds))
-                            State.UpdateVideoPts(currentVideoFrame.PtsSeconds, currentVideoFrame.BytePosition, currentVideoFrame.Serial);
-                    }
-                    finally
-                    {
-                        State.VideoQueue.SyncLock.Unlock();
-                    }
-
-                    if (State.VideoQueue.PendingCount > 1)
-                    {
-                        var durationSeconds = State.ComputeVideoFrameDurationSeconds(
-                            currentVideoFrame, State.VideoQueue.Next);
-
-                        if (!State.IsFrameStepping
-                            && EnableFrameDrops
-                            && currentTimeSeconds > State.VideoFrameTimeSeconds + durationSeconds)
+                        if (currentVideoFrame.Serial != State.VideoPackets.Serial)
                         {
-                            State.VideoFrameLateDrops++;
                             State.VideoQueue.QueueNextRead();
-                            goto retry;
+                            retry = true;
+                            continue;
                         }
-                    }
+                        if (lastVideoFrame.Serial != currentVideoFrame.Serial)
+                            State.VideoFrameTimeSeconds = (double)ffmpeg.av_gettime_relative() / (double)ffmpeg.AV_TIME_BASE;
 
-                    if (State.SubtitleStream != null)
-                    {
-                        while (State.SubtitleQueue.PendingCount > 0)
+                        if (State.IsPaused)
+                            break;
+
+                        var lastFrameDuration = State.ComputeVideoFrameDurationSeconds(lastVideoFrame, currentVideoFrame);
+                        var delaySeconds = State.ComputeVideoClockDelay(lastFrameDuration);
+                        var currentTimeSeconds = ffmpeg.av_gettime_relative() / (double)ffmpeg.AV_TIME_BASE;
+
+                        if (currentTimeSeconds < State.VideoFrameTimeSeconds + delaySeconds)
                         {
-                            var currentSubtitleFrame = State.SubtitleQueue.Current;
-                            var nextSubtitleFrame = State.SubtitleQueue.PendingCount > 1 ? State.SubtitleQueue.Next : null;
+                            remainingSeconds = Math.Min(State.VideoFrameTimeSeconds + delaySeconds - currentTimeSeconds, remainingSeconds);
+                            break;
+                        }
 
-                            if (currentSubtitleFrame.Serial != State.SubtitlePackets.Serial
-                                    || (State.VideoClock.PtsSeconds > (currentSubtitleFrame.PtsSeconds + ((float)currentSubtitleFrame.Subtitle.end_display_time / 1000)))
-                                    || (nextSubtitleFrame != null && State.VideoClock.PtsSeconds > (nextSubtitleFrame.PtsSeconds + ((float)nextSubtitleFrame.Subtitle.start_display_time / 1000))))
+                        State.VideoFrameTimeSeconds += delaySeconds;
+                        if (delaySeconds > 0 && currentTimeSeconds - State.VideoFrameTimeSeconds > Constants.AvSyncThresholdMaxSecs)
+                            State.VideoFrameTimeSeconds = currentTimeSeconds;
+
+                        try
+                        {
+                            State.VideoQueue.SyncLock.Lock();
+                            if (!double.IsNaN(currentVideoFrame.PtsSeconds))
+                                State.UpdateVideoPts(currentVideoFrame.PtsSeconds, currentVideoFrame.BytePosition, currentVideoFrame.Serial);
+                        }
+                        finally
+                        {
+                            State.VideoQueue.SyncLock.Unlock();
+                        }
+
+                        if (State.VideoQueue.PendingCount > 1)
+                        {
+                            var durationSeconds = State.ComputeVideoFrameDurationSeconds(
+                                currentVideoFrame, State.VideoQueue.Next);
+
+                            if (!State.IsFrameStepping
+                                && Options.EnableFrameDrops
+                                && currentTimeSeconds > State.VideoFrameTimeSeconds + durationSeconds)
                             {
-                                if (currentSubtitleFrame.IsUploaded)
+                                State.VideoFrameLateDrops++;
+                                State.VideoQueue.QueueNextRead();
+                                retry = true;
+                                continue;
+                            }
+                        }
+
+                        if (State.SubtitleStream != null)
+                        {
+                            while (State.SubtitleQueue.PendingCount > 0)
+                            {
+                                var currentSubtitleFrame = State.SubtitleQueue.Current;
+                                var nextSubtitleFrame = State.SubtitleQueue.PendingCount > 1 ? State.SubtitleQueue.Next : null;
+
+                                if (currentSubtitleFrame.Serial != State.SubtitlePackets.Serial
+                                        || (State.VideoClock.PtsSeconds > (currentSubtitleFrame.PtsSeconds + ((float)currentSubtitleFrame.Subtitle.end_display_time / 1000)))
+                                        || (nextSubtitleFrame != null && State.VideoClock.PtsSeconds > (nextSubtitleFrame.PtsSeconds + ((float)nextSubtitleFrame.Subtitle.start_display_time / 1000))))
                                 {
-                                    for (var i = 0; i < currentSubtitleFrame.Subtitle.num_rects; i++)
+                                    if (currentSubtitleFrame.IsUploaded)
                                     {
-                                        // TODO: This is all wrong. We need to offload the pixels correctly
-                                        var sub_rect = currentSubtitleFrame.Subtitle.rects[i];
-                                        byte** pixels = null;
-
-                                        var pitch = 0;
-
-                                        if (SDL_LockTexture(State.subtitleTexture, sub_rect, pixels, &pitch) == 0)
+                                        for (var i = 0; i < currentSubtitleFrame.Subtitle.num_rects; i++)
                                         {
-                                            for (var j = 0; j < sub_rect->h; j++, pixels += pitch)
-                                                Native.memset(*pixels, 0, sub_rect->w << 2);
+                                            // TODO: This is all wrong. We need to offload the pixels correctly
+                                            var sub_rect = currentSubtitleFrame.Subtitle.rects[i];
+                                            byte** pixels = null;
 
-                                            SDL_UnlockTexture(State.subtitleTexture);
+                                            var pitch = 0;
+
+                                            if (SDL_LockTexture(State.subtitleTexture, sub_rect, pixels, &pitch) == 0)
+                                            {
+                                                for (var j = 0; j < sub_rect->h; j++, pixels += pitch)
+                                                    Native.memset(*pixels, 0, sub_rect->w << 2);
+
+                                                SDL_UnlockTexture(State.subtitleTexture);
+                                            }
                                         }
                                     }
-                                }
 
-                                State.SubtitleQueue.QueueNextRead();
-                            }
-                            else
-                            {
-                                break;
+                                    State.SubtitleQueue.QueueNextRead();
+                                }
+                                else
+                                {
+                                    break;
+                                }
                             }
                         }
+
+                        State.VideoQueue.QueueNextRead();
+                        State.IsVideoRefreshRequested = true;
+                        if (State.IsFrameStepping && !State.IsPaused)
+                            State.StreamTogglePause();
                     }
 
-                    State.VideoQueue.QueueNextRead();
-                    State.IsForceRefreshRequested = true;
-                    if (State.IsFrameStepping && !State.IsPaused)
-                        State.StreamTogglePause();
                 }
 
-                display:
-                if (State.IsForceRefreshRequested && State.VideoQueue.ReadIndexShown != 0)
-                    video_display();
+                // Finally let's send the subtitle and image data
+                if (State.IsVideoRefreshRequested && State.VideoQueue.ReadIndexShown != 0)
+                {
+                    // video_display // Port: previously just a call to Video display and SDL-related methods
+                    video_image_display();
+                }
+                    
             }
 
-            State.IsForceRefreshRequested = false;
+            State.IsVideoRefreshRequested = false;
             var currentTimestamp = ffmpeg.av_gettime_relative();
 
             if (LogStatusMessages && (LastVideoRefreshTimestamp == 0 || (currentTimestamp - LastVideoRefreshTimestamp) >= 30000))
@@ -721,7 +667,6 @@
             var vst = GCHandle.FromIntPtr(new IntPtr(opaque)).Target as MediaState;
             return vst.IsAbortRequested ? 1 : 0;
         }
-
 
         public int EnqueuePicture(AVFrame* sourceFrame, double pts, double duration)
         {
@@ -908,6 +853,7 @@
 
         #endregion
 
+        #region Input Reader Initialization and Looping
 
         /// <summary>
         /// Initializes the state variables and input context
@@ -915,7 +861,7 @@
         /// This is the first half of the login in the read_thread method
         /// </summary>
         /// <returns></returns>
-        private int InitializeComponent()
+        private bool InitializeInputReader()
         {
             #region Initial setup and state variables
 
@@ -937,9 +883,11 @@
             #region Create the Input Format Context and Set the Format Options
 
             // Allocate and set the interrupts
-            var inputContext = ffmpeg.avformat_alloc_context();
-
             {
+                State.InputContext = ffmpeg.avformat_alloc_context();
+
+                var inputContext = State.InputContext;
+
                 // TODO: Maybe manual interrupts are not even necessary
                 inputContext->interrupt_callback.callback = new AVIOInterruptCB_callback_func { Pointer = Marshal.GetFunctionPointerForDelegate(decode_interrupt_delegate) };
                 inputContext->interrupt_callback.opaque = (void*)State.Handle.AddrOfPinnedObject();
@@ -954,7 +902,7 @@
                 {
                     Debug.WriteLine($"Error in read_thread. File '{State.MediaUrl}'. {openResult}");
                     // TODO: throw open exception
-                    return -1;
+                    return false;
                 }
 
                 FormatOptions.Remove("scan_all_pmts");
@@ -964,11 +912,11 @@
                 if ((optionEntry = FormatOptions.First()) != null)
                 {
                     ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, $"Option {optionEntry.Key} not found.\n");
-                    return ffmpeg.AVERROR_OPTION_NOT_FOUND;
+                    return false; // ffmpeg.AVERROR_OPTION_NOT_FOUND;
                 }
 
                 // Make the active input context available in the State
-                State.InputContext = inputContext;
+                
             }
 
 
@@ -976,7 +924,9 @@
 
             #region Set Codec Parameters
             {
-                if (GeneratePts) inputContext->flags |= ffmpeg.AVFMT_FLAG_GENPTS;
+                var inputContext = State.InputContext;
+
+                if (Options.GeneratePts) inputContext->flags |= ffmpeg.AVFMT_FLAG_GENPTS;
                 ffmpeg.av_format_inject_global_side_data(inputContext);
 
                 var streamOptions = Helper.RetrieveStreamOptions(inputContext, CodecOptions);
@@ -996,14 +946,14 @@
                 if (findStreamInfoResult < 0)
                 {
                     ffmpeg.av_log(null, ffmpeg.AV_LOG_WARNING, $"{State.MediaUrl}: could not find codec parameters\n");
-                    return -1;
+                    return false; // -1;
                 }
             }
             #endregion
 
             #region Extract Initial State Properties
-
             {
+                var inputContext = State.InputContext;
                 if (inputContext->pb != null)
                     inputContext->pb->eof_reached = 0; // TODO: FIXME hack, ffplay maybe should not use avio_feof() to test for the end
 
@@ -1026,6 +976,7 @@
 
             #region Seek to the initial point of the media start time
             {
+                var inputContext = State.InputContext;
                 if (MediaStartTimestamp != ffmpeg.AV_NOPTS_VALUE)
                 {
                     var timestamp = MediaStartTimestamp;
@@ -1048,6 +999,8 @@
 
             #region Set stream specifiers (Maybe remove?)
             {
+                var inputContext = State.InputContext;
+
                 // TODO: maybe this reagion can be dropped altogether?
                 for (var i = 0; i < inputContext->nb_streams; i++)
                 {
@@ -1073,21 +1026,23 @@
             }
             #endregion
 
-            #region Find the best stream for each stream media type
+            #region Find the best stream for each stream media component
             {
-                if (!IsVideoDisabled)
+                var inputContext = State.InputContext;
+
+                if (!Options.IsVideoDisabled)
                     streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_VIDEO] =
                         ffmpeg.av_find_best_stream(inputContext, AVMediaType.AVMEDIA_TYPE_VIDEO,
                                             streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_VIDEO], -1, null, 0);
 
-                if (!IsAudioDisabled)
+                if (!Options.IsAudioDisabled)
                     streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_AUDIO] =
                         ffmpeg.av_find_best_stream(inputContext, AVMediaType.AVMEDIA_TYPE_AUDIO,
                                             streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_AUDIO],
                                             streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_VIDEO],
                                             null, 0);
 
-                if (!IsVideoDisabled && !IsSubtitleDisabled)
+                if (!Options.IsVideoDisabled && !Options.IsSubtitleDisabled)
                     streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_SUBTITLE] =
                         ffmpeg.av_find_best_stream(inputContext, AVMediaType.AVMEDIA_TYPE_SUBTITLE,
                                             streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_SUBTITLE],
@@ -1124,16 +1079,16 @@
                 if (State.VideoStreamIndex < 0 && State.AudioStreamIndex < 0)
                 {
                     ffmpeg.av_log(null, ffmpeg.AV_LOG_FATAL, $"Failed to open file '{State.MediaUrl}'\n");
-                    return -1;
+                    return false; // -1;
                 }
 
-                if (EnableInfiniteBuffer < 0 && State.IsMediaRealtime)
-                    EnableInfiniteBuffer = 1;
+                if (Options.EnableInfiniteBuffer < 0 && State.IsMediaRealtime)
+                    Options.EnableInfiniteBuffer = 1;
             }
-            
+
             #endregion
 
-            return result;
+            return result >= 0;
         }
 
         /// <summary>
@@ -1143,213 +1098,208 @@
         /// <returns></returns>
         public int ReaderThreadDoWork()
         {
-
-            // Setup state variables
-            var result = InitializeComponent();
             var DecoderLock = new MonitorLock();
-            var inputContext = State.InputContext;
 
-            if (result < 0) goto fail;
-
-            var formatName = Native.BytePtrToString(inputContext->iformat->name);
-
-            // Loops by reading and acting on states
-            while (true)
+            if (InitializeInputReader())
             {
-                if (State.IsAbortRequested)
-                    break;
+                // Setup state variables
+                var inputContext = State.InputContext;
+                var formatName = inputContext != null ? Native.BytePtrToString(inputContext->iformat->name) : string.Empty;
 
-                if (State.IsPaused != State.WasPaused)
+                // Loops by reading and acting on states
+                while (true)
                 {
-                    State.WasPaused = State.IsPaused;
+                    if (State.IsAbortRequested)
+                        break;
 
-                    if (State.IsPaused)
-                        State.ReadPauseResult = ffmpeg.av_read_pause(inputContext);
-                    else
-                        ffmpeg.av_read_play(inputContext);
-                }
-
-                if (State.IsPaused &&
-                    (formatName.Equals("rtsp") || (inputContext->pb != null && MediaInputUrl.StartsWith("mmsh:"))))
-                {
-                    Thread.Sleep(10);
-                    continue;
-                }
-
-                if (State.IsSeekRequested)
-                {
-                    var seekTarget = State.SeekTargetPosition;
-                    var seekMin = State.SeekTargetRange > 0 ? seekTarget - State.SeekTargetRange + 2 : long.MinValue;
-                    var seekMax = State.SeekTargetRange < 0 ? seekTarget - State.SeekTargetRange - 2 : long.MaxValue;
-                    // TODO: the +-2 is due to rounding being not done in the correct direction in generation
-                    //      of the seek_pos/seek_rel variables
-
-                    result = ffmpeg.avformat_seek_file(State.InputContext, -1, seekMin, seekTarget, seekMax, State.SeekModeFlags);
-
-                    if (result < 0)
+                    if (State.IsPaused != State.WasPaused)
                     {
-                        ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR,
-                               $"{Encoding.GetEncoding(0).GetString(State.InputContext->filename)}: error while seeking\n");
+                        State.WasPaused = State.IsPaused;
+
+                        if (State.IsPaused)
+                            State.ReadPauseResult = ffmpeg.av_read_pause(inputContext);
+                        else
+                            ffmpeg.av_read_play(inputContext);
                     }
-                    else
+
+                    if (State.IsPaused &&
+                        (formatName.Equals("rtsp") || (inputContext->pb != null && Options.MediaInputUrl.StartsWith("mmsh:"))))
                     {
-                        if (State.AudioStreamIndex >= 0)
-                        {
-                            State.AudioPackets.Clear();
-                            State.AudioPackets.Enqueue(PacketQueue.FlushPacket);
-                        }
+                        Thread.Sleep(10);
+                        continue;
+                    }
 
-                        if (State.SubtitleStreamIndex >= 0)
-                        {
-                            State.SubtitlePackets.Clear();
-                            State.SubtitlePackets.Enqueue(PacketQueue.FlushPacket);
-                        }
+                    if (State.IsSeekRequested)
+                    {
+                        var seekTarget = State.SeekTargetPosition;
+                        var seekMin = State.SeekTargetRange > 0 ? seekTarget - State.SeekTargetRange + 2 : long.MinValue;
+                        var seekMax = State.SeekTargetRange < 0 ? seekTarget - State.SeekTargetRange - 2 : long.MaxValue;
+                        // TODO: the +-2 is due to rounding being not done in the correct direction in generation
+                        //      of the seek_pos/seek_rel variables
 
-                        if (State.VideoStreamIndex >= 0)
-                        {
-                            State.VideoPackets.Clear();
-                            State.VideoPackets.Enqueue(PacketQueue.FlushPacket);
-                        }
+                        var seekResult = ffmpeg.avformat_seek_file(State.InputContext, -1, seekMin, seekTarget, seekMax, State.SeekModeFlags);
 
-                        if ((State.SeekModeFlags & ffmpeg.AVSEEK_FLAG_BYTE) != 0)
+                        if (seekResult < 0)
                         {
-                            State.ExternalClock.SetPosition(double.NaN, 0);
+                            ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR,
+                                   $"{Encoding.GetEncoding(0).GetString(State.InputContext->filename)}: error while seeking\n");
                         }
                         else
                         {
-                            State.ExternalClock.SetPosition(seekTarget / (double)ffmpeg.AV_TIME_BASE, 0);
+                            if (State.AudioStreamIndex >= 0)
+                            {
+                                State.AudioPackets.Clear();
+                                State.AudioPackets.EnqueueFlushPacket();
+                            }
+
+                            if (State.SubtitleStreamIndex >= 0)
+                            {
+                                State.SubtitlePackets.Clear();
+                                State.SubtitlePackets.EnqueueFlushPacket();
+                            }
+
+                            if (State.VideoStreamIndex >= 0)
+                            {
+                                State.VideoPackets.Clear();
+                                State.VideoPackets.EnqueueFlushPacket();
+                            }
+
+                            if ((State.SeekModeFlags & ffmpeg.AVSEEK_FLAG_BYTE) != 0)
+                            {
+                                State.ExternalClock.SetPosition(double.NaN, 0);
+                            }
+                            else
+                            {
+                                State.ExternalClock.SetPosition(seekTarget / (double)ffmpeg.AV_TIME_BASE, 0);
+                            }
                         }
+
+                        State.IsSeekRequested = false;
+                        State.EnqueuePacketAttachments = true;
+                        State.IsAtEndOfFile = false;
+
+                        if (State.IsPaused)
+                            State.StepToNextFrame();
                     }
 
-                    State.IsSeekRequested = false;
-                    State.EnqueuePacketAttachments = true;
-                    State.IsAtEndOfFile = false;
-
-                    if (State.IsPaused)
-                        State.StepToNextFrame();
-                }
-
-                if (State.EnqueuePacketAttachments)
-                {
-                    if (State.VideoStream != null && (State.VideoStream->disposition & ffmpeg.AV_DISPOSITION_ATTACHED_PIC) != 0)
+                    if (State.EnqueuePacketAttachments)
                     {
-                        var copy = new AVPacket();
-                        if ((result = ffmpeg.av_copy_packet(&copy, &State.VideoStream->attached_pic)) < 0)
-                            goto fail;
+                        if (State.VideoStream != null && (State.VideoStream->disposition & ffmpeg.AV_DISPOSITION_ATTACHED_PIC) != 0)
+                        {
+                            var packetCopy = new AVPacket();
+                            var copyResult = ffmpeg.av_copy_packet(&packetCopy, &State.VideoStream->attached_pic);
+                            if (copyResult < 0) break;
 
-                        State.VideoPackets.Enqueue(&copy);
-                        State.VideoPackets.EnqueueEmptyPacket(State.VideoStreamIndex);
-                    }
-
-                    State.EnqueuePacketAttachments = false;
-                }
-
-                if (EnableInfiniteBuffer < 1 &&
-                      (State.AudioPackets.ByteLength + State.VideoPackets.ByteLength + State.SubtitlePackets.ByteLength > PacketQueue.MaxQueueByteLength
-                    || (State.AudioPackets.HasEnoughPackets(State.AudioStream, State.AudioStreamIndex) &&
-                        State.VideoPackets.HasEnoughPackets(State.VideoStream, State.VideoStreamIndex) &&
-                        State.SubtitlePackets.HasEnoughPackets(State.SubtitleStream, State.SubtitleStreamIndex))))
-                {
-                    try
-                    {
-                        DecoderLock.Lock();
-                        State.IsFrameDecoded.Wait(DecoderLock, 10);
-                    }
-                    finally
-                    {
-                        DecoderLock.Unlock();
-                    }
-
-                    continue;
-                }
-
-                if (!State.IsPaused &&
-                    (State.AudioStream == null || (State.AudioDecoder.IsFinished == Convert.ToBoolean(State.AudioPackets.Serial) && State.AudioQueue.PendingCount == 0)) &&
-                    (State.VideoStream == null || (State.VideoDecoder.IsFinished == Convert.ToBoolean(State.VideoPackets.Serial) && State.VideoQueue.PendingCount == 0)))
-                {
-                    if (loop != 1 && (loop == 0 || --loop == 0))
-                    {
-                        State.RequestSeekTo(MediaStartTimestamp != ffmpeg.AV_NOPTS_VALUE ? MediaStartTimestamp : 0, 0, false);
-                    }
-                    else if (autoexit)
-                    {
-                        result = ffmpeg.AVERROR_EOF;
-                        goto fail;
-                    }
-                }
-
-                var readPacket = new AVPacket();
-                var packetPtr = &readPacket;
-                result = ffmpeg.av_read_frame(inputContext, packetPtr);
-
-                if (result < 0)
-                {
-                    if ((result == ffmpeg.AVERROR_EOF || ffmpeg.avio_feof(inputContext->pb) != 0) && !State.IsAtEndOfFile)
-                    {
-                        if (State.VideoStreamIndex >= 0)
+                            State.VideoPackets.Enqueue(&packetCopy);
                             State.VideoPackets.EnqueueEmptyPacket(State.VideoStreamIndex);
-                        if (State.AudioStreamIndex >= 0)
-                            State.AudioPackets.EnqueueEmptyPacket(State.AudioStreamIndex);
-                        if (State.SubtitleStreamIndex >= 0)
-                            State.SubtitlePackets.EnqueueEmptyPacket(State.SubtitleStreamIndex);
+                        }
 
-                        State.IsAtEndOfFile = true;
+                        State.EnqueuePacketAttachments = false;
                     }
 
-                    if (inputContext->pb != null && inputContext->pb->error != 0)
-                        break;
-
-                    try
+                    if (Options.EnableInfiniteBuffer < 1 &&
+                          (State.AudioPackets.ByteLength + State.VideoPackets.ByteLength + State.SubtitlePackets.ByteLength > PacketQueue.MaxQueueByteLength
+                        || (State.AudioPackets.HasEnoughPackets(State.AudioStream, State.AudioStreamIndex) &&
+                            State.VideoPackets.HasEnoughPackets(State.VideoStream, State.VideoStreamIndex) &&
+                            State.SubtitlePackets.HasEnoughPackets(State.SubtitleStream, State.SubtitleStreamIndex))))
                     {
-                        DecoderLock.Lock();
-                        State.IsFrameDecoded.Wait(DecoderLock, 10);
+                        try
+                        {
+                            DecoderLock.Lock();
+                            State.IsFrameDecoded.Wait(DecoderLock, 10);
+                        }
+                        finally
+                        {
+                            DecoderLock.Unlock();
+                        }
+
+                        continue;
                     }
-                    finally
+
+                    if (!State.IsPaused &&
+                        (State.AudioStream == null || (State.AudioDecoder.IsFinished == Convert.ToBoolean(State.AudioPackets.Serial) && State.AudioQueue.PendingCount == 0)) &&
+                        (State.VideoStream == null || (State.VideoDecoder.IsFinished == Convert.ToBoolean(State.VideoPackets.Serial) && State.VideoQueue.PendingCount == 0)))
                     {
-                        DecoderLock.Unlock();
+
+                        // TODO: Raise event Media Finished
+                        // if (Reqind afterFinished)
+                        //     State.RequestSeekToStart();
+                        break;                        
                     }
 
-                    continue;
-                }
-                else
-                {
-                    State.IsAtEndOfFile = false;
+                    var readPacket = new AVPacket();
+                    var packetPtr = &readPacket;
+                    var readFrameResult = ffmpeg.av_read_frame(inputContext, packetPtr);
+
+                    if (readFrameResult < 0)
+                    {
+                        if ((readFrameResult == ffmpeg.AVERROR_EOF || ffmpeg.avio_feof(inputContext->pb) != 0) && !State.IsAtEndOfFile)
+                        {
+                            if (State.VideoStreamIndex >= 0)
+                                State.VideoPackets.EnqueueEmptyPacket(State.VideoStreamIndex);
+                            if (State.AudioStreamIndex >= 0)
+                                State.AudioPackets.EnqueueEmptyPacket(State.AudioStreamIndex);
+                            if (State.SubtitleStreamIndex >= 0)
+                                State.SubtitlePackets.EnqueueEmptyPacket(State.SubtitleStreamIndex);
+
+                            State.IsAtEndOfFile = true;
+                        }
+
+                        if (inputContext->pb != null && inputContext->pb->error != 0)
+                            break;
+
+                        try
+                        {
+                            DecoderLock.Lock();
+                            State.IsFrameDecoded.Wait(DecoderLock, 10);
+                        }
+                        finally
+                        {
+                            DecoderLock.Unlock();
+                        }
+
+                        continue;
+                    }
+                    else
+                    {
+                        State.IsAtEndOfFile = false;
+                    }
+
+                    var streamStartTimestamp = inputContext->streams[packetPtr->stream_index]->start_time;
+                    var packetTimestamp = packetPtr->pts == ffmpeg.AV_NOPTS_VALUE ? packetPtr->dts : packetPtr->pts;
+                    var isPacketInPlayRange = MediaDuration == ffmpeg.AV_NOPTS_VALUE ||
+                            (packetTimestamp - (streamStartTimestamp != ffmpeg.AV_NOPTS_VALUE ? streamStartTimestamp : 0)) *
+                            ffmpeg.av_q2d(inputContext->streams[packetPtr->stream_index]->time_base) -
+                            (double)(MediaStartTimestamp != ffmpeg.AV_NOPTS_VALUE ? MediaStartTimestamp : 0) / ffmpeg.AV_TIME_BASE
+                            <= ((double)MediaDuration / ffmpeg.AV_TIME_BASE);
+
+                    // Enqueue the read packet depending on the the type of packet
+                    if (packetPtr->stream_index == State.AudioStreamIndex && isPacketInPlayRange)
+                        State.AudioPackets.Enqueue(packetPtr);
+                    else if (packetPtr->stream_index == State.VideoStreamIndex && isPacketInPlayRange
+                        && (State.VideoStream->disposition & ffmpeg.AV_DISPOSITION_ATTACHED_PIC) == 0)
+                        State.VideoPackets.Enqueue(packetPtr);
+                    else if (packetPtr->stream_index == State.SubtitleStreamIndex && isPacketInPlayRange)
+                        State.SubtitlePackets.Enqueue(packetPtr);
+                    else
+                        ffmpeg.av_packet_unref(packetPtr); // Discard packets that contain other stuff...
                 }
 
-                var streamStartTimestamp = inputContext->streams[packetPtr->stream_index]->start_time;
-                var packetTimestamp = packetPtr->pts == ffmpeg.AV_NOPTS_VALUE ? packetPtr->dts : packetPtr->pts;
-                var isPacketInPlayRange = MediaDuration == ffmpeg.AV_NOPTS_VALUE ||
-                        (packetTimestamp - (streamStartTimestamp != ffmpeg.AV_NOPTS_VALUE ? streamStartTimestamp : 0)) *
-                        ffmpeg.av_q2d(inputContext->streams[packetPtr->stream_index]->time_base) -
-                        (double)(MediaStartTimestamp != ffmpeg.AV_NOPTS_VALUE ? MediaStartTimestamp : 0) / ffmpeg.AV_TIME_BASE
-                        <= ((double)MediaDuration / ffmpeg.AV_TIME_BASE);
-
-                // Enqueue the read packet depending on the the type of packet
-                if (packetPtr->stream_index == State.AudioStreamIndex && isPacketInPlayRange)
-                    State.AudioPackets.Enqueue(packetPtr);
-                else if (packetPtr->stream_index == State.VideoStreamIndex && isPacketInPlayRange
-                    && (State.VideoStream->disposition & ffmpeg.AV_DISPOSITION_ATTACHED_PIC) == 0)
-                    State.VideoPackets.Enqueue(packetPtr);
-                else if (packetPtr->stream_index == State.SubtitleStreamIndex && isPacketInPlayRange)
-                    State.SubtitlePackets.Enqueue(packetPtr);
-                else
-                    ffmpeg.av_packet_unref(packetPtr);
             }
 
-            result = 0;
-
-            fail:
-
-            if (inputContext != null && State.InputContext == null)
+            if (State.InputContext != null)
+            {
+                var inputContext = State.InputContext;
                 ffmpeg.avformat_close_input(&inputContext);
-
-            if (result != 0)
-                EventQueue.PushEvent(this, MediaEventAction.Quit);
-
+                State.InputContext = null;
+            }
 
             DecoderLock.Destroy();
+
             return 0;
         }
+
+        #endregion
 
         private void event_loop()
         {
@@ -1366,7 +1316,7 @@
                         break;
                     case MediaEventAction.ToggleFullScreen:
                         //toggle_full_screen(cur_stream);
-                        State.IsForceRefreshRequested = true;
+                        State.IsVideoRefreshRequested = true;
                         break;
                     case MediaEventAction.TogglePause:
                         State.TogglePause();

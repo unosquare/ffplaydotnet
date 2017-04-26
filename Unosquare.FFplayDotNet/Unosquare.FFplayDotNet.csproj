@@ -46,7 +46,8 @@
     <Reference Include="WindowsBase" />
   </ItemGroup>
   <ItemGroup>
-    <Compile Include="BitmapBuffer.cs" />
+    <Compile Include="PlayerOptions.cs" />
+    <Compile Include="Primitives\BitmapBuffer.cs" />
     <Compile Include="Core\Native.cs" />
     <Compile Include="Primitives\AudioParams.cs" />
     <Compile Include="Primitives\Clock.cs" />
@@ -72,6 +73,7 @@
     <Compile Include="Primitives\MonitorLock.cs" />
     <Compile Include="Primitives\PacketQueue.cs" />
     <Compile Include="Primitives\PacketHolder.cs" />
+    <Compile Include="Events.cs" />
     <Compile Include="SDL.cs" />
     <Compile Include="Core\Helper.cs" />
     <Compile Include="MediaState.cs" />

@@ -1,8 +1,7 @@
 ﻿namespace Unosquare.FFplayDotNet
 {
     using FFmpeg.AutoGen;
-    using System;
-    using System.Threading;
+    using Unosquare.FFplayDotNet.Primitives;
 
     static public unsafe class SDL
     {
@@ -12,52 +11,20 @@
         #region Dummy Constants
 
         internal const int SDL_MIX_MAXVOLUME = 128; // http://www.libsdl.org/tmp/SDL/include/SDL_audio.h
-        internal const int SDL_USEREVENT = 0x8000; // https://www.libsdl.org/tmp/SDL/include/SDL_events.h
-        internal const uint SDL_PIXELFORMAT_ARGB8888 = 0; // TODO: https://github.com/jaz303/mark-sweep/blob/master/binding-generator/headers/SDL_pixels.h
-        internal const uint SDL_PIXELFORMAT_YV12 = 1; // TODO: pixel format is fdummy
-        internal const uint SDL_BLENDMODE_NONE = 0; // http://www-personal.umich.edu/~bazald/l/api/_s_d_l__blendmode_8h.html
-        internal const uint SDL_BLENDMODE_BLEND = 1; // http://www-personal.umich.edu/~bazald/l/api/_s_d_l__blendmode_8h.html
-
-        internal const int SDL_WINDOW_SHOWN = 1; // TODO: Verify
-        internal const int SDL_WINDOW_RESIZABLE = 2; // TODO: Verify
-        internal const int SDL_WINDOWPOS_UNDEFINED = 2; // TODO: Verify
-        internal const int SDL_WINDOW_FULLSCREEN_DESKTOP = 4; // TODO: verify
-        internal const int SDL_RENDERER_ACCELERATED = 4; // TODO: verify
-        internal const int SDL_RENDERER_PRESENTVSYNC = 4; // TODO: verify
-        internal const int SDL_HINT_RENDER_SCALE_QUALITY = 100; // TODO: Verify
-        internal const int SDL_GETEVENT = 1;
         internal const int AUDIO_S16SYS = 16;
 
         #endregion
 
         #region SDL Placeholders
 
-
-        public class SDL_Window { }
-        public class SDL_Renderer { }
-        public class SDL_Rect { public int x; public int y; public int w; public int h; }
-        public class SDL_RendererInfo { }
-
         public class SDL_AudioSpec { public int channels; public int freq; public int format; public int silence; public int samples; public MediaState userdata; public SDL_AudioCallback callback; public int size; }
 
         public static void SDL_UnlockTexture(BitmapBuffer tex) { }
         public static int SDL_LockTexture(BitmapBuffer tex, AVSubtitleRect* other, byte** pixels, int* pitch) { return 0; }
 
-
-        public static void SDL_SetRenderDrawColor(SDL_Renderer renderer, byte a, byte r, byte g, byte b) { }
-        public static void SDL_RenderCopy(SDL_Renderer renderer, BitmapBuffer texture, AVSubtitleRect* a, SDL_Rect b) { }
         public static void SDL_CloseAudio() { }
-        public static void SDL_DestroyTexture(BitmapBuffer texture) { }
-        public static void SDL_DestroyRenderer(SDL_Renderer renderer) { }
-        public static void SDL_DestroyWindow(SDL_Window window) { }
         public static void SDL_Quit() { }
-        public static void SDL_RenderClear(SDL_Renderer renderer) { }
-        public static void SDL_RenderPresent(SDL_Renderer renderer) { }
-        public static SDL_Window SDL_CreateWindow(string window_title, int flags1, int flags2, int w, int h, int flags3) { return new SDL_Window(); }
-        public static void SDL_SetHint(int key, string value) { }
-        public static SDL_Renderer SDL_CreateRenderer(SDL_Window window, int z, int flags) { return new SDL_Renderer(); }
-        public static int SDL_GetRendererInfo(SDL_Renderer renderer, SDL_RendererInfo info) { return 0; }
-        public static int SDL_SetWindowSize(SDL_Window win, int w, int h) { return 0; }
+
 
         public static int SDL_MixAudio(byte* stream, byte* buffer, int len, int volume) { return 0; }
         public static string SDL_getenv(string name) { return "2"; }

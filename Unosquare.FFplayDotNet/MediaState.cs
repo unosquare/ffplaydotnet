@@ -10,6 +10,8 @@
     using Unosquare.FFplayDotNet.Primitives;
     using static Unosquare.FFplayDotNet.SDL;
 
+    // TODO: remove goto s
+
     public unsafe class MediaState
     {
         internal readonly GCHandle Handle; // TODO: ensure free is called
@@ -24,7 +26,6 @@
         // TODO: Move rendering scalers to Player
         internal SwrContext* AudioScaler;
         internal SwsContext* VideoScaler;
-        internal SwsContext* SubtitleScaler;
 
         internal bool WasPaused;
         internal int ReadPauseResult;
@@ -355,7 +356,7 @@
                     {
                         targetIndex = -1;
                         LastSubtitleStreamIndex = -1;
-                        goto the_end;
+                        break;
                     }
 
                     if (startIndex == -1)
@@ -370,24 +371,26 @@
                 st = InputContext->streams[program != null ? (int)program->stream_index[targetIndex] : targetIndex];
                 if (st->codecpar->codec_type == mediaType)
                 {
+                    var exitLoop = false;
                     switch (mediaType)
                     {
                         case AVMediaType.AVMEDIA_TYPE_AUDIO:
-                            if (st->codecpar->sample_rate != 0 &&
-                                st->codecpar->channels != 0)
-                                goto the_end;
+                            if (st->codecpar->sample_rate != 0 && st->codecpar->channels != 0)
+                                exitLoop = true;
                             break;
                         case AVMediaType.AVMEDIA_TYPE_VIDEO:
                         case AVMediaType.AVMEDIA_TYPE_SUBTITLE:
-                            goto the_end;
+                            exitLoop = true;
+                            break;
                         default:
                             break;
                     }
+
+                    if (exitLoop) break;
                 }
             }
 
-            the_end:
-
+            // the_end:
             if (program != null && targetIndex != -1)
                 targetIndex = (int)program->stream_index[targetIndex];
 
@@ -625,9 +628,8 @@
                 CloseStreamComponent(SubtitleStreamIndex);
 
             fixed (AVFormatContext** vstic = &InputContext)
-            {
                 ffmpeg.avformat_close_input(vstic);
-            }
+            
 
             VideoPackets.Clear();
             AudioPackets.Clear();
@@ -638,7 +640,6 @@
             IsFrameDecoded.Dispose();
 
             ffmpeg.sws_freeContext(VideoScaler);
-            ffmpeg.sws_freeContext(SubtitleScaler);
 
         }
 

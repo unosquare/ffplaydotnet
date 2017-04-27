@@ -1050,8 +1050,8 @@
                 }
 
                 var readPacket = new AVPacket();
-                var packetPtr = &readPacket;
-                var readFrameResult = ffmpeg.av_read_frame(inputContext, packetPtr);
+                var readPacketPtr = &readPacket;
+                var readFrameResult = ffmpeg.av_read_frame(inputContext, readPacketPtr);
 
                 if (readFrameResult < 0)
                 {
@@ -1087,24 +1087,24 @@
                     State.IsAtEndOfFile = false;
                 }
 
-                var streamStartTimestamp = inputContext->streams[packetPtr->stream_index]->start_time;
-                var packetTimestamp = packetPtr->pts == ffmpeg.AV_NOPTS_VALUE ? packetPtr->dts : packetPtr->pts;
+                var streamStartTimestamp = inputContext->streams[readPacketPtr->stream_index]->start_time;
+                var packetTimestamp = readPacketPtr->pts == ffmpeg.AV_NOPTS_VALUE ? readPacketPtr->dts : readPacketPtr->pts;
                 var isPacketInPlayRange = MediaDuration == ffmpeg.AV_NOPTS_VALUE ||
                         (packetTimestamp - (streamStartTimestamp != ffmpeg.AV_NOPTS_VALUE ? streamStartTimestamp : 0)) *
-                        ffmpeg.av_q2d(inputContext->streams[packetPtr->stream_index]->time_base) -
+                        ffmpeg.av_q2d(inputContext->streams[readPacketPtr->stream_index]->time_base) -
                         (double)(MediaStartTimestamp != ffmpeg.AV_NOPTS_VALUE ? MediaStartTimestamp : 0) / ffmpeg.AV_TIME_BASE
                         <= ((double)MediaDuration / ffmpeg.AV_TIME_BASE);
 
                 // Enqueue the read packet depending on the the type of packet
-                if (packetPtr->stream_index == State.AudioStreamIndex && isPacketInPlayRange)
-                    State.AudioPackets.Enqueue(packetPtr);
-                else if (packetPtr->stream_index == State.VideoStreamIndex && isPacketInPlayRange
+                if (readPacketPtr->stream_index == State.AudioStreamIndex && isPacketInPlayRange)
+                    State.AudioPackets.Enqueue(readPacketPtr);
+                else if (readPacketPtr->stream_index == State.VideoStreamIndex && isPacketInPlayRange
                     && (State.VideoStream->disposition & ffmpeg.AV_DISPOSITION_ATTACHED_PIC) == 0)
-                    State.VideoPackets.Enqueue(packetPtr);
-                else if (packetPtr->stream_index == State.SubtitleStreamIndex && isPacketInPlayRange)
-                    State.SubtitlePackets.Enqueue(packetPtr);
+                    State.VideoPackets.Enqueue(readPacketPtr);
+                else if (readPacketPtr->stream_index == State.SubtitleStreamIndex && isPacketInPlayRange)
+                    State.SubtitlePackets.Enqueue(readPacketPtr);
                 else
-                    ffmpeg.av_packet_unref(packetPtr); // Discard packets that contain other stuff...
+                    ffmpeg.av_packet_unref(readPacketPtr); // Discard packets that contain other stuff...
             }
 
 

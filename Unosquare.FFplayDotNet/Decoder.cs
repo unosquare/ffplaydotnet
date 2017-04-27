@@ -28,10 +28,19 @@
         private readonly PacketQueue PacketQueue;
 
         /// <summary>
-        /// The current packet
+        /// The current packet. This is only a reference, and not a struct as in the original code.
+        /// The reference is dequeued from the associated packet queue.
         /// Port of pkt
         /// </summary>
-        private AVPacket CurrentPacket;
+        private AVPacket* CurrentPacketPtr = null;
+
+
+        /// <summary>
+        /// The temporary packet. This is only a reference, and not a struct as in the original code.
+        /// The reference is dequeued from the associated packet queue.
+        /// Port of pkt_temp
+        /// </summary>
+        private AVPacket* TempPacketPtr = null;
 
         /// <summary>
         /// The decoder task
@@ -59,6 +68,12 @@
         #endregion
 
         #region Properties
+
+        /// <summary>
+        /// The is packet pending.
+        /// Port of packet_pending.
+        /// </summary>
+        public bool IsPacketPending { get; private set; } = false;
 
         /// <summary>
         /// Gets the packet serial.
@@ -152,10 +167,12 @@
         private int DecodeFrameInternal(AVFrame* outputFrame, AVSubtitle* subtitle)
         {
             var gotFrame = default(int);
-            var inputPacket = new AVPacket();
+
             var nextPtsTimebase = new AVRational();
             var nextPts = default(long);
-            var isPacketPending = false;
+
+            if (CurrentPacketPtr == null) CurrentPacketPtr = ffmpeg.av_packet_alloc();
+            if (TempPacketPtr == null) TempPacketPtr = ffmpeg.av_packet_alloc();
 
             do
             {
@@ -164,18 +181,20 @@
                 if (PacketQueue.IsAborted)
                     return -1;
 
-                if (!isPacketPending || PacketQueue.Serial != PacketSerial)
+                if (!IsPacketPending || PacketQueue.Serial != PacketSerial)
                 {
-                    var queuePacket = new AVPacket();
+                    // Port of pkt
+                    AVPacket* queuePacketPtr = null;
+
                     do
                     {
                         if (PacketQueue.Count == 0)
                             IsQueueEmpty.Signal();
 
-                        if (PacketQueue.Dequeue(&queuePacket, ref m_PacketSerial) < 0)
+                        if (PacketQueue.Dequeue(ref queuePacketPtr, ref m_PacketSerial) < 0)
                             return -1;
 
-                        if (queuePacket.data == PacketQueue.FlushPacket->data)
+                        if (queuePacketPtr->data == PacketQueue.FlushPacket->data)
                         {
                             ffmpeg.avcodec_flush_buffers(Codec);
                             IsFinished = false;
@@ -183,22 +202,23 @@
                             nextPtsTimebase = StartPtsTimebase;
                         }
 
-                    } while (queuePacket.data == PacketQueue.FlushPacket->data || PacketQueue.Serial != PacketSerial);
+                    } while (queuePacketPtr->data == PacketQueue.FlushPacket->data || PacketQueue.Serial != m_PacketSerial);
 
-                    fixed (AVPacket* currentPacketPtr = &CurrentPacket)
-                        ffmpeg.av_packet_unref(currentPacketPtr);
 
-                    CurrentPacket = queuePacket;
-                    inputPacket = CurrentPacket;
+                    ffmpeg.av_packet_unref(CurrentPacketPtr);
 
-                    isPacketPending = true;
+                    // By-value copying
+                    *CurrentPacketPtr = *queuePacketPtr;
+                    *TempPacketPtr = *CurrentPacketPtr;
+
+                    IsPacketPending = true;
                 }
 
                 switch (Codec->codec_type)
                 {
                     case AVMediaType.AVMEDIA_TYPE_VIDEO:
 #pragma warning disable CS0618 // Type or member is obsolete
-                        result = ffmpeg.avcodec_decode_video2(Codec, outputFrame, &gotFrame, &inputPacket);
+                        result = ffmpeg.avcodec_decode_video2(Codec, outputFrame, &gotFrame, TempPacketPtr);
 #pragma warning restore CS0618 // Type or member is obsolete
 
                         if (gotFrame != 0)
@@ -216,7 +236,7 @@
                         break;
                     case AVMediaType.AVMEDIA_TYPE_AUDIO:
 #pragma warning disable CS0618 // Type or member is obsolete
-                        result = ffmpeg.avcodec_decode_audio4(Codec, outputFrame, &gotFrame, &inputPacket);
+                        result = ffmpeg.avcodec_decode_audio4(Codec, outputFrame, &gotFrame, TempPacketPtr);
 #pragma warning restore CS0618 // Type or member is obsolete
 
                         if (gotFrame != 0)
@@ -236,34 +256,34 @@
                         break;
 
                     case AVMediaType.AVMEDIA_TYPE_SUBTITLE:
-                        result = ffmpeg.avcodec_decode_subtitle2(Codec, subtitle, &gotFrame, &inputPacket);
+                        result = ffmpeg.avcodec_decode_subtitle2(Codec, subtitle, &gotFrame, TempPacketPtr);
                         break;
                 }
 
                 if (result < 0)
                 {
-                    isPacketPending = false;
+                    IsPacketPending = false;
                 }
                 else
                 {
-                    inputPacket.dts =
-                    inputPacket.pts = ffmpeg.AV_NOPTS_VALUE;
+                    TempPacketPtr->dts =
+                    TempPacketPtr->pts = ffmpeg.AV_NOPTS_VALUE;
 
-                    if (inputPacket.data != null)
+                    if (TempPacketPtr->data != null)
                     {
                         if (Codec->codec_type != AVMediaType.AVMEDIA_TYPE_AUDIO)
-                            result = inputPacket.size;
+                            result = TempPacketPtr->size;
 
-                        inputPacket.data += result;
-                        inputPacket.size -= result;
-                        if (inputPacket.size <= 0)
-                            isPacketPending = false;
+                        TempPacketPtr->data += result;
+                        TempPacketPtr->size -= result;
+                        if (TempPacketPtr->size <= 0)
+                            IsPacketPending = false;
                     }
                     else
                     {
                         if (gotFrame == 0)
                         {
-                            isPacketPending = false;
+                            IsPacketPending = false;
                             IsFinished = Convert.ToBoolean(PacketSerial);
                         }
                     }
@@ -300,7 +320,7 @@
                     if (frame->pts != ffmpeg.AV_NOPTS_VALUE)
                     {
                         double ptsSkewSecs = framePtsSecs - MediaState.MasterClockPositionSeconds;
-                        if (!double.IsNaN(ptsSkewSecs) && 
+                        if (!double.IsNaN(ptsSkewSecs) &&
                             Math.Abs(ptsSkewSecs) < Constants.AvNoSyncThresholdSecs &&
                             ptsSkewSecs < 0 &&
                             MediaState.VideoDecoder.PacketSerial == MediaState.VideoClock.PacketSerial &&
@@ -323,8 +343,7 @@
         /// </summary>
         internal void ReleaseUnmanaged()
         {
-            fixed (AVPacket* packetPtr = &CurrentPacket)
-                ffmpeg.av_packet_unref(packetPtr);
+            ffmpeg.av_packet_unref(CurrentPacketPtr);
 
             fixed (AVCodecContext** codecPtr = &Codec)
                 ffmpeg.avcodec_free_context(codecPtr);

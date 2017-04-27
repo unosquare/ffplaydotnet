@@ -31,6 +31,10 @@
             if (wasLocked) mutex.Lock();
         }
 
+        /// <summary>
+        /// Signals this condition to continue on waiters.
+        /// Port of SDL_CondSignal
+        /// </summary>
         public void Signal()
         {
             ConditionDone.Set();

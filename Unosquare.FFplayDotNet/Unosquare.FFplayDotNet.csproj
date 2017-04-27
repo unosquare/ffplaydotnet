@@ -65,6 +65,7 @@
     <Compile Include="Core\Paths.cs" />
     <Compile Include="Core\Constants.cs" />
     <Compile Include="FFplay.cs" />
+    <Compile Include="Primitives\FFDictionaryEntry.cs" />
     <Compile Include="SyncMode.cs" />
     <Compile Include="Primitives\FFDictionary.cs" />
     <Compile Include="Primitives\FrameHolder.cs" />

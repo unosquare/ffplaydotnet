@@ -1,52 +1,60 @@
-﻿using FFmpeg.AutoGen;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Tasks;
-using Unosquare.FFplayDotNet.Core;
-
-namespace Unosquare.FFplayDotNet.Primitives
+﻿namespace Unosquare.FFplayDotNet.Primitives
 {
+    using FFmpeg.AutoGen;
+    using System;
+    using System.Collections.Generic;
+
     /// <summary>
-    /// An AVDictionary and DictionaryEntry wrapper
+    /// An AVDictionary management class
     /// </summary>
     internal unsafe class FFDictionary : IDisposable
     {
-        //private AVDictionary* Dictionary;
-        //internal readonly GCHandle DictionaryHandle;
-        //internal readonly GCHandle DictionaryHandleReference;
+        #region Unmanaged Fields
 
-        public FFDictionary()
-        {
-            //Dictionary = new AVDictionary();
-            //DictionaryHandle = GCHandle.Alloc(Dictionary, GCHandleType.Pinned);
-            //DictionaryHandleReference = GCHandle.Alloc(DictionaryHandle, GCHandleType.Pinned);
-        }
+        // These pointers and references are created by unmanaged code
+        // there is no need to pin them.
+        public AVDictionary* Pointer;
+        public AVDictionary** Reference;
+
+        #endregion
+
+        #region Constructors
 
         /// <summary>
-        /// Fills this dictionary with a set of options
+        /// Initializes a new instance of the <see cref="FFDictionary"/> class.
         /// </summary>
-        /// <param name="other"></param>
-        public void Fill(Dictionary<string, string> other)
+        public FFDictionary()
         {
-            if (other == null) return;
-            foreach (var kvp in other)
+            // placeholder
+        }
+
+        #endregion
+
+        #region Properties
+
+        /// <summary>
+        /// Gets the number of elements in the dictionary
+        /// </summary>
+        /// <value>
+        /// The count.
+        /// </value>
+        public int Count
+        {
+            get
             {
-                this[kvp.Key] = kvp.Value;
+                if (Pointer == null) return 0;
+                return ffmpeg.av_dict_count(Pointer);
             }
         }
 
-        public AVDictionary* Pointer;
-
-        public AVDictionary** Reference;
-
-        public bool KeyExists(string key, bool matchCase = true)
-        {
-            return ffmpeg.av_dict_get(Pointer, key, null, matchCase ? ffmpeg.AV_DICT_MATCH_CASE : 0) != null;
-        }
-
+        /// <summary>
+        /// Gets or sets the value with the specified key.
+        /// </summary>
+        /// <value>
+        /// The <see cref="System.String"/>.
+        /// </value>
+        /// <param name="key">The key.</param>
+        /// <returns></returns>
         public string this[string key]
         {
             get
@@ -59,17 +67,118 @@ namespace Unosquare.FFplayDotNet.Primitives
             }
         }
 
+        #endregion
+
+        #region Methods
+
+        /// <summary>
+        /// Fills this dictionary with a set of options
+        /// </summary>
+        /// <param name="other"></param>
+        public void Fill(Dictionary<string, string> other)
+        {
+            if (other == null) return;
+            foreach (var kvp in other)
+                this[kvp.Key] = kvp.Value;
+        }
+
+        /// <summary>
+        /// Gets the first entry. Null if no entries.
+        /// </summary>
+        /// <returns></returns>
+        public FFDictionaryEntry First()
+        {
+            return Next(null);
+        }
+
+        /// <summary>
+        /// Gets the next entry based on the provided prior entry.
+        /// </summary>
+        /// <param name="prior">The prior.</param>
+        /// <returns></returns>
+        public FFDictionaryEntry Next(FFDictionaryEntry prior)
+        {
+            if (Pointer == null)
+                return null;
+
+            var priorEntry = prior == null ? null : prior.Pointer;
+            var nextEntry = ffmpeg.av_dict_get(Pointer, "", priorEntry, ffmpeg.AV_DICT_IGNORE_SUFFIX);
+            return new FFDictionaryEntry(nextEntry);
+        }
+
+        /// <summary>
+        /// Determines if the given key exists in the dictionary
+        /// </summary>
+        /// <param name="key">The key.</param>
+        /// <param name="matchCase">if set to <c>true</c> [match case].</param>
+        /// <returns></returns>
+        public bool KeyExists(string key, bool matchCase = true)
+        {
+            if (Pointer == null) return false;
+            return ffmpeg.av_dict_get(Pointer, key, null, matchCase ? ffmpeg.AV_DICT_MATCH_CASE : 0) != null;
+        }
+
+        /// <summary>
+        /// A wrapper for the av_dict_get method
+        /// </summary>
+        /// <param name="dictionary">The dictionary.</param>
+        /// <param name="key">The key.</param>
+        /// <param name="matchCase">if set to <c>true</c> [match case].</param>
+        /// <returns></returns>
+        public static FFDictionaryEntry GetEntry(AVDictionary* dictionary, string key, bool matchCase = true)
+        {
+            if (dictionary == null)
+                return null;
+
+            var entryPointer = ffmpeg.av_dict_get(dictionary, key, null, matchCase ? ffmpeg.AV_DICT_MATCH_CASE : 0);
+            if (entryPointer == null) return null;
+            return new FFDictionaryEntry(entryPointer);
+        }
+
+        /// <summary>
+        /// Gets the entry given the key.
+        /// </summary>
+        /// <param name="key">The key.</param>
+        /// <param name="matchCase">if set to <c>true</c> [match case].</param>
+        /// <returns></returns>
+        public FFDictionaryEntry GetEntry(string key, bool matchCase = true)
+        {
+            return GetEntry(Pointer, key, matchCase);
+        }
+
+        /// <summary>
+        /// Gets the value with specified key.
+        /// </summary>
+        /// <param name="key">The key.</param>
+        /// <returns></returns>
+        public string Get(string key)
+        {
+            var entry = GetEntry(key, true);
+            return entry == null ? null : entry.Value;
+        }
+
+        /// <summary>
+        /// Sets the value for the specified key.
+        /// </summary>
+        /// <param name="key">The key.</param>
+        /// <param name="value">The value.</param>
         public void Set(string key, string value)
         {
             Set(key, value, false);
         }
 
+        /// <summary>
+        /// Sets the value for the specified key.
+        /// </summary>
+        /// <param name="key">The key.</param>
+        /// <param name="value">The value.</param>
+        /// <param name="dontOverwrite">if set to <c>true</c> [dont overwrite].</param>
         public void Set(string key, string value, bool dontOverwrite)
         {
             var flags = 0;
             if (dontOverwrite) flags |= ffmpeg.AV_DICT_DONT_OVERWRITE;
 
-            fixed(AVDictionary** reference = &Pointer)
+            fixed (AVDictionary** reference = &Pointer)
             {
                 ffmpeg.av_dict_set(reference, key, value, flags);
                 Reference = reference;
@@ -77,51 +186,17 @@ namespace Unosquare.FFplayDotNet.Primitives
             }
         }
 
+        /// <summary>
+        /// Removes the entry with the specified key.
+        /// </summary>
+        /// <param name="key">The key.</param>
         public void Remove(string key)
         {
             if (KeyExists(key))
                 Set(key, null, false);
         }
 
-        public void AppendValue(string key, string appendedValue)
-        {
-            fixed (AVDictionary** reference = &Pointer)
-            {
-                ffmpeg.av_dict_set(Reference, key, appendedValue, ffmpeg.AV_DICT_APPEND);
-                Reference = reference;
-                Pointer = *reference;
-            }
-        }
-
-        public static FFDictionaryEntry GetEntry(AVDictionary* dictionary, string key, bool matchCase = true)
-        {
-            var entryPointer = ffmpeg.av_dict_get(dictionary, key, null, matchCase ? ffmpeg.AV_DICT_MATCH_CASE : 0);
-            if (entryPointer == null) return null;
-            return new FFDictionaryEntry(entryPointer);
-        }
-
-        public FFDictionaryEntry GetEntry(string key, bool matchCase = true)
-        {
-            return GetEntry(Pointer, key, matchCase);
-        }
-
-        public FFDictionaryEntry First()
-        {
-            return Next(null);
-        }
-
-        public FFDictionaryEntry Next(FFDictionaryEntry prior)
-        {
-            var priorEntry = prior == null ? null : prior.Pointer;
-            var nextEntry = ffmpeg.av_dict_get(Pointer, "", priorEntry, ffmpeg.AV_DICT_IGNORE_SUFFIX);
-            return new FFDictionaryEntry(nextEntry);
-        }
-
-        public string Get(string key)
-        {
-            var entry = GetEntry(key, true);
-            return entry == null ? null : entry.Value;
-        }
+        #endregion
 
         #region IDisposable Support
 
@@ -157,33 +232,5 @@ namespace Unosquare.FFplayDotNet.Primitives
 
         #endregion
 
-
-    }
-
-    internal unsafe class FFDictionaryEntry
-    {
-        internal readonly AVDictionaryEntry* Pointer;
-
-        public FFDictionaryEntry(AVDictionaryEntry* entryPointer)
-        {
-            Pointer = entryPointer;
-        }
-
-        public string Key
-        {
-            get
-            {
-                return Pointer != null ?
-                    Native.BytePtrToString(Pointer->key) : null;
-            }
-        }
-        public string Value
-        {
-            get
-            {
-                return Pointer != null ?
-                    Native.BytePtrToString(Pointer->value) : null;
-            }
-        }
     }
 }

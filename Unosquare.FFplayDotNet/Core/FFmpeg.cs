@@ -36,23 +36,6 @@
         [DllImport("swscale-4", EntryPoint = "sws_scale", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern int sws_scale(SwsContext* @c, byte** @srcSlice, int* @srcStride, int @srcSliceY, int @srcSliceH, byte** @dst, int* @dstStride);
 
-        /// <summary>
-        /// Clips a signed integer value into the amin-amax range.
-        /// </summary>
-        /// <param name="a">a.</param>
-        /// <param name="amin">The amin.</param>
-        /// <param name="amax">The amax.</param>
-        /// <returns></returns>
-        [DllImport("avutil-55", EntryPoint = "av_clip", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern int av_clip(int a, int amin, int amax);
-
-        /// <summary>
-        /// Converts rational to double.
-        /// </summary>
-        /// <param name="r">The r.</param>
-        /// <returns></returns>
-        [DllImport("avutil-55", EntryPoint = "av_q2d", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern double av_q2d(AVRational r);
 
         [DllImport("avformat-57", EntryPoint = "avio_tell", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern long avio_tell(AVIOContext* @s);
@@ -60,6 +43,30 @@
         #endregion
 
         #region Ported Methods
+
+        /// <summary>
+        /// Clips a signed integer value into the amin-amax range.
+        /// </summary>
+        /// <param name="a">a.</param>
+        /// <param name="amin">The amin.</param>
+        /// <param name="amax">The amax.</param>
+        /// <returns></returns>
+        public static int av_clip(int a, int amin, int amax)
+        {
+            if (a > amax) return amax;
+            if (a < amin) return amin;
+            return a;
+        }
+
+        /// <summary>
+        /// Converts rational to double.
+        /// </summary>
+        /// <param name="r">The r.</param>
+        /// <returns></returns>
+        public static double av_q2d(AVRational r)
+        {
+            return (double)r.num / r.den;
+        }
 
         private static int MKTAG(params byte[] buff)
         {

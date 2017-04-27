@@ -24,10 +24,10 @@
         /// </summary>
         static PacketQueue()
         {
-            var newPacket = new AVPacket();
-            FlushPacket = &newPacket;
+            var newPacket = ffmpeg.av_packet_alloc();
+            FlushPacket = newPacket;
             ffmpeg.av_init_packet(FlushPacket);
-            FlushPacket->data = (byte*)&newPacket;
+            FlushPacket->data = (byte*)FlushPacket;
         }
 
         #endregion
@@ -125,10 +125,11 @@
                 Last.Next = currentPacket;
 
             Last = currentPacket;
-            Count++;
+            Count += 1;
             ByteLength += currentPacket.Packet->size + PacketHolder.SizeOf; // + sizeof(*pkt1);
             Duration += currentPacket.Packet->duration;
 
+            /* XXX: should duplicate packet data in DV case */
             IsDoneWriting.Signal();
             return 0;
         }
@@ -172,13 +173,12 @@
         /// <returns></returns>
         public int EnqueueEmptyPacket(int streamIndex)
         {
-            var packet = new AVPacket();
-            ffmpeg.av_init_packet(&packet);
-            packet.data = null;
-            packet.size = 0;
-            packet.stream_index = streamIndex;
+            var packetPtr = ffmpeg.av_packet_alloc();
+            packetPtr->data = null;
+            packetPtr->size = 0;
+            packetPtr->stream_index = streamIndex;
 
-            return Enqueue(&packet);
+            return Enqueue(packetPtr);
         }
 
         /// <summary>
@@ -220,7 +220,7 @@
         /// <param name="packet">The packet.</param>
         /// <param name="packetSerial">The serial.</param>
         /// <returns></returns>
-        public int Dequeue(AVPacket* packet, ref int packetSerial)
+        public int Dequeue(ref AVPacket* packet, ref int packetSerial)
         {
             PacketHolder node = null;
             var result = default(int);
@@ -248,10 +248,9 @@
                         ByteLength -= node.Packet->size + PacketHolder.SizeOf; // + sizeof(*pkt1)
                         Duration -= node.Packet->duration;
 
+                        // Set the output parameters
                         packet = node.Packet;
-
-                        if (packetSerial != 0)
-                            packetSerial = node.Serial;
+                        packetSerial = node.Serial;
 
                         result = 1;
                         break;

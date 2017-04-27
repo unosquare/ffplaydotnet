@@ -30,8 +30,8 @@
             if (frame.DecodedFrame != null)
                 ffmpeg.av_frame_unref(frame.DecodedFrame);
 
-            fixed (AVSubtitle* subtitlePtr = &frame.Subtitle)
-                ffmpeg.avsubtitle_free(subtitlePtr);
+            if (frame.Subtitle != null)
+                ffmpeg.avsubtitle_free(frame.Subtitle);
         }
 
         /// <summary>

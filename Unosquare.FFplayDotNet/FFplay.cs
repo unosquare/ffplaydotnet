@@ -324,7 +324,7 @@
                 if (State.SubtitleQueue.PendingCount > 0)
                 {
                     subtitleFrame = State.SubtitleQueue.Current;
-                    var subtitleStartDisplayTime = subtitleFrame.PtsSeconds + ((float)subtitleFrame.Subtitle.start_display_time / 1000);
+                    var subtitleStartDisplayTime = subtitleFrame.PtsSeconds + ((float)subtitleFrame.Subtitle->start_display_time / 1000);
                     if (videoFrame.PtsSeconds >= subtitleStartDisplayTime)
                     {
                         // We are not going to be rendering subtitle textures. I removed the code to render the subtitles
@@ -446,8 +446,8 @@
                             var nextSubtitleFrame = State.SubtitleQueue.PendingCount > 1 ? State.SubtitleQueue.Next : null;
 
                             if (currentSubtitleFrame.Serial != State.SubtitlePackets.Serial
-                                    || (State.VideoClock.PtsSeconds > (currentSubtitleFrame.PtsSeconds + ((float)currentSubtitleFrame.Subtitle.end_display_time / 1000)))
-                                    || (nextSubtitleFrame != null && State.VideoClock.PtsSeconds > (nextSubtitleFrame.PtsSeconds + ((float)nextSubtitleFrame.Subtitle.start_display_time / 1000))))
+                                    || (State.VideoClock.PtsSeconds > (currentSubtitleFrame.PtsSeconds + ((float)currentSubtitleFrame.Subtitle->end_display_time / 1000)))
+                                    || (nextSubtitleFrame != null && State.VideoClock.PtsSeconds > (nextSubtitleFrame.PtsSeconds + ((float)nextSubtitleFrame.Subtitle->start_display_time / 1000))))
                             {
                                 // The code here was removed. It used to lock the texture and
                                 // clear all the pixels in the previously created subtitle_texture
@@ -677,16 +677,15 @@
                 if (decodedFrame == null)
                     return;
 
-                fixed (AVSubtitle* subtitlePtr = &decodedFrame.Subtitle)
-                    hasDecoded = mediaState.SubtitleDecoder.Decode(subtitlePtr);
+                hasDecoded = mediaState.SubtitleDecoder.Decode(ref decodedFrame.Subtitle);
 
                 if (hasDecoded < 0)
                     break;
 
-                if (hasDecoded != 0 && decodedFrame.Subtitle.format == 0)
+                if (hasDecoded != 0 && decodedFrame.Subtitle->format == 0)
                 {
-                    decodedFrame.PtsSeconds = (decodedFrame.Subtitle.pts != ffmpeg.AV_NOPTS_VALUE) ?
-                        decodedFrame.Subtitle.pts / (double)ffmpeg.AV_TIME_BASE : 0;
+                    decodedFrame.PtsSeconds = (decodedFrame.Subtitle->pts != ffmpeg.AV_NOPTS_VALUE) ?
+                        decodedFrame.Subtitle->pts / (double)ffmpeg.AV_TIME_BASE : 0;
                     decodedFrame.Serial = mediaState.SubtitleDecoder.PacketSerial;
                     decodedFrame.PictureWidth = mediaState.SubtitleDecoder.Codec->width;
                     decodedFrame.PictureHeight = mediaState.SubtitleDecoder.Codec->height;
@@ -697,8 +696,7 @@
                 }
                 else if (hasDecoded != 0)
                 {
-                    fixed (AVSubtitle* subtitlePtr = &decodedFrame.Subtitle)
-                        ffmpeg.avsubtitle_free(subtitlePtr);
+                    ffmpeg.avsubtitle_free(decodedFrame.Subtitle);
                 }
             }
         }

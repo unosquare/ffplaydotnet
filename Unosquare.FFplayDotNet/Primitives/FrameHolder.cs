@@ -31,7 +31,7 @@
         /// The decoded subtitle (if it is a subtitle frame)
         /// Port of sub
         /// </summary>
-        internal AVSubtitle Subtitle;
+        internal AVSubtitle* Subtitle;
 
         /// <summary>
         /// Gets the type of the media of this frame.

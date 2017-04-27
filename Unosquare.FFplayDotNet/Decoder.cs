@@ -141,9 +141,11 @@
         public int Decode(AVFrame* frame)
         {
             if (Codec->codec_type == AVMediaType.AVMEDIA_TYPE_VIDEO)
-                return DecodeVideoFrameInternal(frame);
+                return DecodeVideoFrameInternal(ref frame);
 
-            return DecodeFrameInternal(frame, null);
+            AVSubtitle* subtitle = null;
+
+            return DecodeFrameInternal(ref frame, ref subtitle);
         }
 
         /// <summary>
@@ -152,9 +154,10 @@
         /// </summary>
         /// <param name="subtitle">The subtitle.</param>
         /// <returns></returns>
-        public int Decode(AVSubtitle* subtitle)
+        public int Decode(ref AVSubtitle* subtitle)
         {
-            return DecodeFrameInternal(null, subtitle);
+            AVFrame* frame = null;
+            return DecodeFrameInternal(ref frame, ref subtitle);
         }
 
         /// <summary>
@@ -164,7 +167,7 @@
         /// <param name="outputFrame">The output frame.</param>
         /// <param name="subtitle">The subtitle.</param>
         /// <returns></returns>
-        private int DecodeFrameInternal(AVFrame* outputFrame, AVSubtitle* subtitle)
+        private int DecodeFrameInternal(ref AVFrame* outputFrame, ref AVSubtitle* subtitle)
         {
             var gotFrame = default(int);
 
@@ -300,11 +303,13 @@
         /// </summary>
         /// <param name="frame">The frame.</param>
         /// <returns></returns>
-        private int DecodeVideoFrameInternal(AVFrame* frame)
+        private int DecodeVideoFrameInternal(ref AVFrame* frame)
         {
             int gotPicture;
 
-            if ((gotPicture = MediaState.VideoDecoder.DecodeFrameInternal(frame, null)) < 0)
+            AVSubtitle* subtitle = null;
+
+            if ((gotPicture = MediaState.VideoDecoder.DecodeFrameInternal(ref frame, ref subtitle)) < 0)
                 return -1;
 
             if (gotPicture != 0)

@@ -36,7 +36,7 @@
         /// <returns></returns>
         public static string BytePtrToString(byte* bytePtr)
         {
-            return Marshal.PtrToStringAuto(new IntPtr(bytePtr));
+            return Marshal.PtrToStringAnsi(new IntPtr(bytePtr));
         }
 
         /// <summary>

@@ -14,7 +14,7 @@ namespace Unosquare.FFplayDotNet.Primitives
     /// </summary>
     internal unsafe class FFDictionary : IDisposable
     {
-        private AVDictionary* Dictionary;
+        //private AVDictionary* Dictionary;
         //internal readonly GCHandle DictionaryHandle;
         //internal readonly GCHandle DictionaryHandleReference;
 
@@ -38,9 +38,9 @@ namespace Unosquare.FFplayDotNet.Primitives
             }
         }
 
-        public AVDictionary* Pointer { get { return Dictionary; } }
+        public AVDictionary* Pointer;
 
-        public AVDictionary** Reference { get; private set; }
+        public AVDictionary** Reference;
 
         public bool KeyExists(string key, bool matchCase = true)
         {
@@ -69,14 +69,12 @@ namespace Unosquare.FFplayDotNet.Primitives
             var flags = 0;
             if (dontOverwrite) flags |= ffmpeg.AV_DICT_DONT_OVERWRITE;
 
-            if (Dictionary == null)
+            fixed(AVDictionary** reference = &Pointer)
             {
-                AVDictionary* newDict = null;
-                Reference = &newDict;
+                ffmpeg.av_dict_set(reference, key, value, flags);
+                Reference = reference;
+                Pointer = *reference;
             }
-
-            ffmpeg.av_dict_set(Reference, key, value, flags);
-            Dictionary = *Reference;
         }
 
         public void Remove(string key)
@@ -87,14 +85,12 @@ namespace Unosquare.FFplayDotNet.Primitives
 
         public void AppendValue(string key, string appendedValue)
         {
-            if (Dictionary == null)
+            fixed (AVDictionary** reference = &Pointer)
             {
-                AVDictionary* newDict = null;
-                Reference = &newDict;
+                ffmpeg.av_dict_set(Reference, key, appendedValue, ffmpeg.AV_DICT_APPEND);
+                Reference = reference;
+                Pointer = *reference;
             }
-
-            ffmpeg.av_dict_set(Reference, key, appendedValue, ffmpeg.AV_DICT_APPEND);
-            Dictionary = *Reference;
         }
 
         public static FFDictionaryEntry GetEntry(AVDictionary* dictionary, string key, bool matchCase = true)

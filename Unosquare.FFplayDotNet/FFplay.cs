@@ -88,8 +88,13 @@
                 InputForcedFormat = ffmpeg.av_find_input_format(Options.InputFormatName);
 
             State = new MediaState(this);
-            MediaReadTask = Task.Run(() => { ReaderTaskDoWork(); });
-            //ProcessActionsTask = Task.Run(() => { ProcessActionQueueContinuously(); });
+
+            if (InitializeInputReader())
+            {
+                MediaReadTask = Task.Run(() => { ReaderTaskDoWork(); });
+                ProcessActionsTask = Task.Run(() => { ProcessActionQueueContinuously(); });
+            }
+
 
             #endregion
         }
@@ -745,7 +750,7 @@
                     FormatOptions.Set("scan_all_pmts", "1", true);
 
                 // Open the assigned input context
-                AVFormatContext* inputContext;
+                AVFormatContext* inputContext; // Input context gets created in unmanaged code.
                 var openResult = ffmpeg.avformat_open_input(&inputContext, State.MediaUrl, State.InputFormat, FormatOptions.Reference);
                 if (openResult < 0)
                 {
@@ -780,9 +785,9 @@
                 var inputStreamCount = Convert.ToInt32(inputContext->nb_streams);
 
                 // Build the options array, one dictionary per stream
-                var streamOptionsArr = new AVDictionary*[streamOptions.Length];
+                var streamOptionsArr = new IntPtr[streamOptions.Length];
                 for (var i = 0; i < streamOptions.Length; i++)
-                    streamOptionsArr[i] = streamOptions[i].Pointer;
+                    streamOptionsArr[i] = new IntPtr(streamOptions[i].Pointer);
 
                 var streamOptionsHandle = GCHandle.Alloc(streamOptionsArr, GCHandleType.Pinned);
                 var findStreamInfoResult = ffmpeg.avformat_find_stream_info(inputContext, (AVDictionary**)streamOptionsHandle.AddrOfPinnedObject());
@@ -918,196 +923,193 @@
         {
             var DecoderLock = new MonitorLock();
 
-            if (InitializeInputReader())
+
+            // Setup state variables
+            var inputContext = State.InputContext;
+            var formatName = inputContext != null ? Native.BytePtrToString(inputContext->iformat->name) : string.Empty;
+
+            // Loops by reading and acting on states
+            while (true)
             {
-                // Setup state variables
-                var inputContext = State.InputContext;
-                var formatName = inputContext != null ? Native.BytePtrToString(inputContext->iformat->name) : string.Empty;
+                if (State.IsAbortRequested)
+                    break;
 
-                // Loops by reading and acting on states
-                while (true)
+                if (State.IsPaused != State.WasPaused)
                 {
-                    if (State.IsAbortRequested)
-                        break;
+                    State.WasPaused = State.IsPaused;
 
-                    if (State.IsPaused != State.WasPaused)
-                    {
-                        State.WasPaused = State.IsPaused;
-
-                        if (State.IsPaused)
-                            State.ReadPauseResult = ffmpeg.av_read_pause(inputContext);
-                        else
-                            ffmpeg.av_read_play(inputContext);
-                    }
-
-                    if (State.IsPaused &&
-                        (formatName.Equals("rtsp") || (inputContext->pb != null && Options.MediaInputUrl.StartsWith("mmsh:"))))
-                    {
-                        Thread.Sleep(10);
-                        continue;
-                    }
-
-                    if (State.IsSeekRequested)
-                    {
-                        var seekTarget = State.SeekTargetPosition;
-                        var seekMin = State.SeekTargetRange > 0 ? seekTarget - State.SeekTargetRange + 2 : long.MinValue;
-                        var seekMax = State.SeekTargetRange < 0 ? seekTarget - State.SeekTargetRange - 2 : long.MaxValue;
-                        // TODO: the +-2 is due to rounding being not done in the correct direction in generation
-                        //      of the seek_pos/seek_rel variables
-
-                        var seekResult = ffmpeg.avformat_seek_file(State.InputContext, -1, seekMin, seekTarget, seekMax, State.SeekModeFlags);
-
-                        if (seekResult < 0)
-                        {
-                            ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR,
-                                   $"{Encoding.GetEncoding(0).GetString(State.InputContext->filename)}: error while seeking\n");
-                        }
-                        else
-                        {
-                            if (State.AudioStreamIndex >= 0)
-                            {
-                                State.AudioPackets.Clear();
-                                State.AudioPackets.EnqueueFlushPacket();
-                            }
-
-                            if (State.SubtitleStreamIndex >= 0)
-                            {
-                                State.SubtitlePackets.Clear();
-                                State.SubtitlePackets.EnqueueFlushPacket();
-                            }
-
-                            if (State.VideoStreamIndex >= 0)
-                            {
-                                State.VideoPackets.Clear();
-                                State.VideoPackets.EnqueueFlushPacket();
-                            }
-
-                            if ((State.SeekModeFlags & ffmpeg.AVSEEK_FLAG_BYTE) != 0)
-                            {
-                                State.ExternalClock.SetPosition(double.NaN, 0);
-                            }
-                            else
-                            {
-                                State.ExternalClock.SetPosition(seekTarget / (double)ffmpeg.AV_TIME_BASE, 0);
-                            }
-                        }
-
-                        State.IsSeekRequested = false;
-                        State.EnqueuePacketAttachments = true;
-                        State.IsAtEndOfFile = false;
-
-                        if (State.IsPaused)
-                            State.StepToNextFrame();
-                    }
-
-                    if (State.EnqueuePacketAttachments)
-                    {
-                        if (State.VideoStream != null && (State.VideoStream->disposition & ffmpeg.AV_DISPOSITION_ATTACHED_PIC) != 0)
-                        {
-                            var packetCopy = new AVPacket();
-                            var copyResult = ffmpeg.av_copy_packet(&packetCopy, &State.VideoStream->attached_pic);
-                            if (copyResult < 0) break;
-
-                            State.VideoPackets.Enqueue(&packetCopy);
-                            State.VideoPackets.EnqueueEmptyPacket(State.VideoStreamIndex);
-                        }
-
-                        State.EnqueuePacketAttachments = false;
-                    }
-
-                    if (Options.EnableInfiniteBuffer < 1 &&
-                          (State.AudioPackets.ByteLength + State.VideoPackets.ByteLength + State.SubtitlePackets.ByteLength > PacketQueue.MaxQueueByteLength
-                        || (State.AudioPackets.HasEnoughPackets(State.AudioStream, State.AudioStreamIndex) &&
-                            State.VideoPackets.HasEnoughPackets(State.VideoStream, State.VideoStreamIndex) &&
-                            State.SubtitlePackets.HasEnoughPackets(State.SubtitleStream, State.SubtitleStreamIndex))))
-                    {
-                        try
-                        {
-                            DecoderLock.Lock();
-                            State.IsFrameDecoded.Wait(DecoderLock, 10);
-                        }
-                        finally
-                        {
-                            DecoderLock.Unlock();
-                        }
-
-                        continue;
-                    }
-
-                    if (!State.IsPaused &&
-                        (State.AudioStream == null || (State.AudioDecoder.IsFinished == Convert.ToBoolean(State.AudioPackets.Serial) && State.AudioQueue.PendingCount == 0)) &&
-                        (State.VideoStream == null || (State.VideoDecoder.IsFinished == Convert.ToBoolean(State.VideoPackets.Serial) && State.VideoQueue.PendingCount == 0)))
-                    {
-
-                        // TODO: Raise event Media Finished
-                        // if (Reqind afterFinished)
-                        //     State.RequestSeekToStart();
-                        break;
-                    }
-
-                    var readPacket = new AVPacket();
-                    var packetPtr = &readPacket;
-                    var readFrameResult = ffmpeg.av_read_frame(inputContext, packetPtr);
-
-                    if (readFrameResult < 0)
-                    {
-                        if ((readFrameResult == ffmpeg.AVERROR_EOF || ffmpeg.avio_feof(inputContext->pb) != 0) && !State.IsAtEndOfFile)
-                        {
-                            if (State.VideoStreamIndex >= 0)
-                                State.VideoPackets.EnqueueEmptyPacket(State.VideoStreamIndex);
-                            if (State.AudioStreamIndex >= 0)
-                                State.AudioPackets.EnqueueEmptyPacket(State.AudioStreamIndex);
-                            if (State.SubtitleStreamIndex >= 0)
-                                State.SubtitlePackets.EnqueueEmptyPacket(State.SubtitleStreamIndex);
-
-                            State.IsAtEndOfFile = true;
-                        }
-
-                        if (inputContext->pb != null && inputContext->pb->error != 0)
-                            break;
-
-                        try
-                        {
-                            DecoderLock.Lock();
-                            State.IsFrameDecoded.Wait(DecoderLock, 10);
-                        }
-                        finally
-                        {
-                            DecoderLock.Unlock();
-                        }
-
-                        continue;
-                    }
+                    if (State.IsPaused)
+                        State.ReadPauseResult = ffmpeg.av_read_pause(inputContext);
                     else
-                    {
-                        State.IsAtEndOfFile = false;
-                    }
-
-                    var streamStartTimestamp = inputContext->streams[packetPtr->stream_index]->start_time;
-                    var packetTimestamp = packetPtr->pts == ffmpeg.AV_NOPTS_VALUE ? packetPtr->dts : packetPtr->pts;
-                    var isPacketInPlayRange = MediaDuration == ffmpeg.AV_NOPTS_VALUE ||
-                            (packetTimestamp - (streamStartTimestamp != ffmpeg.AV_NOPTS_VALUE ? streamStartTimestamp : 0)) *
-                            ffmpeg.av_q2d(inputContext->streams[packetPtr->stream_index]->time_base) -
-                            (double)(MediaStartTimestamp != ffmpeg.AV_NOPTS_VALUE ? MediaStartTimestamp : 0) / ffmpeg.AV_TIME_BASE
-                            <= ((double)MediaDuration / ffmpeg.AV_TIME_BASE);
-
-                    // Enqueue the read packet depending on the the type of packet
-                    if (packetPtr->stream_index == State.AudioStreamIndex && isPacketInPlayRange)
-                        State.AudioPackets.Enqueue(packetPtr);
-                    else if (packetPtr->stream_index == State.VideoStreamIndex && isPacketInPlayRange
-                        && (State.VideoStream->disposition & ffmpeg.AV_DISPOSITION_ATTACHED_PIC) == 0)
-                        State.VideoPackets.Enqueue(packetPtr);
-                    else if (packetPtr->stream_index == State.SubtitleStreamIndex && isPacketInPlayRange)
-                        State.SubtitlePackets.Enqueue(packetPtr);
-                    else
-                        ffmpeg.av_packet_unref(packetPtr); // Discard packets that contain other stuff...
+                        ffmpeg.av_read_play(inputContext);
                 }
 
+                if (State.IsPaused &&
+                    (formatName.Equals("rtsp") || (inputContext->pb != null && Options.MediaInputUrl.StartsWith("mmsh:"))))
+                {
+                    Thread.Sleep(10);
+                    continue;
+                }
+
+                if (State.IsSeekRequested)
+                {
+                    var seekTarget = State.SeekTargetPosition;
+                    var seekMin = State.SeekTargetRange > 0 ? seekTarget - State.SeekTargetRange + 2 : long.MinValue;
+                    var seekMax = State.SeekTargetRange < 0 ? seekTarget - State.SeekTargetRange - 2 : long.MaxValue;
+                    // TODO: the +-2 is due to rounding being not done in the correct direction in generation
+                    //      of the seek_pos/seek_rel variables
+
+                    var seekResult = ffmpeg.avformat_seek_file(State.InputContext, -1, seekMin, seekTarget, seekMax, State.SeekModeFlags);
+
+                    if (seekResult < 0)
+                    {
+                        ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR,
+                               $"{Encoding.GetEncoding(0).GetString(State.InputContext->filename)}: error while seeking\n");
+                    }
+                    else
+                    {
+                        if (State.AudioStreamIndex >= 0)
+                        {
+                            State.AudioPackets.Clear();
+                            State.AudioPackets.EnqueueFlushPacket();
+                        }
+
+                        if (State.SubtitleStreamIndex >= 0)
+                        {
+                            State.SubtitlePackets.Clear();
+                            State.SubtitlePackets.EnqueueFlushPacket();
+                        }
+
+                        if (State.VideoStreamIndex >= 0)
+                        {
+                            State.VideoPackets.Clear();
+                            State.VideoPackets.EnqueueFlushPacket();
+                        }
+
+                        if ((State.SeekModeFlags & ffmpeg.AVSEEK_FLAG_BYTE) != 0)
+                        {
+                            State.ExternalClock.SetPosition(double.NaN, 0);
+                        }
+                        else
+                        {
+                            State.ExternalClock.SetPosition(seekTarget / (double)ffmpeg.AV_TIME_BASE, 0);
+                        }
+                    }
+
+                    State.IsSeekRequested = false;
+                    State.EnqueuePacketAttachments = true;
+                    State.IsAtEndOfFile = false;
+
+                    if (State.IsPaused)
+                        State.StepToNextFrame();
+                }
+
+                if (State.EnqueuePacketAttachments)
+                {
+                    if (State.VideoStream != null && (State.VideoStream->disposition & ffmpeg.AV_DISPOSITION_ATTACHED_PIC) != 0)
+                    {
+                        var packetCopy = new AVPacket();
+                        var copyResult = ffmpeg.av_copy_packet(&packetCopy, &State.VideoStream->attached_pic);
+                        if (copyResult < 0) break;
+
+                        State.VideoPackets.Enqueue(&packetCopy);
+                        State.VideoPackets.EnqueueEmptyPacket(State.VideoStreamIndex);
+                    }
+
+                    State.EnqueuePacketAttachments = false;
+                }
+
+                if (Options.EnableInfiniteBuffer < 1 &&
+                      (State.AudioPackets.ByteLength + State.VideoPackets.ByteLength + State.SubtitlePackets.ByteLength > PacketQueue.MaxQueueByteLength
+                    || (State.AudioPackets.HasEnoughPackets(State.AudioStream, State.AudioStreamIndex) &&
+                        State.VideoPackets.HasEnoughPackets(State.VideoStream, State.VideoStreamIndex) &&
+                        State.SubtitlePackets.HasEnoughPackets(State.SubtitleStream, State.SubtitleStreamIndex))))
+                {
+                    try
+                    {
+                        DecoderLock.Lock();
+                        State.IsFrameDecoded.Wait(DecoderLock, 10);
+                    }
+                    finally
+                    {
+                        DecoderLock.Unlock();
+                    }
+
+                    continue;
+                }
+
+                if (!State.IsPaused &&
+                    (State.AudioStream == null || (State.AudioDecoder.IsFinished == Convert.ToBoolean(State.AudioPackets.Serial) && State.AudioQueue.PendingCount == 0)) &&
+                    (State.VideoStream == null || (State.VideoDecoder.IsFinished == Convert.ToBoolean(State.VideoPackets.Serial) && State.VideoQueue.PendingCount == 0)))
+                {
+
+                    // TODO: Raise event Media Finished
+                    // if (Reqind afterFinished)
+                    //     State.RequestSeekToStart();
+                    break;
+                }
+
+                var readPacket = new AVPacket();
+                var packetPtr = &readPacket;
+                var readFrameResult = ffmpeg.av_read_frame(inputContext, packetPtr);
+
+                if (readFrameResult < 0)
+                {
+                    if ((readFrameResult == ffmpeg.AVERROR_EOF || ffmpeg.avio_feof(inputContext->pb) != 0) && !State.IsAtEndOfFile)
+                    {
+                        if (State.VideoStreamIndex >= 0)
+                            State.VideoPackets.EnqueueEmptyPacket(State.VideoStreamIndex);
+                        if (State.AudioStreamIndex >= 0)
+                            State.AudioPackets.EnqueueEmptyPacket(State.AudioStreamIndex);
+                        if (State.SubtitleStreamIndex >= 0)
+                            State.SubtitlePackets.EnqueueEmptyPacket(State.SubtitleStreamIndex);
+
+                        State.IsAtEndOfFile = true;
+                    }
+
+                    if (inputContext->pb != null && inputContext->pb->error != 0)
+                        break;
+
+                    try
+                    {
+                        DecoderLock.Lock();
+                        State.IsFrameDecoded.Wait(DecoderLock, 10);
+                    }
+                    finally
+                    {
+                        DecoderLock.Unlock();
+                    }
+
+                    continue;
+                }
+                else
+                {
+                    State.IsAtEndOfFile = false;
+                }
+
+                var streamStartTimestamp = inputContext->streams[packetPtr->stream_index]->start_time;
+                var packetTimestamp = packetPtr->pts == ffmpeg.AV_NOPTS_VALUE ? packetPtr->dts : packetPtr->pts;
+                var isPacketInPlayRange = MediaDuration == ffmpeg.AV_NOPTS_VALUE ||
+                        (packetTimestamp - (streamStartTimestamp != ffmpeg.AV_NOPTS_VALUE ? streamStartTimestamp : 0)) *
+                        ffmpeg.av_q2d(inputContext->streams[packetPtr->stream_index]->time_base) -
+                        (double)(MediaStartTimestamp != ffmpeg.AV_NOPTS_VALUE ? MediaStartTimestamp : 0) / ffmpeg.AV_TIME_BASE
+                        <= ((double)MediaDuration / ffmpeg.AV_TIME_BASE);
+
+                // Enqueue the read packet depending on the the type of packet
+                if (packetPtr->stream_index == State.AudioStreamIndex && isPacketInPlayRange)
+                    State.AudioPackets.Enqueue(packetPtr);
+                else if (packetPtr->stream_index == State.VideoStreamIndex && isPacketInPlayRange
+                    && (State.VideoStream->disposition & ffmpeg.AV_DISPOSITION_ATTACHED_PIC) == 0)
+                    State.VideoPackets.Enqueue(packetPtr);
+                else if (packetPtr->stream_index == State.SubtitleStreamIndex && isPacketInPlayRange)
+                    State.SubtitlePackets.Enqueue(packetPtr);
+                else
+                    ffmpeg.av_packet_unref(packetPtr); // Discard packets that contain other stuff...
             }
+
 
             if (State.InputContext != null)
             {
-                var inputContext = State.InputContext;
                 ffmpeg.avformat_close_input(&inputContext);
                 State.InputContext = null;
             }

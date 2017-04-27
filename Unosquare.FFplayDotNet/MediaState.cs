@@ -14,7 +14,8 @@
 
     public unsafe class MediaState
     {
-        internal readonly GCHandle Handle; // TODO: ensure free is called
+        //internal readonly GCHandle Handle; // TODO: ensure free is called
+        internal readonly FFplay Player;
 
         internal AVInputFormat* InputFormat;
         internal AVFormatContext* InputContext;
@@ -23,7 +24,6 @@
         internal AVStream* SubtitleStream;
         internal AVStream* VideoStream;
 
-        // TODO: Move rendering scalers to Player
         internal SwrContext* AudioScaler;
         internal SwsContext* VideoScaler;
 
@@ -59,24 +59,26 @@
 
         internal readonly LockCondition IsFrameDecoded;
 
-        internal FFplay Player { get; private set; }
 
-
-        public bool? IsPtsReorderingEnabled { get; private set; } = null;
+        public bool? IsPtsReorderingEnabled { get; internal set; } = null;
 
         public bool IsAbortRequested { get; internal set; }
-        
+
         /// <summary>
         /// Port of force_refresh
         /// </summary>
+
         public bool IsVideoRefreshRequested { get; internal set; }
 
-        public bool IsPaused { get; set; }
+        public bool IsPaused { get; internal set; }
 
         public bool IsSeekRequested { get; internal set; }
-        public int SeekModeFlags { get; private set; }
-        public long SeekTargetPosition { get; private set; }
-        public long SeekTargetRange { get; private set; }
+
+        public int SeekModeFlags { get; internal set; }
+
+        public long SeekTargetPosition { get; internal set; }
+
+        public long SeekTargetRange { get; internal set; }
 
         public bool IsMediaRealtime
         {
@@ -203,14 +205,13 @@
 
         public bool IsAtEndOfFile { get; internal set; }
         public string MediaUrl { get; internal set; }
-        public int PictureWidth { get; internal set; }
-        public int PictureHeight { get; internal set; }
         public bool IsFrameStepping { get; internal set; }
 
+        #region Constructors
 
         internal MediaState(FFplay player)
         {
-            Handle = GCHandle.Alloc(this, GCHandleType.Pinned);
+            //Handle = GCHandle.Alloc(this, GCHandleType.Pinned);
 
             Player = player;
             MediaUrl = player.Options.MediaInputUrl;
@@ -224,7 +225,7 @@
 
             VideoClock = new Clock(() => { return new int?(VideoPackets.Serial); });
             AudioClock = new Clock(() => { return new int?(AudioPackets.Serial); });
-            ExternalClock = new Clock(() => { return new int?(ExternalClock.PacketSerial); });
+            ExternalClock = new Clock(null);
 
             DecodedAudioClockSerial = -1;
             AudioVolume = SDL_MIX_MAXVOLUME;
@@ -233,181 +234,181 @@
 
         }
 
-        public void AdjustExternalClockSpeedRatio()
+        #endregion
+
+        #region Opening and Closing Streams
+
+        /// <summary>
+        /// Opens a stream component based on the specified stream index
+        /// Port of stream_component_open
+        /// </summary>
+        /// <param name="streamIndex">The stream index component</param>
+        /// <returns></returns>
+        internal int OpenStreamComponent(int streamIndex)
         {
-            if (VideoStreamIndex >= 0 && VideoPackets.Count <= Constants.ExternalClockMinFrames ||
-                AudioStreamIndex >= 0 && AudioPackets.Count <= Constants.ExternalClockMinFrames)
+            var input = InputContext;
+            string forcedCodecName = null;
+            FFDictionaryEntry kvp = null;
+
+            var sampleRate = 0;
+            var channelCount = 0;
+            var channelLayout = 0L;
+            var result = 0;
+
+            int lowResIndex = Convert.ToInt32(Player.Options.EnableLowRes);
+            if (streamIndex < 0 || streamIndex >= input->nb_streams)
+                return -1;
+
+            var codecContext = ffmpeg.avcodec_alloc_context3(null);
+            if (codecContext == null)
+                return ffmpeg.AVERROR_ENOMEM;
+
+            result = ffmpeg.avcodec_parameters_to_context(codecContext, input->streams[streamIndex]->codecpar);
+            if (result < 0)
             {
-                ExternalClock.SpeedRatio = (Math.Max(Constants.ExternalClockSpeedMin, ExternalClock.SpeedRatio - Constants.ExternalClockSpeedStep));
+                ffmpeg.avcodec_free_context(&codecContext);
+                return result;
             }
-            else if ((VideoStreamIndex < 0 || VideoPackets.Count > Constants.ExternalClockMaxFrames) &&
-                     (AudioStreamIndex < 0 || AudioPackets.Count > Constants.ExternalClockMaxFrames))
+
+            ffmpeg.av_codec_set_pkt_timebase(codecContext, input->streams[streamIndex]->time_base);
+            var decoder = ffmpeg.avcodec_find_decoder(codecContext->codec_id);
+
+            switch (codecContext->codec_type)
             {
-                ExternalClock.SpeedRatio = (Math.Min(Constants.ExternalClockSpeedMax, ExternalClock.SpeedRatio + Constants.ExternalClockSpeedStep));
+                case AVMediaType.AVMEDIA_TYPE_AUDIO: LastAudioStreamIndex = streamIndex; forcedCodecName = Player.AudioCodecName; break;
+                case AVMediaType.AVMEDIA_TYPE_SUBTITLE: LastSubtitleStreamIndex = streamIndex; forcedCodecName = Player.SubtitleCodecName; break;
+                case AVMediaType.AVMEDIA_TYPE_VIDEO: LastVideoStreamIndex = streamIndex; forcedCodecName = Player.VideoCodecName; break;
             }
-            else
+
+            if (string.IsNullOrWhiteSpace(forcedCodecName) == false)
+                decoder = ffmpeg.avcodec_find_decoder_by_name(forcedCodecName);
+
+            if (decoder == null)
             {
-                var speedRatio = ExternalClock.SpeedRatio;
-                if (speedRatio != 1.0)
-                    ExternalClock.SpeedRatio = (speedRatio + Constants.ExternalClockSpeedStep * (1.0 - speedRatio) / Math.Abs(1.0 - speedRatio));
+                if (string.IsNullOrWhiteSpace(forcedCodecName) == false)
+                    ffmpeg.av_log(null, ffmpeg.AV_LOG_WARNING, $"No codec could be found with name '{forcedCodecName}'\n");
+                else
+                    ffmpeg.av_log(null, ffmpeg.AV_LOG_WARNING, $"No codec could be found with id {codecContext->codec_id}\n");
+
+                result = ffmpeg.AVERROR_EINVAL;
+                ffmpeg.avcodec_free_context(&codecContext);
+                return result;
             }
-        }
 
-        public void RequestSeekToStart()
-        {
-            RequestSeekTo(Player.MediaStartTimestamp != ffmpeg.AV_NOPTS_VALUE ? Player.MediaStartTimestamp : 0, 0, false);
-        }
+            codecContext->codec_id = decoder->id;
 
-        public void RequestSeekTo(long pos, long rel, bool seekByBytes)
-        {
-            if (IsSeekRequested) return;
-
-            SeekTargetPosition = pos;
-            SeekTargetRange = rel;
-            SeekModeFlags &= ~ffmpeg.AVSEEK_FLAG_BYTE;
-            if (seekByBytes)
-                SeekModeFlags |= ffmpeg.AVSEEK_FLAG_BYTE;
-
-            IsSeekRequested = true;
-            IsFrameDecoded.Signal();
-        }
-
-        public void SeekChapter(int increment)
-        {
-            long pos = Convert.ToInt64(MasterClockPositionSeconds * ffmpeg.AV_TIME_BASE);
-            int i = 0;
-
-            if (InputContext->nb_chapters == 0)
-                return;
-
-            for (i = 0; i < InputContext->nb_chapters; i++)
+            if (lowResIndex > ffmpeg.av_codec_get_max_lowres(decoder))
             {
-                AVChapter* ch = InputContext->chapters[i];
-                if (ffmpeg.av_compare_ts(pos, ffmpeg.AV_TIME_BASE_Q, ch->start, ch->time_base) < 0)
-                {
-                    i--;
+                ffmpeg.av_log(codecContext, ffmpeg.AV_LOG_WARNING, $"The maximum value for lowres supported by the decoder is {ffmpeg.av_codec_get_max_lowres(decoder)}\n");
+                lowResIndex = ffmpeg.av_codec_get_max_lowres(decoder);
+            }
+
+            ffmpeg.av_codec_set_lowres(codecContext, lowResIndex);
+
+            if (lowResIndex != 0)
+                codecContext->flags |= ffmpeg.CODEC_FLAG_EMU_EDGE;
+
+            if (Player.Options.EnableFastDecoding)
+                codecContext->flags2 |= ffmpeg.AV_CODEC_FLAG2_FAST;
+
+            if ((decoder->capabilities & ffmpeg.AV_CODEC_CAP_DR1) != 0)
+                codecContext->flags |= ffmpeg.CODEC_FLAG_EMU_EDGE;
+
+            var codecOptions = Player.Options.CodecOptions.FilterOptions(codecContext->codec_id, input, input->streams[streamIndex], decoder);
+
+            if (codecOptions.KeyExists("threads") == false)
+                codecOptions["threads"] = "auto";
+
+            if (lowResIndex != 0)
+                codecOptions["lowres"] = lowResIndex.ToString();
+
+            if (codecContext->codec_type == AVMediaType.AVMEDIA_TYPE_VIDEO || codecContext->codec_type == AVMediaType.AVMEDIA_TYPE_AUDIO)
+                codecOptions["refcounted_frames"] = "1";
+
+            if ((result = ffmpeg.avcodec_open2(codecContext, decoder, codecOptions.Reference)) < 0)
+            {
+                ffmpeg.avcodec_free_context(&codecContext);
+                return result;
+            }
+
+            // On return of avcodec_open2, codecOptions will be filled with options that were not found.
+            if ((kvp = codecOptions.First()) != null)
+            {
+                ffmpeg.av_log(null, ffmpeg.AV_LOG_WARNING, $"Option {kvp.Key} not found.\n");
+                // Do not fail just because of an invalid option.
+                //result = ffmpeg.AVERROR_OPTION_NOT_FOUND;
+                //goto fail;
+            }
+
+            IsAtEndOfFile = false;
+            input->streams[streamIndex]->discard = AVDiscard.AVDISCARD_DEFAULT;
+
+            switch (codecContext->codec_type)
+            {
+                case AVMediaType.AVMEDIA_TYPE_AUDIO:
+                    if ((result = Player.audio_open(channelLayout, channelCount, sampleRate, AudioOutputParams)) < 0)
+                    {
+                        ffmpeg.avcodec_free_context(&codecContext);
+                        return result;
+                    }
+
+                    AudioHardwareBufferSize = result;
+                    AudioOutputParams.CopyTo(AudioInputParams);
+                    RenderAudioBufferLength = 0;
+                    RenderAudioBufferIndex = 0;
+                    AudioSkewCoefficient = Math.Exp(Math.Log(0.01) / Constants.AudioSkewMinSamples);
+                    AudioSkewAvgCount = 0;
+                    AudioSkewThreshold = (double)(AudioHardwareBufferSize) / AudioOutputParams.BytesPerSecond;
+                    AudioStreamIndex = streamIndex;
+                    AudioStream = input->streams[streamIndex];
+
+                    AudioDecoder = new Decoder(this, codecContext, AudioPackets, IsFrameDecoded);
+
+                    if ((InputContext->iformat->flags & (ffmpeg.AVFMT_NOBINSEARCH | ffmpeg.AVFMT_NOGENSEARCH | ffmpeg.AVFMT_NO_BYTE_SEEK)) != 0 &&
+                        InputContext->iformat->read_seek.Pointer == IntPtr.Zero)
+                    {
+                        AudioDecoder.StartPts = AudioStream->start_time;
+                        AudioDecoder.StartPtsTimebase = AudioStream->time_base;
+                    }
+
+                    AudioDecoder.Start(FFplay.DecodeAudioQueueContinuously);
+                    SDL_PauseAudio(0);
                     break;
-                }
+
+                case AVMediaType.AVMEDIA_TYPE_VIDEO:
+                    VideoStreamIndex = streamIndex;
+                    VideoStream = input->streams[streamIndex];
+                    VideoDecoder = new Decoder(this, codecContext, VideoPackets, IsFrameDecoded);
+                    result = VideoDecoder.Start(FFplay.DecodeVideoQueueContinuously);
+                    EnqueuePacketAttachments = true;
+                    break;
+
+                case AVMediaType.AVMEDIA_TYPE_SUBTITLE:
+                    SubtitleStreamIndex = streamIndex;
+                    SubtitleStream = input->streams[streamIndex];
+                    SubtitleDecoder = new Decoder(this, codecContext, SubtitlePackets, IsFrameDecoded);
+                    result = SubtitleDecoder.Start(FFplay.DecodeSubtitlesQueueContinuously);
+                    break;
+
+                default:
+                    break;
             }
 
-            i += increment;
-            i = Math.Max(i, 0);
-            if (i >= InputContext->nb_chapters)
-                return;
-
-            ffmpeg.av_log(null, ffmpeg.AV_LOG_VERBOSE, $"Seeking to chapter {i}.\n");
-            RequestSeekTo(ffmpeg.av_rescale_q(InputContext->chapters[i]->start, InputContext->chapters[i]->time_base,
-                                         ffmpeg.AV_TIME_BASE_Q), 0, false);
+            return result;
         }
 
-        public void CycleStreamChannel(AVMediaType mediaType)
+        /// <summary>
+        /// Port of stream_component_close
+        /// </summary>
+        /// <param name="streamIndex"></param>
+        internal void CloseStreamComponent(int streamIndex)
         {
-            var ic = InputContext;
+            var input = InputContext;
 
-            int startIndex;
-            int targetIndex;
-            int prevIndex;
-
-            AVStream* st;
-            AVProgram* program = null;
-
-            int streamCount = (int)InputContext->nb_streams;
-
-            if (mediaType == AVMediaType.AVMEDIA_TYPE_VIDEO)
-            {
-                startIndex = LastVideoStreamIndex;
-                prevIndex = VideoStreamIndex;
-            }
-            else if (mediaType == AVMediaType.AVMEDIA_TYPE_AUDIO)
-            {
-                startIndex = LastAudioStreamIndex;
-                prevIndex = AudioStreamIndex;
-            }
-            else
-            {
-                startIndex = LastSubtitleStreamIndex;
-                prevIndex = SubtitleStreamIndex;
-            }
-
-            targetIndex = startIndex;
-            if (mediaType != AVMediaType.AVMEDIA_TYPE_VIDEO && VideoStreamIndex != -1)
-            {
-                program = ffmpeg.av_find_program_from_stream(ic, null, VideoStreamIndex);
-                if (program != null)
-                {
-                    streamCount = (int)program->nb_stream_indexes;
-
-                    for (startIndex = 0; startIndex < streamCount; startIndex++)
-                        if (program->stream_index[startIndex] == targetIndex)
-                            break;
-
-                    if (startIndex == streamCount)
-                        startIndex = -1;
-
-                    targetIndex = startIndex;
-                }
-            }
-
-            while (true)
-            {
-                if (++targetIndex >= streamCount)
-                {
-                    if (mediaType == AVMediaType.AVMEDIA_TYPE_SUBTITLE)
-                    {
-                        targetIndex = -1;
-                        LastSubtitleStreamIndex = -1;
-                        break;
-                    }
-
-                    if (startIndex == -1)
-                        return;
-
-                    targetIndex = 0;
-                }
-
-                if (targetIndex == startIndex)
-                    return;
-
-                st = InputContext->streams[program != null ? (int)program->stream_index[targetIndex] : targetIndex];
-                if (st->codecpar->codec_type == mediaType)
-                {
-                    var exitLoop = false;
-                    switch (mediaType)
-                    {
-                        case AVMediaType.AVMEDIA_TYPE_AUDIO:
-                            if (st->codecpar->sample_rate != 0 && st->codecpar->channels != 0)
-                                exitLoop = true;
-                            break;
-                        case AVMediaType.AVMEDIA_TYPE_VIDEO:
-                        case AVMediaType.AVMEDIA_TYPE_SUBTITLE:
-                            exitLoop = true;
-                            break;
-                        default:
-                            break;
-                    }
-
-                    if (exitLoop) break;
-                }
-            }
-
-            // the_end:
-            if (program != null && targetIndex != -1)
-                targetIndex = (int)program->stream_index[targetIndex];
-
-            ffmpeg.av_log(null, ffmpeg.AV_LOG_INFO, $"Switch {ffmpeg.av_get_media_type_string(mediaType)} stream from #{prevIndex} to #{targetIndex}\n");
-
-            CloseStreamComponent(prevIndex);
-            OpenStreamComponent(targetIndex);
-        }
-
-        public void CloseStreamComponent(int streamIndex)
-        {
-            var ic = InputContext;
-
-            if (streamIndex < 0 || streamIndex >= ic->nb_streams)
+            if (streamIndex < 0 || streamIndex >= input->nb_streams)
                 return;
 
-            var codecParams = ic->streams[streamIndex]->codecpar;
+            var codecParams = input->streams[streamIndex]->codecpar;
             switch (codecParams->codec_type)
             {
                 case AVMediaType.AVMEDIA_TYPE_AUDIO:
@@ -433,7 +434,7 @@
                     break;
             }
 
-            ic->streams[streamIndex]->discard = AVDiscard.AVDISCARD_ALL;
+            input->streams[streamIndex]->discard = AVDiscard.AVDISCARD_ALL;
 
             switch (codecParams->codec_type)
             {
@@ -455,165 +456,10 @@
         }
 
         /// <summary>
-        /// Opens a stream component based on the specified stream index
-        /// Port of stream_component_open
-        /// </summary>
-        /// <param name="streamIndex">The stream index component</param>
-        /// <returns></returns>
-        public int OpenStreamComponent(int streamIndex)
-        {
-            var ic = InputContext;
-            string forcedCodecName = null;
-            FFDictionaryEntry kvp = null;
-
-            var sampleRate = 0;
-            var channelCount = 0;
-            var channelLayout = 0L;
-            var result = 0;
-
-            int lowResIndex = Convert.ToInt32(Player.Options.EnableLowRes);
-            if (streamIndex < 0 || streamIndex >= ic->nb_streams)
-                return -1;
-
-            var codecContext = ffmpeg.avcodec_alloc_context3(null);
-            if (codecContext == null)
-                return ffmpeg.AVERROR_ENOMEM;
-
-            result = ffmpeg.avcodec_parameters_to_context(codecContext, ic->streams[streamIndex]->codecpar);
-            if (result < 0)
-                goto fail;
-
-            ffmpeg.av_codec_set_pkt_timebase(codecContext, ic->streams[streamIndex]->time_base);
-            var decoder = ffmpeg.avcodec_find_decoder(codecContext->codec_id);
-
-            switch (codecContext->codec_type)
-            {
-                case AVMediaType.AVMEDIA_TYPE_AUDIO: LastAudioStreamIndex = streamIndex; forcedCodecName = Player.AudioCodecName; break;
-                case AVMediaType.AVMEDIA_TYPE_SUBTITLE: LastSubtitleStreamIndex = streamIndex; forcedCodecName = Player.SubtitleCodecName; break;
-                case AVMediaType.AVMEDIA_TYPE_VIDEO: LastVideoStreamIndex = streamIndex; forcedCodecName = Player.VideoCodecName; break;
-            }
-
-            if (string.IsNullOrWhiteSpace(forcedCodecName) == false)
-                decoder = ffmpeg.avcodec_find_decoder_by_name(forcedCodecName);
-
-            if (decoder == null)
-            {
-                if (string.IsNullOrWhiteSpace(forcedCodecName) == false)
-                    ffmpeg.av_log(null, ffmpeg.AV_LOG_WARNING, $"No codec could be found with name '{forcedCodecName}'\n");
-                else
-                    ffmpeg.av_log(null, ffmpeg.AV_LOG_WARNING, $"No codec could be found with id {codecContext->codec_id}\n");
-
-                result = ffmpeg.AVERROR_EINVAL;
-                goto fail;
-            }
-
-            codecContext->codec_id = decoder->id;
-
-            if (lowResIndex > ffmpeg.av_codec_get_max_lowres(decoder))
-            {
-                ffmpeg.av_log(codecContext, ffmpeg.AV_LOG_WARNING, $"The maximum value for lowres supported by the decoder is {ffmpeg.av_codec_get_max_lowres(decoder)}\n");
-                lowResIndex = ffmpeg.av_codec_get_max_lowres(decoder);
-            }
-
-            ffmpeg.av_codec_set_lowres(codecContext, lowResIndex);
-
-            if (lowResIndex != 0)
-                codecContext->flags |= ffmpeg.CODEC_FLAG_EMU_EDGE;
-
-            if (Player.Options.EnableFastDecoding)
-                codecContext->flags2 |= ffmpeg.AV_CODEC_FLAG2_FAST;
-
-            if ((decoder->capabilities & ffmpeg.AV_CODEC_CAP_DR1) != 0)
-                codecContext->flags |= ffmpeg.CODEC_FLAG_EMU_EDGE;
-
-            var codecOptions = Player.Options.CodecOptions.FilterOptions(codecContext->codec_id, ic, ic->streams[streamIndex], decoder);
-
-            if (codecOptions.KeyExists("threads") == false)
-                codecOptions["threads"] = "auto";
-
-            if (lowResIndex != 0)
-                codecOptions["lowres"] = lowResIndex.ToString();
-
-            if (codecContext->codec_type == AVMediaType.AVMEDIA_TYPE_VIDEO || codecContext->codec_type == AVMediaType.AVMEDIA_TYPE_AUDIO)
-                codecOptions["refcounted_frames"] = "1";
-
-            if ((result = ffmpeg.avcodec_open2(codecContext, decoder, codecOptions.Reference)) < 0)
-            {
-                goto fail;
-            }
-
-            // On return opts will be filled with options that were not found.
-            if ((kvp = codecOptions.First()) != null)
-            {
-                ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR, $"Option {kvp.Key} not found.\n");
-                result = ffmpeg.AVERROR_OPTION_NOT_FOUND;
-                goto fail;
-            }
-
-            IsAtEndOfFile = false;
-            ic->streams[streamIndex]->discard = AVDiscard.AVDISCARD_DEFAULT;
-
-            switch (codecContext->codec_type)
-            {
-                case AVMediaType.AVMEDIA_TYPE_AUDIO:
-                    if ((result = Player.audio_open(channelLayout, channelCount, sampleRate, AudioOutputParams)) < 0)
-                        goto fail;
-
-                    AudioHardwareBufferSize = result;
-                    AudioOutputParams.CopyTo(AudioInputParams);
-                    RenderAudioBufferLength = 0;
-                    RenderAudioBufferIndex = 0;
-                    AudioSkewCoefficient = Math.Exp(Math.Log(0.01) / Constants.AudioSkewMinSamples);
-                    AudioSkewAvgCount = 0;
-                    AudioSkewThreshold = (double)(AudioHardwareBufferSize) / AudioOutputParams.BytesPerSecond;
-                    AudioStreamIndex = streamIndex;
-                    AudioStream = ic->streams[streamIndex];
-
-                    AudioDecoder = new Decoder(this, codecContext, AudioPackets, IsFrameDecoded);
-
-                    if ((InputContext->iformat->flags & (ffmpeg.AVFMT_NOBINSEARCH | ffmpeg.AVFMT_NOGENSEARCH | ffmpeg.AVFMT_NO_BYTE_SEEK)) != 0 &&
-                        InputContext->iformat->read_seek.Pointer == IntPtr.Zero)
-                    {
-                        AudioDecoder.StartPts = AudioStream->start_time;
-                        AudioDecoder.StartPtsTimebase = AudioStream->time_base;
-                    }
-
-                    AudioDecoder.Start(FFplay.DecodeAudioQueueContinuously);
-                    SDL_PauseAudio(0);
-                    break;
-
-                case AVMediaType.AVMEDIA_TYPE_VIDEO:
-                    VideoStreamIndex = streamIndex;
-                    VideoStream = ic->streams[streamIndex];
-                    VideoDecoder = new Decoder(this, codecContext, VideoPackets, IsFrameDecoded);
-                    result = VideoDecoder.Start(FFplay.DecodeVideoQueueContinuously);
-                    EnqueuePacketAttachments = true;
-                    break;
-
-                case AVMediaType.AVMEDIA_TYPE_SUBTITLE:
-                    SubtitleStreamIndex = streamIndex;
-                    SubtitleStream = ic->streams[streamIndex];
-                    SubtitleDecoder = new Decoder(this, codecContext, SubtitlePackets, IsFrameDecoded);
-                    result = SubtitleDecoder.Start(FFplay.DecodeSubtitlesQueueContinuously);
-                    break;
-
-                default:
-                    break;
-            }
-
-            goto final;
-            fail:
-            ffmpeg.avcodec_free_context(&codecContext);
-
-            final:
-            return result;
-        }
-
-        /// <summary>
         /// Closes the media along with all of its stream components.
         /// Port of stream_close
         /// </summary>
-        public void CloseStream()
+        internal void CloseStream()
         {
             IsAbortRequested = true;
             Player.MediaReadTask.Wait();
@@ -629,7 +475,7 @@
 
             fixed (AVFormatContext** vstic = &InputContext)
                 ffmpeg.avformat_close_input(vstic);
-            
+
 
             VideoPackets.Clear();
             AudioPackets.Clear();
@@ -643,13 +489,17 @@
 
         }
 
+        #endregion
+
+        #region Uncompressing of Frames into Raw data
+
         /// <summary>
         /// Fills the Bitmap property of a Video frame.
         /// Port of upload_texture
         /// </summary>
         /// <param name="videoFrame">The video frame.</param>
         /// <returns></returns>
-        public bool FillBitmap(FrameHolder videoFrame)
+        internal bool UncompressVideoFrame(FrameHolder videoFrame)
         {
             if (videoFrame == null || videoFrame.DecodedFrame == null)
                 return false;
@@ -685,15 +535,14 @@
         }
 
         /// <summary>
-        /// Decodes the Audio frames in the audio frame queue until
-        /// the packet serial matches the audio frame serial. It then resamples the
-        /// frame.
+        /// Decode one audio frame and return its uncompressed size.
+        /// The processed audio frame is decoded, converted if required, and
+        /// stored in RenderAudioBuffer, with size in bytes given by the return value.
+        /// Port of audio_decode_frame
         /// </summary>
         /// <returns></returns>
-        public int DecodeAudioFrame()
+        internal int UncompressAudioFrame()
         {
-            // TODO: Move this method to decoder if possible
-
             int decodedDataSize;
             int resampledDataSize;
             long decodedFrameChannelLayout;
@@ -705,12 +554,15 @@
 
             do
             {
-                while (AudioQueue.PendingCount == 0)
+                if (Helper.IsWindows)
                 {
-                    if ((ffmpeg.av_gettime_relative() - Player.RednerAudioCallbackTimestamp) > 1000000L * AudioHardwareBufferSize / AudioOutputParams.BytesPerSecond / 2)
-                        return -1;
+                    while (AudioQueue.PendingCount == 0)
+                    {
+                        if ((ffmpeg.av_gettime_relative() - Player.RednerAudioCallbackTimestamp) > 1000000L * AudioHardwareBufferSize / AudioOutputParams.BytesPerSecond / 2)
+                            return -1;
 
-                    Thread.Sleep(1); //ffmpeg.av_usleep(1000);
+                        Thread.Sleep(1); //ffmpeg.av_usleep(1000);
+                    }
                 }
 
                 audioFrame = AudioQueue.PeekReadableFrame();
@@ -827,6 +679,30 @@
             return resampledDataSize;
         }
 
+        #endregion
+
+        #region Timing and Clocks
+
+        internal void AdjustExternalClockSpeedRatio()
+        {
+            if (VideoStreamIndex >= 0 && VideoPackets.Count <= Constants.ExternalClockMinFrames ||
+                AudioStreamIndex >= 0 && AudioPackets.Count <= Constants.ExternalClockMinFrames)
+            {
+                ExternalClock.SpeedRatio = (Math.Max(Constants.ExternalClockSpeedMin, ExternalClock.SpeedRatio - Constants.ExternalClockSpeedStep));
+            }
+            else if ((VideoStreamIndex < 0 || VideoPackets.Count > Constants.ExternalClockMaxFrames) &&
+                     (AudioStreamIndex < 0 || AudioPackets.Count > Constants.ExternalClockMaxFrames))
+            {
+                ExternalClock.SpeedRatio = (Math.Min(Constants.ExternalClockSpeedMax, ExternalClock.SpeedRatio + Constants.ExternalClockSpeedStep));
+            }
+            else
+            {
+                var speedRatio = ExternalClock.SpeedRatio;
+                if (speedRatio != 1.0)
+                    ExternalClock.SpeedRatio = (speedRatio + Constants.ExternalClockSpeedStep * (1.0 - speedRatio) / Math.Abs(1.0 - speedRatio));
+            }
+        }
+
         internal double ComputeVideoClockDelay(double delaySeconds)
         {
             var clockSkewSeconds = 0d;
@@ -867,47 +743,7 @@
             return 0.0;
         }
 
-        public void StreamTogglePause()
-        {
-            if (IsPaused)
-            {
-                VideoFrameTimeSeconds += ffmpeg.av_gettime_relative() / (double)ffmpeg.AV_TIME_BASE - VideoClock.LastUpdatedSeconds;
-                if (ReadPauseResult != ffmpeg.AVERROR_NOTSUPP)
-                {
-                    VideoClock.IsPaused = false;
-                }
-
-                VideoClock.SetPosition(VideoClock.PositionSeconds, VideoClock.PacketSerial);
-            }
-
-            ExternalClock.SetPosition(ExternalClock.PositionSeconds, ExternalClock.PacketSerial);
-            IsPaused = AudioClock.IsPaused = VideoClock.IsPaused = ExternalClock.IsPaused = !IsPaused;
-        }
-
-        public void TogglePause()
-        {
-            StreamTogglePause();
-            IsFrameStepping = false;
-        }
-
-        public void ToggleMute()
-        {
-            IsAudioMuted = !IsAudioMuted;
-        }
-
-        public void UpdateVolume(int sign, int step)
-        {
-            AudioVolume = ffmpeg.av_clip(AudioVolume + sign * step, 0, SDL_MIX_MAXVOLUME);
-        }
-
-        public void StepToNextFrame()
-        {
-            if (IsPaused)
-                StreamTogglePause();
-            IsFrameStepping = true;
-        }
-
-        public void UpdateVideoPts(double pts, long pos, int serial)
+        internal void UpdateVideoPts(double pts, long pos, int serial)
         {
             VideoClock.SetPosition(pts, serial);
             ExternalClock.SyncTo(VideoClock);
@@ -921,7 +757,7 @@
         /// </summary>
         /// <param name="audioSampleCount">The decoded audio sample count.</param>
         /// <returns>Returns the amount of samples required</returns>
-        public int SynchronizeAudio(int audioSampleCount)
+        internal int SynchronizeAudio(int audioSampleCount)
         {
             var wantedAudioSampleCount = audioSampleCount;
 
@@ -967,6 +803,241 @@
 
             return wantedAudioSampleCount;
         }
+
+        #endregion
+
+        #region Action Processing
+
+        internal void RequestSeekToStart()
+        {
+            RequestSeekTo(Player.MediaStartTimestamp != ffmpeg.AV_NOPTS_VALUE ? Player.MediaStartTimestamp : 0, 0, false);
+        }
+
+        /// <summary>
+        /// 
+        /// Port of goto do_seek
+        /// </summary>
+        /// <param name="increment"></param>
+        internal void RequestSeekBy(double secondsIncrement)
+        {
+            var currentPos = -1d;
+            if (Player.MediaSeekByBytes.HasValue && Player.MediaSeekByBytes.Value == true)
+            {
+                currentPos = -1;
+                if (currentPos < 0 && VideoStreamIndex >= 0)
+                    currentPos = VideoQueue.StreamPosition;
+
+                if (currentPos < 0 && AudioStreamIndex >= 0)
+                    currentPos = AudioQueue.StreamPosition;
+
+                if (currentPos < 0)
+                    currentPos = ffmpeg.avio_tell(InputContext->pb);
+
+                if (InputContext->bit_rate != 0)
+                    secondsIncrement *= InputContext->bit_rate / 8.0;
+                else
+                    secondsIncrement *= 180000;
+
+                currentPos += secondsIncrement;
+                RequestSeekTo((long)currentPos, (long)secondsIncrement, true);
+            }
+            else
+            {
+                currentPos = MasterClockPositionSeconds;
+                if (double.IsNaN(currentPos))
+                    currentPos = (double)SeekTargetPosition / ffmpeg.AV_TIME_BASE;
+
+                currentPos += secondsIncrement;
+
+                if (InputContext->start_time != ffmpeg.AV_NOPTS_VALUE && currentPos < InputContext->start_time / (double)ffmpeg.AV_TIME_BASE)
+                    currentPos = InputContext->start_time / (double)ffmpeg.AV_TIME_BASE;
+
+                RequestSeekTo((long)(currentPos * ffmpeg.AV_TIME_BASE), (long)(secondsIncrement * ffmpeg.AV_TIME_BASE), false);
+            }
+        }
+
+        internal void RequestSeekTo(long pos, long rel, bool seekByBytes)
+        {
+            if (IsSeekRequested) return;
+
+            SeekTargetPosition = pos;
+            SeekTargetRange = rel;
+            SeekModeFlags &= ~ffmpeg.AVSEEK_FLAG_BYTE;
+            if (seekByBytes)
+                SeekModeFlags |= ffmpeg.AVSEEK_FLAG_BYTE;
+
+            IsSeekRequested = true;
+            IsFrameDecoded.Signal();
+        }
+
+        internal void SeekChapter(int increment)
+        {
+            long pos = Convert.ToInt64(MasterClockPositionSeconds * ffmpeg.AV_TIME_BASE);
+            int i = 0;
+
+            if (InputContext->nb_chapters == 0)
+                return;
+
+            for (i = 0; i < InputContext->nb_chapters; i++)
+            {
+                AVChapter* ch = InputContext->chapters[i];
+                if (ffmpeg.av_compare_ts(pos, ffmpeg.AV_TIME_BASE_Q, ch->start, ch->time_base) < 0)
+                {
+                    i--;
+                    break;
+                }
+            }
+
+            i += increment;
+            i = Math.Max(i, 0);
+            if (i >= InputContext->nb_chapters)
+                return;
+
+            ffmpeg.av_log(null, ffmpeg.AV_LOG_VERBOSE, $"Seeking to chapter {i}.\n");
+            RequestSeekTo(ffmpeg.av_rescale_q(InputContext->chapters[i]->start, InputContext->chapters[i]->time_base,
+                                         ffmpeg.AV_TIME_BASE_Q), 0, false);
+        }
+
+        internal void CycleStreamChannel(AVMediaType mediaType)
+        {
+            var ic = InputContext;
+
+            int startIndex;
+            int targetIndex;
+            int prevIndex;
+
+            AVStream* st;
+            AVProgram* program = null;
+
+            int streamCount = (int)InputContext->nb_streams;
+
+            if (mediaType == AVMediaType.AVMEDIA_TYPE_VIDEO)
+            {
+                startIndex = LastVideoStreamIndex;
+                prevIndex = VideoStreamIndex;
+            }
+            else if (mediaType == AVMediaType.AVMEDIA_TYPE_AUDIO)
+            {
+                startIndex = LastAudioStreamIndex;
+                prevIndex = AudioStreamIndex;
+            }
+            else
+            {
+                startIndex = LastSubtitleStreamIndex;
+                prevIndex = SubtitleStreamIndex;
+            }
+
+            targetIndex = startIndex;
+            if (mediaType != AVMediaType.AVMEDIA_TYPE_VIDEO && VideoStreamIndex != -1)
+            {
+                program = ffmpeg.av_find_program_from_stream(ic, null, VideoStreamIndex);
+                if (program != null)
+                {
+                    streamCount = (int)program->nb_stream_indexes;
+
+                    for (startIndex = 0; startIndex < streamCount; startIndex++)
+                        if (program->stream_index[startIndex] == targetIndex)
+                            break;
+
+                    if (startIndex == streamCount)
+                        startIndex = -1;
+
+                    targetIndex = startIndex;
+                }
+            }
+
+            while (true)
+            {
+                if (++targetIndex >= streamCount)
+                {
+                    if (mediaType == AVMediaType.AVMEDIA_TYPE_SUBTITLE)
+                    {
+                        targetIndex = -1;
+                        LastSubtitleStreamIndex = -1;
+                        break;
+                    }
+
+                    if (startIndex == -1)
+                        return;
+
+                    targetIndex = 0;
+                }
+
+                if (targetIndex == startIndex)
+                    return;
+
+                st = InputContext->streams[program != null ? (int)program->stream_index[targetIndex] : targetIndex];
+                if (st->codecpar->codec_type == mediaType)
+                {
+                    var exitLoop = false;
+                    switch (mediaType)
+                    {
+                        case AVMediaType.AVMEDIA_TYPE_AUDIO:
+                            if (st->codecpar->sample_rate != 0 && st->codecpar->channels != 0)
+                                exitLoop = true;
+                            break;
+                        case AVMediaType.AVMEDIA_TYPE_VIDEO:
+                        case AVMediaType.AVMEDIA_TYPE_SUBTITLE:
+                            exitLoop = true;
+                            break;
+                        default:
+                            break;
+                    }
+
+                    if (exitLoop) break;
+                }
+            }
+
+            // the_end:
+            if (program != null && targetIndex != -1)
+                targetIndex = (int)program->stream_index[targetIndex];
+
+            ffmpeg.av_log(null, ffmpeg.AV_LOG_INFO, $"Switch {ffmpeg.av_get_media_type_string(mediaType)} stream from #{prevIndex} to #{targetIndex}\n");
+
+            CloseStreamComponent(prevIndex);
+            OpenStreamComponent(targetIndex);
+        }
+
+        internal void StreamTogglePause()
+        {
+            if (IsPaused)
+            {
+                VideoFrameTimeSeconds += ffmpeg.av_gettime_relative() / (double)ffmpeg.AV_TIME_BASE - VideoClock.LastUpdatedSeconds;
+                if (ReadPauseResult != ffmpeg.AVERROR_NOTSUPP)
+                {
+                    VideoClock.IsPaused = false;
+                }
+
+                VideoClock.SetPosition(VideoClock.PositionSeconds, VideoClock.PacketSerial);
+            }
+
+            ExternalClock.SetPosition(ExternalClock.PositionSeconds, ExternalClock.PacketSerial);
+            IsPaused = AudioClock.IsPaused = VideoClock.IsPaused = ExternalClock.IsPaused = !IsPaused;
+        }
+
+        internal void TogglePause()
+        {
+            StreamTogglePause();
+            IsFrameStepping = false;
+        }
+
+        internal void ToggleMute()
+        {
+            IsAudioMuted = !IsAudioMuted;
+        }
+
+        internal void UpdateVolume(int sign, int step)
+        {
+            AudioVolume = ffmpeg.av_clip(AudioVolume + sign * step, 0, SDL_MIX_MAXVOLUME);
+        }
+
+        internal void StepToNextFrame()
+        {
+            if (IsPaused) StreamTogglePause();
+            IsFrameStepping = true;
+        }
+
+        #endregion
 
     }
 

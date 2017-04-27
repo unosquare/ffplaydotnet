@@ -12,7 +12,7 @@
 
         #region State Management and Constants
 
-        internal static readonly AVPacket* FlushPacket = null;
+        internal static AVPacket* FlushPacket { get; set; }
         internal const int MaxQueueByteLength = (15 * 1024 * 1024); // 15 MB
 
         internal readonly MonitorLock SyncLock;
@@ -24,8 +24,10 @@
         /// </summary>
         static PacketQueue()
         {
+            var newPacket = new AVPacket();
+            FlushPacket = &newPacket;
             ffmpeg.av_init_packet(FlushPacket);
-            FlushPacket->data = (byte*)FlushPacket;
+            FlushPacket->data = (byte*)&newPacket;
         }
 
         #endregion
@@ -86,7 +88,7 @@
             {
                 SyncLock.Lock();
                 IsAborted = false;
-                EnqueueInternal(PacketQueue.FlushPacket);
+                EnqueueInternal(FlushPacket);
             }
             finally
             {

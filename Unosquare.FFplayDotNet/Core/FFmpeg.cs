@@ -54,6 +54,9 @@
         [DllImport("avutil-55", EntryPoint = "av_q2d", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
         public static extern double av_q2d(AVRational r);
 
+        [DllImport("avformat-57", EntryPoint = "avio_tell", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
+        public static extern long avio_tell(AVIOContext* @s);
+
         #endregion
 
         #region Ported Methods

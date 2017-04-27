@@ -42,9 +42,9 @@
         /// <param name="getPacketQueueSerialDelegate">The get packet queue serial delegate. This replaces the pointer in the original source code.</param>
         public Clock(Func<int?> getPacketQueueSerialDelegate)
         {
+            GetPacketQueueSerial = getPacketQueueSerialDelegate; // ?? throw new ArgumentNullException(nameof(getPacketQueueSerialDelegate));
             SpeedRatio = 1.0;
             IsPaused = false;
-            GetPacketQueueSerial = getPacketQueueSerialDelegate ?? throw new ArgumentNullException(nameof(getPacketQueueSerialDelegate));
             SetPosition(double.NaN, -1);
         }
 
@@ -115,7 +115,7 @@
         {
             get
             {
-                if (GetPacketQueueSerial().HasValue == false || GetPacketQueueSerial().Value != PacketSerial)
+                if (PacketQueueSerial.HasValue == false || PacketQueueSerial.Value != PacketSerial)
                     return double.NaN;
 
                 if (IsPaused)

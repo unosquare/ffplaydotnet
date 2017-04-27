@@ -16,75 +16,49 @@
     public unsafe partial class FFplay
     {
 
-        #region State Variables
-
-        internal long RednerAudioCallbackTimestamp;
-        internal long LastVideoRefreshTimestamp;
-
-        /// <summary>
-        /// The wanted stream specifiers
-        /// Port of wanted_stream_spec
-        /// </summary>
-        internal string[] WantedStreamSpecs = new string[Constants.AVMEDIA_TYPE_COUNT];
-
-        internal bool LogStatusMessages { get; set; } = true;
-
-        #endregion
-
-        #region Events
+        #region Public Events
 
         public event EventHandler<VideoDataEventArgs> OnVideoDataAvailable;
         public event EventHandler<SubtitleDataEventArgs> OnSubtitleDataAvailable;
 
-        private void RaiseOnVideoDataAvailable(FrameHolder frame)
-        {
-            if (frame == null) return;
-            OnVideoDataAvailable?.Invoke(this, new VideoDataEventArgs(frame));
-        }
-
-        private void RaiseOnSubtitleDataAvailable(FrameHolder frame)
-        {
-            if (frame == null) return;
-            OnSubtitleDataAvailable?.Invoke(this, new SubtitleDataEventArgs(frame));
-        }
-
         #endregion
 
-        #region User Options (To be moved to options object)
+        #region Internal State Management
 
+        internal readonly MediaState State = null;
+        internal long RednerAudioCallbackTimestamp;
+        internal long LastVideoRefreshTimestamp;
+        internal bool LogStatusMessages = true;
 
-        #endregion
-
-        #region Properties
-        public PlayerOptions Options { get; private set; }
-        public string MediaTitle { get; private set; }
-        public AVInputFormat* InputForcedFormat { get; private set; }
-        public long MediaStartTimestamp { get; private set; } = ffmpeg.AV_NOPTS_VALUE;
-        public long MediaDuration { get; private set; } = ffmpeg.AV_NOPTS_VALUE;
-        public bool? MediaSeekByBytes { get; private set; } = null;
-
-        public string AudioCodecName { get; private set; }
-        public string SubtitleCodecName { get; private set; }
-        public string VideoCodecName { get; private set; }
-
-
+        internal readonly Task MediaReadTask;
+        internal readonly Task ProcessActionsTask;
         internal readonly MediaActionQueue ActionQueue = new MediaActionQueue();
-        internal Task MediaReadTask;
 
-        internal readonly InterruptCallbackDelegate decode_interrupt_delegate = new InterruptCallbackDelegate(decode_interrupt_cb);
-        internal readonly LockManagerCallbackDelegate lock_manager_delegate = new LockManagerCallbackDelegate(HandleLockOperation);
-
-        #endregion
-
-        public delegate int InterruptCallbackDelegate(void* opaque);
-        public delegate int LockManagerCallbackDelegate(void** mutex, AVLockOp op);
+        //internal delegate int InterruptCallbackDelegate(void* opaque);
+        //internal readonly InterruptCallbackDelegate OnDecodeInterruptCallback = new InterruptCallbackDelegate(HandleDecodeInterrupt);
 
         /// <summary>
         /// Port of format_opts
         /// </summary>
         internal readonly FFDictionary FormatOptions = null;
 
-        internal readonly MediaState State = null;
+        #endregion
+
+        #region Public, End-User Properties
+
+        public PlayerOptions Options { get; private set; }
+        public string MediaTitle { get; private set; }
+        public AVInputFormat* InputForcedFormat { get; private set; }
+        public long MediaStartTimestamp { get; private set; } = ffmpeg.AV_NOPTS_VALUE;
+        public long MediaDuration { get; private set; } = ffmpeg.AV_NOPTS_VALUE;
+        public bool? MediaSeekByBytes { get; private set; } = null;
+        public string AudioCodecName { get; private set; }
+        public string SubtitleCodecName { get; private set; }
+        public string VideoCodecName { get; private set; }
+
+        #endregion
+
+        #region Constructor and Destructor
 
         /// <summary>
         /// Initializes a new instance of the <see cref="FFplay"/> class.
@@ -113,123 +87,64 @@
             if (string.IsNullOrWhiteSpace(Options.InputFormatName) == false)
                 InputForcedFormat = ffmpeg.av_find_input_format(Options.InputFormatName);
 
-            var lockManagerCallback = new av_lockmgr_register_cb_func
-            {
-                Pointer = Marshal.GetFunctionPointerForDelegate(lock_manager_delegate)
-            };
-
-            if (ffmpeg.av_lockmgr_register(lockManagerCallback) != 0)
-            {
-                ffmpeg.av_log(null, ffmpeg.AV_LOG_FATAL, "Could not initialize lock manager!\n");
-                do_exit();
-            }
-
             State = new MediaState(this);
-            MediaReadTask = Task.Run(() => { ReaderThreadDoWork(); });
-            event_loop();
+            MediaReadTask = Task.Run(() => { ReaderTaskDoWork(); });
+            //ProcessActionsTask = Task.Run(() => { ProcessActionQueueContinuously(); });
 
             #endregion
         }
 
         /// <summary>
-        /// Locking Handler for internal use of FFmpeg.
-        /// Port of lockmgr
+        /// Releases Unmanaged resources and closes all streams
+        /// Port of do_exit
         /// </summary>
-        /// <param name="mutexReference">The mutex reference.</param>
-        /// <param name="lockOperation">The lock operation.</param>
-        /// <returns></returns>
-        private static int HandleLockOperation(void** mutexReference, AVLockOp lockOperation)
+        private void Close()
         {
-            switch (lockOperation)
-            {
-                case AVLockOp.AV_LOCK_CREATE:
-                    {
-                        var mutex = new MonitorLock();
-                        var mutexHandle = GCHandle.Alloc(mutex, GCHandleType.Pinned);
-                        *mutexReference = (void*)mutexHandle.AddrOfPinnedObject();
+            // TODO: Maybe change this method to be the Dispose method?
+            State?.CloseStream();
+            ActionQueue.Clear();
 
-                        if (*mutexReference == null)
-                        {
-                            ffmpeg.av_log(null, ffmpeg.AV_LOG_FATAL, $"SDL_CreateMutex(): {SDL_GetError()}\n");
-                            return 1;
-                        }
-                        return 0;
-                    }
-                case AVLockOp.AV_LOCK_OBTAIN:
-                    {
-                        var mutex = GCHandle.FromIntPtr(new IntPtr(*mutexReference)).Target as MonitorLock;
-                        mutex?.Lock();
-                        return 0;
-                    }
-                case AVLockOp.AV_LOCK_RELEASE:
-                    {
-                        var mutex = GCHandle.FromIntPtr(new IntPtr(*mutexReference)).Target as MonitorLock;
-                        mutex?.Unlock();
-                        return 0;
-                    }
-                case AVLockOp.AV_LOCK_DESTROY:
-                    {
-                        var mutexHandle = GCHandle.FromIntPtr(new IntPtr(*mutexReference));
-                        (mutexHandle.Target as MonitorLock)?.Destroy();
+            //ffmpeg.av_lockmgr_register(null);
+            ffmpeg.avformat_network_deinit();
+            ffmpeg.av_log(null, ffmpeg.AV_LOG_QUIET, "");
+        }
 
-                        if (mutexHandle.IsAllocated)
-                            mutexHandle.Free();
+        #endregion
 
-                        return 0;
-                    }
-            }
+        #region FFmpeg Locking and Interupts
+
+
+        /// <summary>
+        /// This gets called by ffmpeg upon decoding frames
+        /// Port of decode_interrupt_cb
+        /// </summary>
+        /// <param name="opaque"></param>
+        /// <returns></returns>
+        private static int HandleDecodeInterrupt(void* opaque)
+        {
+            var stateHandle = GCHandle.FromIntPtr(new IntPtr(opaque));
+            if (stateHandle.IsAllocated && stateHandle.Target != null)
+                return (stateHandle.Target as MediaState).IsAbortRequested ? 1 : 0;
 
             return 1;
         }
 
+        #endregion
+
+        #region Audio Rendering
+
         /// <summary>
-        /// Retrieves the next event to process.
-        /// If there are no new events, it simply refreshes the video.
-        /// Port of refresh_loop_wait_event
+        /// Opens the audio device with the provided parameters
+        /// Port of audio_open
         /// </summary>
-        /// <param name="vst">The VST.</param>
+        /// <param name="wantedChannelLayout"></param>
+        /// <param name="wantedChannelCount"></param>
+        /// <param name="wantedSampleRate"></param>
+        /// <param name="audioHardware"></param>
         /// <returns></returns>
-        private MediaActionItem DequeueNextAction()
+        internal int audio_open(long wantedChannelLayout, int wantedChannelCount, int wantedSampleRate, AudioParams audioHardware)
         {
-            var remainingSeconds = 0.0d;
 
-            while (ActionQueue.Count == 0)
-            {
-                if (remainingSeconds > 0.0)
-                    Thread.Sleep(TimeSpan.FromSeconds(remainingSeconds));
-
-                remainingSeconds = Constants.RefreshRateSeconds;
-                if (State.IsPaused == false || State.IsVideoRefreshRequested)
-                    remainingSeconds = RefreshVideoAndSubtitles(remainingSeconds);
-            }
-
-            return ActionQueue.Dequeue();
-        }
-
-        #region Methods
-
-        private void do_exit()
-        {
-            if (State != null)
-                State.CloseStream();
-
-            // Do not process any more events
-            ActionQueue.Clear();
-
-            ffmpeg.av_lockmgr_register(null);
-
-            // uninit_opts(); // NOTE: this is not rquired. Options are managed objects
-
-            ffmpeg.avformat_network_deinit();
-
-            SDL_Quit();
-            ffmpeg.av_log(null, ffmpeg.AV_LOG_QUIET, "");
-            // exit
-        }
-
-        public int audio_open(long wantedChannelLayout, int wantedChannelCount, int wantedSampleRate, AudioParams audioHardware)
-        {
-            var wantedAudioSpec = new SDL_AudioSpec();
             var spec = new SDL_AudioSpec();
 
             var channelCountOptions = new int[] { 0, 0, 1, 6, 2, 6, 4, 6 };
@@ -251,6 +166,8 @@
             }
 
             wantedChannelCount = ffmpeg.av_get_channel_layout_nb_channels((ulong)wantedChannelLayout);
+
+            var wantedAudioSpec = new SDL_AudioSpec();
             wantedAudioSpec.channels = wantedChannelCount;
             wantedAudioSpec.freq = wantedSampleRate;
             if (wantedAudioSpec.freq <= 0 || wantedAudioSpec.channels <= 0)
@@ -267,7 +184,7 @@
             wantedAudioSpec.samples = Math.Max(
                 Constants.SDL_AUDIO_MIN_BUFFER_SIZE,
                 2 << ffmpeg.av_log2(Convert.ToUInt32(wantedAudioSpec.freq / Constants.SDL_AUDIO_MAX_CALLBACKS_PER_SEC)));
-            wantedAudioSpec.callback = new SDL_AudioCallback(sdl_audio_callback);
+            wantedAudioSpec.callback = new SDL_AudioCallback(RednerAudioCallback);
             wantedAudioSpec.userdata = State;
 
             while (SDL_OpenAudio(wantedAudioSpec, spec) < 0)
@@ -294,6 +211,7 @@
                        $"SDL advised audio format {spec.format} is not supported!\n");
                 return -1;
             }
+
             if (spec.channels != wantedAudioSpec.channels)
             {
                 wantedChannelLayout = ffmpeg.av_get_default_channel_layout(spec.channels);
@@ -321,6 +239,67 @@
             return spec.size;
         }
 
+        /// <summary>
+        /// Port of sdl_audio_callback
+        /// </summary>
+        /// <param name="vst"></param>
+        /// <param name="stream"></param>
+        /// <param name="length"></param>
+        private void RednerAudioCallback(MediaState vst, byte* stream, int length)
+        {
+            RednerAudioCallbackTimestamp = ffmpeg.av_gettime_relative();
+
+            while (length > 0)
+            {
+                if (vst.RenderAudioBufferIndex >= vst.RenderAudioBufferLength)
+                {
+                    var bufferLength = vst.UncompressAudioFrame();
+                    if (bufferLength < 0)
+                    {
+                        vst.RenderAudioBuffer = null;
+                        vst.RenderAudioBufferLength = Convert.ToUInt32(Constants.SDL_AUDIO_MIN_BUFFER_SIZE / vst.AudioOutputParams.SampleBufferLength * vst.AudioOutputParams.SampleBufferLength);
+                    }
+                    else
+                    {
+                        vst.RenderAudioBufferLength = Convert.ToUInt32(bufferLength);
+                    }
+
+                    vst.RenderAudioBufferIndex = 0;
+                }
+
+                var pendingAudioBytes = Convert.ToInt32(vst.RenderAudioBufferLength - vst.RenderAudioBufferIndex);
+                if (pendingAudioBytes > length) pendingAudioBytes = length;
+
+                if (!vst.IsAudioMuted && vst.RenderAudioBuffer != null && vst.AudioVolume == SDL_MIX_MAXVOLUME)
+                {
+                    Native.memcpy(stream, vst.RenderAudioBuffer + vst.RenderAudioBufferIndex, pendingAudioBytes);
+                }
+                else
+                {
+                    Native.memset(stream, 0, pendingAudioBytes);
+                    if (!vst.IsAudioMuted && vst.RenderAudioBuffer != null)
+                        SDL_MixAudio(stream, vst.RenderAudioBuffer + vst.RenderAudioBufferIndex, pendingAudioBytes, vst.AudioVolume);
+                }
+
+                length -= pendingAudioBytes;
+                stream += pendingAudioBytes;
+                vst.RenderAudioBufferIndex += pendingAudioBytes;
+            }
+
+            if (!double.IsNaN(vst.DecodedAudioClockPosition))
+            {
+                var pendingAudioBytes = Convert.ToInt32(vst.RenderAudioBufferLength - vst.RenderAudioBufferIndex);
+                vst.AudioClock.SetPosition(
+                    vst.DecodedAudioClockPosition - (double)(2 * vst.AudioHardwareBufferSize + pendingAudioBytes) / vst.AudioOutputParams.BytesPerSecond,
+                    vst.DecodedAudioClockSerial, RednerAudioCallbackTimestamp / (double)ffmpeg.AV_TIME_BASE);
+
+                vst.ExternalClock.SyncTo(vst.AudioClock);
+            }
+        }
+
+        #endregion
+
+        #region Video and Subtitle Rendering
 
         /// <summary>
         /// Raises events providing video and subtitle rendering data to the
@@ -357,7 +336,7 @@
 
             if (videoFrame.IsUploaded == false)
             {
-                if (State.FillBitmap(videoFrame) == false)
+                if (State.UncompressVideoFrame(videoFrame) == false)
                     return;
 
                 videoFrame.IsUploaded = true;
@@ -534,65 +513,6 @@
             return remainingSeconds;
         }
 
-        private void sdl_audio_callback(MediaState vst, byte* stream, int length)
-        {
-            RednerAudioCallbackTimestamp = ffmpeg.av_gettime_relative();
-
-            while (length > 0)
-            {
-                if (vst.RenderAudioBufferIndex >= vst.RenderAudioBufferLength)
-                {
-                    var bufferLength = vst.DecodeAudioFrame();
-                    if (bufferLength < 0)
-                    {
-                        vst.RenderAudioBuffer = null;
-                        vst.RenderAudioBufferLength = Convert.ToUInt32(Constants.SDL_AUDIO_MIN_BUFFER_SIZE / vst.AudioOutputParams.SampleBufferLength * vst.AudioOutputParams.SampleBufferLength);
-                    }
-                    else
-                    {
-                        vst.RenderAudioBufferLength = Convert.ToUInt32(bufferLength);
-                    }
-
-                    vst.RenderAudioBufferIndex = 0;
-                }
-
-                var pendingAudioBytes = Convert.ToInt32(vst.RenderAudioBufferLength - vst.RenderAudioBufferIndex);
-                if (pendingAudioBytes > length) pendingAudioBytes = length;
-
-                if (!vst.IsAudioMuted && vst.RenderAudioBuffer != null && vst.AudioVolume == SDL_MIX_MAXVOLUME)
-                {
-                    Native.memcpy(stream, vst.RenderAudioBuffer + vst.RenderAudioBufferIndex, pendingAudioBytes);
-                }
-                else
-                {
-                    Native.memset(stream, 0, pendingAudioBytes);
-                    if (!vst.IsAudioMuted && vst.RenderAudioBuffer != null)
-                        SDL_MixAudio(stream, vst.RenderAudioBuffer + vst.RenderAudioBufferIndex, pendingAudioBytes, vst.AudioVolume);
-                }
-
-                length -= pendingAudioBytes;
-                stream += pendingAudioBytes;
-                vst.RenderAudioBufferIndex += pendingAudioBytes;
-            }
-
-            if (!double.IsNaN(vst.DecodedAudioClockPosition))
-            {
-                var pendingAudioBytes = Convert.ToInt32(vst.RenderAudioBufferLength - vst.RenderAudioBufferIndex);
-                vst.AudioClock.SetPosition(
-                    vst.DecodedAudioClockPosition - (double)(2 * vst.AudioHardwareBufferSize + pendingAudioBytes) / vst.AudioOutputParams.BytesPerSecond,
-                    vst.DecodedAudioClockSerial, RednerAudioCallbackTimestamp / (double)ffmpeg.AV_TIME_BASE);
-
-                vst.ExternalClock.SyncTo(vst.AudioClock);
-            }
-        }
-
-        static int decode_interrupt_cb(void* opaque)
-        {
-            var vst = GCHandle.FromIntPtr(new IntPtr(opaque)).Target as MediaState;
-            return vst.IsAbortRequested ? 1 : 0;
-        }
-
-
         /// <summary>
         /// Prepares the next writable frame to be uploaded (Bitmap-filled).
         /// Port of queue_picture
@@ -657,6 +577,8 @@
 
             return 0;
         }
+
+        #endregion
 
         #region Decoding Tasks: Frames Queues for audio, video, and subtitles
 
@@ -778,12 +700,13 @@
 
         #endregion
 
-        #region Input Reader Initialization and Looping
+        #region Input Reader Initialization, Looping and Action Processing
 
         /// <summary>
         /// Initializes the state variables and input context
         /// for the reader thread to start the read loop.
-        /// This is the first half of the login in the read_thread method
+        /// This is the first half of the login in the read_thread method.
+        /// Note wanted_stream_specs related code was completely removed.
         /// </summary>
         /// <returns></returns>
         private bool InitializeInputReader()
@@ -811,17 +734,18 @@
             {
                 State.InputContext = ffmpeg.avformat_alloc_context();
 
-                var inputContext = State.InputContext;
+                //var inputContext = State.InputContext;
 
                 // TODO: Maybe manual interrupt callbacks are not even necessary. Tempted to remove them
-                inputContext->interrupt_callback.callback = new AVIOInterruptCB_callback_func { Pointer = Marshal.GetFunctionPointerForDelegate(decode_interrupt_delegate) };
-                inputContext->interrupt_callback.opaque = (void*)State.Handle.AddrOfPinnedObject();
+                //inputContext->interrupt_callback.callback = new AVIOInterruptCB_callback_func { Pointer = Marshal.GetFunctionPointerForDelegate(OnDecodeInterruptCallback) };
+                //inputContext->interrupt_callback.opaque = (void*)State.Handle.AddrOfPinnedObject();
 
                 // For streams that support scanning PMTs, set it to 1
                 if (FormatOptions.KeyExists("scan_all_pmts") == false)
                     FormatOptions.Set("scan_all_pmts", "1", true);
 
                 // Open the assigned input context
+                AVFormatContext* inputContext;
                 var openResult = ffmpeg.avformat_open_input(&inputContext, State.MediaUrl, State.InputFormat, FormatOptions.Reference);
                 if (openResult < 0)
                 {
@@ -829,6 +753,8 @@
                     // TODO: throw open exception
                     return false;
                 }
+
+                State.InputContext = inputContext;
 
                 FormatOptions.Remove("scan_all_pmts");
 
@@ -918,35 +844,6 @@
 
             #endregion
 
-            #region Set stream specifiers (Maybe remove?)
-            {
-                var inputContext = State.InputContext;
-
-                // TODO: maybe this reagion can be dropped altogether?
-                for (var i = 0; i < inputContext->nb_streams; i++)
-                {
-                    var currentStream = inputContext->streams[i];
-                    var codecType = (int)currentStream->codecpar->codec_type;
-                    currentStream->discard = AVDiscard.AVDISCARD_ALL;
-
-                    if (codecType >= 0 && string.IsNullOrWhiteSpace(WantedStreamSpecs[codecType]) == false && streamIndexes[codecType] == -1)
-                        if (ffmpeg.avformat_match_stream_specifier(inputContext, currentStream, WantedStreamSpecs[codecType]) > 0)
-                            streamIndexes[codecType] = i;
-                }
-
-                for (var i = 0; i < Constants.AVMEDIA_TYPE_COUNT; i++)
-                {
-                    if (string.IsNullOrWhiteSpace(WantedStreamSpecs[i]) == false && streamIndexes[i] == -1)
-                    {
-                        ffmpeg.av_log(null, ffmpeg.AV_LOG_ERROR,
-                            $"Stream specifier {WantedStreamSpecs[i]} does not match any {ffmpeg.av_get_media_type_string((AVMediaType)i)} stream\n");
-
-                        streamIndexes[i] = int.MaxValue;
-                    }
-                }
-            }
-            #endregion
-
             #region Find the best stream for each stream media component
             {
                 var inputContext = State.InputContext;
@@ -1017,7 +914,7 @@
         /// Port of read_thread
         /// </summary>
         /// <returns></returns>
-        public int ReaderThreadDoWork()
+        public int ReaderTaskDoWork()
         {
             var DecoderLock = new MonitorLock();
 
@@ -1220,20 +1117,43 @@
             return 0;
         }
 
-        #endregion
-
-        private void event_loop()
+        /// <summary>
+        /// Retrieves the next event to process after possibly refreshing video
+        /// if there are no new events in the queue.
+        /// Port of refresh_loop_wait_event
+        /// </summary>
+        /// <param name="vst">The VST.</param>
+        /// <returns></returns>
+        private MediaActionItem RefreshAndDequeueNextAction()
         {
-            double incr;
-            double pos;
+            var remainingSeconds = 0.0d;
 
+            while (ActionQueue.Count == 0)
+            {
+                if (remainingSeconds > 0.0)
+                    Thread.Sleep(TimeSpan.FromSeconds(remainingSeconds));
+
+                remainingSeconds = Constants.RefreshRateSeconds;
+                if (State.IsPaused == false || State.IsVideoRefreshRequested)
+                    remainingSeconds = RefreshVideoAndSubtitles(remainingSeconds);
+            }
+
+            return ActionQueue.Dequeue();
+        }
+
+        /// <summary>
+        /// Process Action Queue Events continuously
+        /// Port of event_loop
+        /// </summary>
+        private void ProcessActionQueueContinuously()
+        {
             while (true)
             {
-                var actionEvent = DequeueNextAction();
+                var actionEvent = RefreshAndDequeueNextAction();
                 switch (actionEvent.Action)
                 {
                     case MediaAction.Quit:
-                        do_exit();
+                        Close();
                         break;
                     case MediaAction.ToggleFullScreen:
                         //toggle_full_screen(cur_stream);
@@ -1271,8 +1191,8 @@
                     case MediaAction.NextChapter:
                         if (State.InputContext->nb_chapters <= 1)
                         {
-                            incr = 600.0;
-                            goto do_seek;
+                            State.RequestSeekBy(600);
+                            break;
                         }
 
                         State.SeekChapter(1);
@@ -1280,62 +1200,44 @@
                     case MediaAction.PreviousChapter:
                         if (State.InputContext->nb_chapters <= 1)
                         {
-                            incr = -600.0;
-                            goto do_seek;
+                            State.RequestSeekBy(-600);
+                            break;
                         }
 
                         State.SeekChapter(-1);
                         break;
                     case MediaAction.SeekLeft10:
-                        incr = -10.0;
-                        goto do_seek;
+                        State.RequestSeekBy(-10);
+                        break;
                     case MediaAction.SeekRight10:
-                        incr = 10.0;
-                        goto do_seek;
+                        State.RequestSeekBy(10);
+                        break;
                     case MediaAction.SeekLRight60:
-                        incr = 60.0;
-                        goto do_seek;
+                        State.RequestSeekBy(60);
+                        break;
                     case MediaAction.SeekLeft60:
-                        incr = -60.0;
-                        do_seek:
-                        if (MediaSeekByBytes.HasValue && MediaSeekByBytes.Value == true)
-                        {
-                            pos = -1;
-                            if (pos < 0 && State.VideoStreamIndex >= 0)
-                                pos = State.VideoQueue.StreamPosition;
-
-                            if (pos < 0 && State.AudioStreamIndex >= 0)
-                                pos = State.AudioQueue.StreamPosition;
-
-                            if (pos < 0)
-                                pos = State.InputContext->pb->pos; // TODO: ffmpeg.avio_tell(cur_stream.ic->pb); avio_tell not available here
-
-                            if (State.InputContext->bit_rate != 0)
-                                incr *= State.InputContext->bit_rate / 8.0;
-                            else
-                                incr *= 180000.0;
-
-                            pos += incr;
-                            State.RequestSeekTo((long)pos, (long)incr, true);
-                        }
-                        else
-                        {
-                            pos = State.MasterClockPositionSeconds;
-                            if (double.IsNaN(pos))
-                                pos = (double)State.SeekTargetPosition / ffmpeg.AV_TIME_BASE;
-
-                            pos += incr;
-
-                            if (State.InputContext->start_time != ffmpeg.AV_NOPTS_VALUE && pos < State.InputContext->start_time / (double)ffmpeg.AV_TIME_BASE)
-                                pos = State.InputContext->start_time / (double)ffmpeg.AV_TIME_BASE;
-
-                            State.RequestSeekTo((long)(pos * ffmpeg.AV_TIME_BASE), (long)(incr * ffmpeg.AV_TIME_BASE), false);
-                        }
+                        State.RequestSeekBy(-60);
                         break;
                     default:
                         break;
                 }
             }
+        }
+
+        #endregion
+
+        #region Event Raisers
+
+        private void RaiseOnVideoDataAvailable(FrameHolder frame)
+        {
+            if (frame == null) return;
+            OnVideoDataAvailable?.Invoke(this, new VideoDataEventArgs(frame));
+        }
+
+        private void RaiseOnSubtitleDataAvailable(FrameHolder frame)
+        {
+            if (frame == null) return;
+            OnSubtitleDataAvailable?.Invoke(this, new SubtitleDataEventArgs(frame));
         }
 
         #endregion

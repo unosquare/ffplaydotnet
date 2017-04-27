@@ -14,15 +14,15 @@ namespace Unosquare.FFplayDotNet.Primitives
     /// </summary>
     internal unsafe class FFDictionary : IDisposable
     {
-        internal readonly AVDictionary Dictionary;
-        internal readonly GCHandle DictionaryHandle;
-        internal readonly GCHandle DictionaryHandleReference;
+        private AVDictionary* Dictionary;
+        //internal readonly GCHandle DictionaryHandle;
+        //internal readonly GCHandle DictionaryHandleReference;
 
         public FFDictionary()
         {
-            Dictionary = new AVDictionary();
-            DictionaryHandle = GCHandle.Alloc(Dictionary, GCHandleType.Pinned);
-            DictionaryHandleReference = GCHandle.Alloc(DictionaryHandle, GCHandleType.Pinned);
+            //Dictionary = new AVDictionary();
+            //DictionaryHandle = GCHandle.Alloc(Dictionary, GCHandleType.Pinned);
+            //DictionaryHandleReference = GCHandle.Alloc(DictionaryHandle, GCHandleType.Pinned);
         }
 
         /// <summary>
@@ -38,8 +38,9 @@ namespace Unosquare.FFplayDotNet.Primitives
             }
         }
 
-        public AVDictionary* Pointer { get { return DictionaryHandle.IsAllocated ? (AVDictionary*)DictionaryHandle.AddrOfPinnedObject() : null; } }
-        public AVDictionary** Reference { get { return DictionaryHandleReference.IsAllocated ? (AVDictionary**)DictionaryHandleReference.AddrOfPinnedObject() : null; } }
+        public AVDictionary* Pointer { get { return Dictionary; } }
+
+        public AVDictionary** Reference { get; private set; }
 
         public bool KeyExists(string key, bool matchCase = true)
         {
@@ -68,7 +69,14 @@ namespace Unosquare.FFplayDotNet.Primitives
             var flags = 0;
             if (dontOverwrite) flags |= ffmpeg.AV_DICT_DONT_OVERWRITE;
 
+            if (Dictionary == null)
+            {
+                AVDictionary* newDict = null;
+                Reference = &newDict;
+            }
+
             ffmpeg.av_dict_set(Reference, key, value, flags);
+            Dictionary = *Reference;
         }
 
         public void Remove(string key)
@@ -79,7 +87,14 @@ namespace Unosquare.FFplayDotNet.Primitives
 
         public void AppendValue(string key, string appendedValue)
         {
+            if (Dictionary == null)
+            {
+                AVDictionary* newDict = null;
+                Reference = &newDict;
+            }
+
             ffmpeg.av_dict_set(Reference, key, appendedValue, ffmpeg.AV_DICT_APPEND);
+            Dictionary = *Reference;
         }
 
         public static FFDictionaryEntry GetEntry(AVDictionary* dictionary, string key, bool matchCase = true)
@@ -129,15 +144,7 @@ namespace Unosquare.FFplayDotNet.Primitives
             {
                 if (alsoManaged)
                 {
-                    // TODO: NOTE, if creating managed object and sending references to unmanaged code
-                    // does n ot work, we might need to allocate (instantiate) the AVDictionary and
-                    // av_dict_free manually. We'll see :)
-
-                    if (DictionaryHandleReference.IsAllocated)
-                        DictionaryHandleReference.Free();
-
-                    if (DictionaryHandle.IsAllocated)
-                        DictionaryHandle.Free();
+                    ffmpeg.av_dict_free(Reference);
                 }
 
                 IsDisposing = true;

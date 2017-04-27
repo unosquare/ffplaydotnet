@@ -21,8 +21,6 @@
 
 
         public static void SDL_CloseAudio() { }
-        public static void SDL_Quit() { }
-
 
         public static int SDL_MixAudio(byte* stream, byte* buffer, int len, int volume) { return 0; }
         public static string SDL_getenv(string name) { return "2"; }

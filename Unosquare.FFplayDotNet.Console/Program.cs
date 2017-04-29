@@ -11,8 +11,8 @@
     {
         static void Main(string[] args)
         {
-            var player = new FFplay(@"c:\users\unosp\Desktop\cowboys.mp4");
-            player.OnVideoDataAvailable += Player_OnVideoDataAvailable;
+            var player = new Neon(@"c:\users\unosp\Desktop\cowboys.mp4");
+            //player.OnVideoDataAvailable += Player_OnVideoDataAvailable;
             Terminal.ReadKey(true, true);
         }
 

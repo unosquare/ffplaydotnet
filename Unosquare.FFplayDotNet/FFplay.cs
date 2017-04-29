@@ -744,7 +744,7 @@
                 //inputContext->interrupt_callback.opaque = (void*)State.Handle.AddrOfPinnedObject();
 
                 // For streams that support scanning PMTs, set it to 1
-                if (FormatOptions.KeyExists("scan_all_pmts") == false)
+                if (FormatOptions.HasKey("scan_all_pmts") == false)
                     FormatOptions.Set("scan_all_pmts", "1", true);
 
                 // Open the assigned input context

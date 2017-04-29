@@ -112,8 +112,8 @@
 
                 ffmpeg.avdevice_register_all();
                 ffmpeg.av_register_all();
-                //ffmpeg.avformat_network_init(); // this shall be called before opening a stream and deinit when closing the streams.
                 ffmpeg.avcodec_register_all();
+                ffmpeg.avformat_network_init();
 
                 HasRegistered = true;
             }

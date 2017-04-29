@@ -28,6 +28,15 @@
             // placeholder
         }
 
+        /// <summary>
+        /// Creates a Dictionary based on a KVP array of strings
+        /// </summary>
+        /// <param name="other"></param>
+        public FFDictionary(Dictionary<string, string> other)
+        {
+            Fill(other);
+        }
+
         #endregion
 
         #region Properties
@@ -112,7 +121,7 @@
         /// <param name="key">The key.</param>
         /// <param name="matchCase">if set to <c>true</c> [match case].</param>
         /// <returns></returns>
-        public bool KeyExists(string key, bool matchCase = true)
+        public bool HasKey(string key, bool matchCase = true)
         {
             if (Pointer == null) return false;
             return ffmpeg.av_dict_get(Pointer, key, null, matchCase ? ffmpeg.AV_DICT_MATCH_CASE : 0) != null;
@@ -192,7 +201,7 @@
         /// <param name="key">The key.</param>
         public void Remove(string key)
         {
-            if (KeyExists(key))
+            if (HasKey(key))
                 Set(key, null, false);
         }
 

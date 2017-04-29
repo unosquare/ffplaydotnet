@@ -316,7 +316,7 @@
 
             var codecOptions = Player.Options.CodecOptions.FilterOptions(codecContext->codec_id, input, input->streams[streamIndex], decoder);
 
-            if (codecOptions.KeyExists("threads") == false)
+            if (codecOptions.HasKey("threads") == false)
                 codecOptions["threads"] = "auto";
 
             if (lowResIndex != 0)

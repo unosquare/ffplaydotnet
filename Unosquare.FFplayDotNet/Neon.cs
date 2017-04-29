@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
 using System.Threading.Tasks;
 using Unosquare.FFplayDotNet.Core;
 using Unosquare.FFplayDotNet.Primitives;
@@ -18,55 +19,364 @@ namespace Unosquare.FFplayDotNet
         Subtitle = 3,
     }
 
-    public abstract class NeonDecoderBase
+    public unsafe class MediaPacketQueue
     {
-        #region Properties
+        private readonly List<IntPtr> PacketPointers = new List<IntPtr>();
 
-        /// <summary>
-        /// The is packet pending.
-        /// Port of packet_pending.
-        /// </summary>
-        public bool IsPacketPending { get; private set; }
+        public AVPacket* this[int index]
+        {
+            get
+            {
+                return (AVPacket*)PacketPointers[index];
+            }
+            set
+            {
+                PacketPointers[index] = (IntPtr)value;
+            }
+        }
 
-        /// <summary>
-        /// Gets the packet serial.
-        /// Port of pkt_serial
-        /// </summary>
-        public int PacketSerial { get; private set; }
+        public int Count { get { return PacketPointers.Count; } }
 
-        /// <summary>
-        /// Gets a value indicating whether the input decoding has been completed
-        /// In other words, if there is no more packets in the queue to decode into frames.
-        /// Port of finished
-        /// </summary>
-        public bool IsFinished { get; private set; }
+        public AVPacket* Peek()
+        {
+            if (PacketPointers.Count <= 0) return null;
+            return (AVPacket*)PacketPointers[0];
+        }
 
-        /// <summary>
-        /// Gets the start PTS.
-        /// Port of start_pts
-        /// </summary>
-        public long StartPts { get; internal set; }
+        public void Push(AVPacket* packet)
+        {
+            PacketPointers.Add((IntPtr)packet);
+        }
 
-        /// <summary>
-        /// Gets the start PTS timebase.
-        /// Port of start_pts_tb
-        /// </summary>
-        public AVRational StartPtsTimebase { get; internal set; }
+        public AVPacket* Dequeue()
+        {
+            if (PacketPointers.Count <= 0) return null;
+            var result = PacketPointers[0];
+            PacketPointers.RemoveAt(0);
+            return (AVPacket*)result;
+        }
+
+        public void Clear()
+        {
+            while (PacketPointers.Count > 0)
+            {
+                var packet = Dequeue();
+                ffmpeg.av_packet_free(&packet);
+            }
+        }
+
+    }
+
+    public unsafe abstract class MediaComponentReader : IDisposable
+    {
+        protected AVCodecContext* CodecContext;
+        protected AVCodec* Codec;
+        protected MediaPacketQueue Packets = new MediaPacketQueue();
+        protected MediaPacketQueue SentPackets = new MediaPacketQueue();
+        protected MediaType MediaType;
+        protected bool IsAudioOrVideo = false;
+
+        public MediaContainer Container { get; private set; }
+        public int StreamIndex { get; private set; }
+
+        protected MediaComponentReader(MediaContainer container, int streamIndex)
+        {
+            Container = container ?? throw new ArgumentNullException(nameof(container));
+            CodecContext = ffmpeg.avcodec_alloc_context3(null);
+
+            // Set codec options
+            var innerStream = container.InputContext->streams[streamIndex];
+
+            Codec = ffmpeg.avcodec_find_decoder(innerStream->codec->codec_id);
+            
+
+            var setCodecParamsResult = ffmpeg.avcodec_parameters_to_context(
+                CodecContext, innerStream->codecpar);
+
+            if (setCodecParamsResult < 0)
+                $"Could not set codec parameters. Error code: {setCodecParamsResult}".Warn(typeof(MediaContainer));
+
+            ffmpeg.av_codec_set_pkt_timebase(CodecContext, Container.InputContext->streams[streamIndex]->time_base);
+
+
+            var lowResIndex = ffmpeg.av_codec_get_max_lowres(Codec);
+            if (Container.Options.EnableLowRes)
+            {
+                ffmpeg.av_codec_set_lowres(CodecContext, lowResIndex);
+                CodecContext->flags |= ffmpeg.CODEC_FLAG_EMU_EDGE;
+            }
+            else
+            {
+                lowResIndex = 0;
+            }
+
+            if (Container.Options.EnableFastDecoding)
+                CodecContext->flags2 |= ffmpeg.AV_CODEC_FLAG2_FAST;
+
+            if ((Codec->capabilities & ffmpeg.AV_CODEC_CAP_DR1) != 0)
+                CodecContext->flags |= ffmpeg.CODEC_FLAG_EMU_EDGE;
+
+            if ((Codec->capabilities & ffmpeg.AV_CODEC_CAP_TRUNCATED) != 0)
+                CodecContext->flags |= ffmpeg.AV_CODEC_CAP_TRUNCATED;
+
+            if ((Codec->capabilities & ffmpeg.CODEC_FLAG2_CHUNKS) != 0)
+                CodecContext->flags |= ffmpeg.CODEC_FLAG2_CHUNKS;
+
+            var codecOptions = Container.Options.CodecOptions.FilterOptions(
+                CodecContext->codec_id, Container.InputContext, Container.InputContext->streams[streamIndex], Codec);
+
+            if (codecOptions.HasKey("threads") == false)
+                codecOptions["threads"] = "auto";
+
+            if (lowResIndex != 0)
+                codecOptions["lowres"] = lowResIndex.ToString();
+
+            if (CodecContext->codec_type == AVMediaType.AVMEDIA_TYPE_VIDEO || CodecContext->codec_type == AVMediaType.AVMEDIA_TYPE_AUDIO)
+                codecOptions["refcounted_frames"] = "1";
+
+            try
+            {
+                var codecOpenResult = ffmpeg.avcodec_open2(CodecContext, Codec, codecOptions.Reference);
+                if (codecOpenResult < 0)
+                    throw new Exception($"Unable to open codec. Error code {codecOpenResult}");
+
+                ffmpeg.av_dump_format(container.InputContext, 0, container.MediaUrl, 0);
+            }
+            catch (Exception ex)
+            {
+                $"Fatal error initializing codec.".Error(typeof(MediaContainer), ex);
+                Dispose();
+                throw;
+            }
+
+            if (codecOptions.First() != null)
+                $"Codec Option '{codecOptions.First().Key}' not found.".Warn(typeof(MediaContainer));
+
+            // Setup initial state.
+            Container.InputContext->streams[streamIndex]->discard = AVDiscard.AVDISCARD_DEFAULT;
+            MediaType = (MediaType)CodecContext->codec_type;
+            IsAudioOrVideo = MediaType == MediaType.Audio || MediaType == MediaType.Video;
+        }
+
+        #region IDisposable Support
+        private bool IsDisposing = false;
+
+        public void FlushPackets()
+        {
+            // Discard any data that was buffered in codec's internal memory.
+            // reset the buffer
+            ffmpeg.avcodec_flush_buffers(CodecContext);
+
+            // Release packets that are already in the queue.
+            SentPackets.Clear();
+            Packets.Clear();
+        }
+
+        public virtual void SendEmptyPacket()
+        {
+            var emptyPacket = ffmpeg.av_packet_alloc();
+            emptyPacket->data = null;
+            emptyPacket->size = 0;
+            emptyPacket->stream_index = StreamIndex;
+
+            SendPacket(emptyPacket);
+        }
+
+        private static bool IsEmptyPacket(AVPacket* packet)
+        {
+            if (packet == null) return true;
+            return (packet->data == null && packet->size == 0);
+        }
+
+        public int SendPacket(AVPacket* packet)
+        {
+            if (packet == null) return 0;
+            if (packet->stream_index != StreamIndex) return 0;
+
+            Packets.Push(packet);
+            ProcessNextPacket();
+            return 1;
+        }
+
+        protected virtual void ProcessNextPacket()
+        {
+            if (Packets.Count <= 0) return;
+            var packet = Packets.Peek();
+            var receivedFrameCount = 0;
+
+            if (IsAudioOrVideo)
+            {
+                // Let us send the packet to the codec for decoding a frame of uncompressed data later
+                var sendPacketResult = ffmpeg.avcodec_send_packet(CodecContext, IsEmptyPacket(packet) ? null : packet);
+
+                // Check if the send operation was successful. If not, the decoding buffer might be full
+                // We will keep the packet in the queue to process it later.
+                if (sendPacketResult == 0)
+                    SentPackets.Push(Packets.Dequeue());
+
+                // Let's check and see if we can get 1 or more frames from the packet we just sent to the decoder.
+                // Audio packets will typically contain 1 or more frames
+                // Video packets will require several packets to decode 1 frame
+                var receiveFrameResult = 0;
+
+                while (true)
+                {
+                    // Try to receive the input frame
+                    AVFrame* outputFrame = ffmpeg.av_frame_alloc();
+                    receiveFrameResult = ffmpeg.avcodec_receive_frame(CodecContext, outputFrame);
+
+                    // Break the cycle of getting frames if we are unable to decode.
+                    if (receiveFrameResult == 0)
+                    {
+                        receivedFrameCount += 1;
+                        ProcessDecoderOutput(packet, outputFrame);
+                        ffmpeg.av_frame_free(&outputFrame);
+                    }
+                    else
+                    {
+                        ffmpeg.av_frame_free(&outputFrame);
+                        break;
+                    }
+                }
+
+                // Dispose of the packets as one or more full frames were successfully decoded.
+                if (receivedFrameCount >= 1)
+                    SentPackets.Clear();
+
+            }
+            else
+            {
+                var gotSubtitle = 0;
+
+                var outputSubtitle = new AVSubtitle();
+                var decodeResult = ffmpeg.avcodec_decode_subtitle2(CodecContext, &outputSubtitle, &gotSubtitle, packet);
+                SentPackets.Push(Packets.Dequeue());
+
+                // Check if there is an error decoding the packet.
+                // If there is, remove the packet clear the sent packets
+                if (decodeResult < 0)
+                {
+                    SentPackets.Clear();
+                    $"{MediaType}: Error decoding. Error Code: {decodeResult}".Error(typeof(MediaContainer));
+                }
+                else
+                {
+                    if (gotSubtitle != 0)
+                    {
+                        receivedFrameCount += 1;
+                        ProcessDecoderOutput(packet, &outputSubtitle);
+                        ffmpeg.avsubtitle_free(&outputSubtitle);
+                    }
+
+                    while (gotSubtitle != 0 || decodeResult >= 0)
+                    {
+                        var flushPacket = ffmpeg.av_packet_alloc();
+                        flushPacket->data = null;
+                        flushPacket->size = 0;
+
+                        decodeResult = ffmpeg.avcodec_decode_subtitle2(CodecContext, &outputSubtitle, &gotSubtitle, flushPacket);
+                        if (gotSubtitle != 0)
+                        {
+                            receivedFrameCount += 1;
+                            ProcessDecoderOutput(flushPacket, &outputSubtitle);
+                            ffmpeg.avsubtitle_free(&outputSubtitle);
+                        }
+
+                        ffmpeg.av_packet_free(&flushPacket);
+                    }
+
+                    SentPackets.Clear();
+                }
+            }
+
+            if (receivedFrameCount >= 1)
+                $"{MediaType}: Received {receivedFrameCount} Frames. Pending Packets: {SentPackets.Count}".Trace(typeof(MediaContainer));
+
+        }
+
+        protected virtual void ProcessDecoderOutput(AVPacket* packet, AVFrame* frame)
+        {
+            $"{MediaType}: Processing Frame from packet ({packet->pos}). PTS: {(double)frame->pts / ffmpeg.AV_TIME_BASE}".Trace(typeof(MediaContainer));
+        }
+
+        protected virtual void ProcessDecoderOutput(AVPacket* packet, AVSubtitle* frame)
+        {
+            $"{MediaType}: Processing Frame from packet ({packet->pos}). PTS: {frame->pts / ffmpeg.AV_TIME_BASE}".Trace(typeof(MediaContainer));
+        }
+
+        protected virtual void Dispose(bool alsoManaged)
+        {
+            if (!IsDisposing)
+            {
+                if (alsoManaged)
+                {
+                    if (CodecContext != null)
+                    {
+                        fixed (AVCodecContext** codecContext = &CodecContext)
+                            ffmpeg.avcodec_free_context(codecContext);
+
+                        // free all the pending packets
+                        FlushPackets();
+
+                    }
+
+
+                    CodecContext = null;
+                    Codec = null;
+                }
+
+                IsDisposing = true;
+            }
+        }
+
+        // This code added to correctly implement the disposable pattern.
+        public void Dispose()
+        {
+            Dispose(true);
+        }
 
         #endregion
 
     }
 
-    public class NeonVideoDecoder
+    public unsafe class VideoComponentReader : MediaComponentReader
     {
-
-        public NeonVideoDecoder(Neon parent)
+        public VideoComponentReader(MediaContainer container, int streamIndex)
+            : base(container, streamIndex)
         {
 
         }
+
+        protected override void ProcessDecoderOutput(AVPacket* packet, AVFrame* frame)
+        {
+            base.ProcessDecoderOutput(packet, frame);
+        }
+
+        protected override void ProcessDecoderOutput(AVPacket* packet, AVSubtitle* frame)
+        {
+            throw new NotSupportedException("This stream component reader does not support subtitles.");
+        }
     }
 
-    public unsafe class Neon : IDisposable
+    public unsafe class MediaComponent
+    {
+        public MediaComponent(MediaContainer container, MediaType mediaType, int streamIndex)
+        {
+            if (MediaType == MediaType.Video)
+                Reader = new VideoComponentReader(container, streamIndex);
+            else
+                throw new NotImplementedException($"{mediaType} not yet implemented");
+
+            MediaType = mediaType;
+            StreamIndex = streamIndex;
+        }
+
+        public MediaType MediaType { get; internal set; }
+        public int StreamIndex { get; internal set; }
+        public MediaComponentReader Reader { get; internal set; }
+    }
+
+    public unsafe class MediaContainer : IDisposable
     {
         #region Constants
 
@@ -77,32 +387,26 @@ namespace Unosquare.FFplayDotNet
 
         #region Private Fields
 
+        internal AVFormatContext* InputContext = null;
+        internal PlayerOptions Options = null;
+
         private bool IsDisposing = false;
-        private readonly PlayerOptions Options = null;
-        private readonly AVFormatContext* InputContext = null;
-        private readonly Dictionary<MediaType, int> InputStreamIndexes;
+
+        private readonly Dictionary<MediaType, MediaComponent> Components;
 
         private bool SeekByBytes = false;
         private bool EnableInfiniteBuffer = false;
+        private bool InputAllowsDiscontinuities = false;
         private double MaxFrameDurationSeconds = 0d;
-        private long MediaStartTimestamp = ffmpeg.AV_NOPTS_VALUE;
+
+        private readonly MediaActionQueue ActionQueue = new MediaActionQueue();
+        private readonly object SyncRoot = new object();
 
         #endregion
 
         #region Properties
 
         public string MediaUrl { get; private set; }
-
-        public string InputFormatName { get; private set; }
-
-        public bool InputAllowsDiscontinuities
-        {
-            get
-            {
-                if (InputContext == null) return false;
-                return (InputContext->iformat->flags & ffmpeg.AVFMT_TS_DISCONT) != 0;
-            }
-        }
 
         public string MediaTitle
         {
@@ -113,6 +417,10 @@ namespace Unosquare.FFplayDotNet
                 return optionEntry?.Value;
             }
         }
+
+        public bool IsAtEndOfFile { get; private set; }
+
+        public string InputFormatName { get; private set; }
 
         public bool IsMediaRealtime
         {
@@ -136,20 +444,24 @@ namespace Unosquare.FFplayDotNet
             }
         }
 
+        public double MediaStartTime { get; private set; }
+
+        public double MediaDuration { get; private set; }
+
         #endregion
 
-        public Neon(string filename, string formatName = null)
+        public MediaContainer(string mediaUrl, string formatName = null)
         {
 
             // Argument Validation
-            if (string.IsNullOrWhiteSpace(filename))
-                throw new ArgumentNullException($"{nameof(filename)}");
+            if (string.IsNullOrWhiteSpace(mediaUrl))
+                throw new ArgumentNullException($"{nameof(mediaUrl)}");
 
             // Initialize the library (if not already done)
             Helper.RegisterFFmpeg();
 
             // Create the options object
-            MediaUrl = filename;
+            MediaUrl = mediaUrl;
             Options = new PlayerOptions();
 
             // Retrieve the input format (null = auto for default)
@@ -157,7 +469,7 @@ namespace Unosquare.FFplayDotNet
             if (string.IsNullOrWhiteSpace(formatName) == false)
             {
                 inputFormat = ffmpeg.av_find_input_format(formatName);
-                $"Format '{formatName}' not found. Will use automatic format detection.".Warn(typeof(Neon));
+                $"Format '{formatName}' not found. Will use automatic format detection.".Warn(typeof(MediaContainer));
             }
 
             try
@@ -185,7 +497,7 @@ namespace Unosquare.FFplayDotNet
                     // If there are any optins left in the dictionary, it means they dod not get used (invalid options).
                     formatOptions.Remove(ScanAllPMTsKey);
                     if (formatOptions.First() != null)
-                        $"Invalid format option: '{formatOptions.First()?.Key}'".Warn(typeof(Neon));
+                        $"Invalid format option: '{formatOptions.First()?.Key}'".Warn(typeof(MediaContainer));
                 }
 
                 // Inject Codec Parameters
@@ -194,204 +506,57 @@ namespace Unosquare.FFplayDotNet
 
                 // This is useful for file formats with no headers such as MPEG. This function also computes the real framerate in case of MPEG-2 repeat frame mode.
                 if (ffmpeg.avformat_find_stream_info(InputContext, null) < 0)
-                    $"{MediaUrl}: could read stream info.".Warn(typeof(Neon));
+                    $"{MediaUrl}: could read stream info.".Warn(typeof(MediaContainer));
 
                 // TODO: FIXME hack, ffplay maybe should not use avio_feof() to test for the end
                 if (InputContext->pb != null) InputContext->pb->eof_reached = 0;
 
                 // Setup initial state variables
+                InputAllowsDiscontinuities = (InputContext->iformat->flags & ffmpeg.AVFMT_TS_DISCONT) != 0;
                 EnableInfiniteBuffer = IsMediaRealtime;
                 SeekByBytes = InputAllowsDiscontinuities && (InputFormatName.Equals("ogg") == false);
                 MaxFrameDurationSeconds = InputAllowsDiscontinuities ? 10d : 3600d;
-                MediaStartTimestamp = InputContext->start_time;
-                SeekToStartTimestamp();
+
+                MediaStartTime = (double)InputContext->start_time / ffmpeg.AV_TIME_BASE;
+                MediaDuration = (double)InputContext->duration / ffmpeg.AV_TIME_BASE;
+
+                //SeekToStartTimestamp();
 
                 // Open the best suitable streams. Throw if no audio and/or video streams are found
-                InputStreamIndexes = FindBestStreamIndexes();
-                if (InputStreamIndexes.Count(s => s.Key == MediaType.Audio || s.Key == MediaType.Video) <= 0)
-                    throw new Exception($"{MediaUrl}: No audio or video streams found to decode.");
+                Components = CreateStreamComponents();
 
-                //foreach (var streamIndex in InputStreamIndexes)
-                //    OpenStreamByIndex(streamIndex.Value);
-
-
+                // for realtime streams
+                //ffmpeg.av_read_play(InputContext);
             }
             catch (Exception ex)
             {
-                $"Fatal error initializing {nameof(Neon)} instance.".Error(typeof(Neon), ex);
+                $"Fatal error initializing {nameof(MediaContainer)} instance.".Error(typeof(MediaContainer), ex);
                 Dispose(true);
                 throw;
             }
         }
 
-        //private void OpenStreamByIndex(int streamIndex)
-        //{
-        //    var input = InputContext;
-        //    string forcedCodecName = null;
-        //    FFDictionaryEntry kvp = null;
-
-        //    var sampleRate = 0;
-        //    var channelCount = 0;
-        //    var channelLayout = 0L;
-        //    var result = 0;
-
-        //    int lowResIndex = Options.EnableLowRes ? 1 : 0;
-
-        //    var codecContext = ffmpeg.avcodec_alloc_context3(null);
-
-        //    result = ffmpeg.avcodec_parameters_to_context(codecContext, input->streams[streamIndex]->codecpar);
-        //    if (result < 0)
-        //    {
-        //        ffmpeg.avcodec_free_context(&codecContext);
-        //        throw new Exception
-        //    }
-
-        //    ffmpeg.av_codec_set_pkt_timebase(codecContext, input->streams[streamIndex]->time_base);
-        //    var decoder = ffmpeg.avcodec_find_decoder(codecContext->codec_id);
-
-        //    switch (codecContext->codec_type)
-        //    {
-        //        case AVMediaType.AVMEDIA_TYPE_AUDIO: LastAudioStreamIndex = streamIndex; forcedCodecName = Player.AudioCodecName; break;
-        //        case AVMediaType.AVMEDIA_TYPE_SUBTITLE: LastSubtitleStreamIndex = streamIndex; forcedCodecName = Player.SubtitleCodecName; break;
-        //        case AVMediaType.AVMEDIA_TYPE_VIDEO: LastVideoStreamIndex = streamIndex; forcedCodecName = Player.VideoCodecName; break;
-        //    }
-
-        //    if (string.IsNullOrWhiteSpace(forcedCodecName) == false)
-        //        decoder = ffmpeg.avcodec_find_decoder_by_name(forcedCodecName);
-
-        //    if (decoder == null)
-        //    {
-        //        if (string.IsNullOrWhiteSpace(forcedCodecName) == false)
-        //            ffmpeg.av_log(null, ffmpeg.AV_LOG_WARNING, $"No codec could be found with name '{forcedCodecName}'\n");
-        //        else
-        //            ffmpeg.av_log(null, ffmpeg.AV_LOG_WARNING, $"No codec could be found with id {codecContext->codec_id}\n");
-
-        //        result = ffmpeg.AVERROR_EINVAL;
-        //        ffmpeg.avcodec_free_context(&codecContext);
-        //        return result;
-        //    }
-
-        //    codecContext->codec_id = decoder->id;
-
-        //    if (lowResIndex > ffmpeg.av_codec_get_max_lowres(decoder))
-        //    {
-        //        ffmpeg.av_log(codecContext, ffmpeg.AV_LOG_WARNING, $"The maximum value for lowres supported by the decoder is {ffmpeg.av_codec_get_max_lowres(decoder)}\n");
-        //        lowResIndex = ffmpeg.av_codec_get_max_lowres(decoder);
-        //    }
-
-        //    if (Options.EnableLowRes)
-        //    {
-        //        ffmpeg.av_codec_set_lowres(codecContext, 1);
-        //        codecContext->flags |= ffmpeg.CODEC_FLAG_EMU_EDGE;
-        //    }
-
-        //    if (Options.EnableFastDecoding)
-        //        codecContext->flags2 |= ffmpeg.AV_CODEC_FLAG2_FAST;
-
-        //    if ((decoder->capabilities & ffmpeg.AV_CODEC_CAP_DR1) != 0)
-        //        codecContext->flags |= ffmpeg.CODEC_FLAG_EMU_EDGE;
-
-        //    var codecOptions = Options.CodecOptions.FilterOptions(codecContext->codec_id, input, input->streams[streamIndex], decoder);
-
-        //    if (codecOptions.HasKey("threads") == false)
-        //        codecOptions["threads"] = "auto";
-
-        //    if (Options.EnableLowRes)
-        //        codecOptions["lowres"] = "1";
-
-        //    if (codecContext->codec_type == AVMediaType.AVMEDIA_TYPE_VIDEO || codecContext->codec_type == AVMediaType.AVMEDIA_TYPE_AUDIO)
-        //        codecOptions["refcounted_frames"] = "1";
-
-        //    if ((result = ffmpeg.avcodec_open2(codecContext, decoder, codecOptions.Reference)) < 0)
-        //    {
-        //        ffmpeg.avcodec_free_context(&codecContext);
-        //        return result;
-        //    }
-
-        //    // On return of avcodec_open2, codecOptions will be filled with options that were not found.
-        //    if ((kvp = codecOptions.First()) != null)
-        //    {
-        //        ffmpeg.av_log(null, ffmpeg.AV_LOG_WARNING, $"Option {kvp.Key} not found.\n");
-        //        // Do not fail just because of an invalid option.
-        //        //result = ffmpeg.AVERROR_OPTION_NOT_FOUND;
-        //        //goto fail;
-        //    }
-
-        //    IsAtEndOfFile = false;
-        //    input->streams[streamIndex]->discard = AVDiscard.AVDISCARD_DEFAULT;
-
-        //    switch (codecContext->codec_type)
-        //    {
-        //        case AVMediaType.AVMEDIA_TYPE_AUDIO:
-        //            if ((result = Player.audio_open(channelLayout, channelCount, sampleRate, AudioOutputParams)) < 0)
-        //            {
-        //                ffmpeg.avcodec_free_context(&codecContext);
-        //                return result;
-        //            }
-
-        //            AudioHardwareBufferSize = result;
-        //            AudioOutputParams.CopyTo(AudioInputParams);
-        //            RenderAudioBufferLength = 0;
-        //            RenderAudioBufferIndex = 0;
-        //            AudioSkewCoefficient = Math.Exp(Math.Log(0.01) / Constants.AudioSkewMinSamples);
-        //            AudioSkewAvgCount = 0;
-        //            AudioSkewThreshold = (double)(AudioHardwareBufferSize) / AudioOutputParams.BytesPerSecond;
-        //            AudioStreamIndex = streamIndex;
-        //            AudioStream = input->streams[streamIndex];
-
-        //            AudioDecoder = new Decoder(this, codecContext, AudioPackets, IsFrameDecoded);
-
-        //            if ((InputContext->iformat->flags & (ffmpeg.AVFMT_NOBINSEARCH | ffmpeg.AVFMT_NOGENSEARCH | ffmpeg.AVFMT_NO_BYTE_SEEK)) != 0 &&
-        //                InputContext->iformat->read_seek.Pointer == IntPtr.Zero)
-        //            {
-        //                AudioDecoder.StartPts = AudioStream->start_time;
-        //                AudioDecoder.StartPtsTimebase = AudioStream->time_base;
-        //            }
-
-        //            AudioDecoder.Start(FFplay.DecodeAudioQueueContinuously);
-        //            SDL_PauseAudio(0);
-        //            break;
-
-        //        case AVMediaType.AVMEDIA_TYPE_VIDEO:
-        //            VideoStreamIndex = streamIndex;
-        //            VideoStream = input->streams[streamIndex];
-        //            VideoDecoder = new Decoder(this, codecContext, VideoPackets, IsFrameDecoded);
-        //            result = VideoDecoder.Start(FFplay.DecodeVideoQueueContinuously);
-        //            EnqueuePacketAttachments = true;
-        //            break;
-
-        //        case AVMediaType.AVMEDIA_TYPE_SUBTITLE:
-        //            SubtitleStreamIndex = streamIndex;
-        //            SubtitleStream = input->streams[streamIndex];
-        //            SubtitleDecoder = new Decoder(this, codecContext, SubtitlePackets, IsFrameDecoded);
-        //            result = SubtitleDecoder.Start(FFplay.DecodeSubtitlesQueueContinuously);
-        //            break;
-
-        //        default:
-        //            break;
-        //    }
-
-        //    return result;
-        //}
-
-        private Dictionary<MediaType, int> FindBestStreamIndexes()
+        private Dictionary<MediaType, MediaComponent> CreateStreamComponents()
         {
-            var result = new Dictionary<MediaType, int>();
+            var result = new Dictionary<MediaType, MediaComponent>();
             var streamIndexes = new int[(int)AVMediaType.AVMEDIA_TYPE_NB];
             for (var i = 0; i < (int)AVMediaType.AVMEDIA_TYPE_NB; i++)
                 streamIndexes[i] = -1;
 
-            streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_VIDEO] =
-                ffmpeg.av_find_best_stream(InputContext, AVMediaType.AVMEDIA_TYPE_VIDEO,
-                                    streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_VIDEO], -1, null, 0);
+            if (Options.IsVideoDisabled == false)
+                streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_VIDEO] =
+                    ffmpeg.av_find_best_stream(InputContext, AVMediaType.AVMEDIA_TYPE_VIDEO,
+                                        streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_VIDEO], -1, null, 0);
 
-            streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_AUDIO] =
+            if (Options.IsAudioDisabled == false)
+                streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_AUDIO] =
                 ffmpeg.av_find_best_stream(InputContext, AVMediaType.AVMEDIA_TYPE_AUDIO,
                                     streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_AUDIO],
                                     streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_VIDEO],
                                     null, 0);
 
-            streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_SUBTITLE] =
+            if (Options.IsSubtitleDisabled == false)
+                streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_SUBTITLE] =
                 ffmpeg.av_find_best_stream(InputContext, AVMediaType.AVMEDIA_TYPE_SUBTITLE,
                                     streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_SUBTITLE],
                                     (streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_AUDIO] >= 0 ?
@@ -400,13 +565,16 @@ namespace Unosquare.FFplayDotNet
                                     null, 0);
 
             if (streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_VIDEO] >= 0)
-                result[MediaType.Video] = streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_VIDEO];
+                result[MediaType.Video] = new MediaComponent(this, MediaType.Video, streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_VIDEO]);
 
             if (streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_AUDIO] >= 0)
-                result[MediaType.Audio] = streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_AUDIO];
+                result[MediaType.Audio] = new MediaComponent(this, MediaType.Audio, streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_AUDIO]);
 
             if (streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_SUBTITLE] >= 0)
-                result[MediaType.Subtitle] = streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_SUBTITLE];
+                result[MediaType.Subtitle] = new MediaComponent(this, MediaType.Subtitle, streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_SUBTITLE]);
+
+            if (result.Count(s => s.Key == MediaType.Audio || s.Key == MediaType.Video) <= 0)
+                throw new Exception($"{MediaUrl}: No audio or video streams found to decode.");
 
             return result;
 
@@ -414,18 +582,78 @@ namespace Unosquare.FFplayDotNet
 
         private void SeekToStartTimestamp()
         {
-            if (MediaStartTimestamp == ffmpeg.AV_NOPTS_VALUE)
+            if (InputContext->start_time == ffmpeg.AV_NOPTS_VALUE)
                 return;
 
-            var seekToStartResult = ffmpeg.avformat_seek_file(InputContext, -1, long.MinValue, MediaStartTimestamp, long.MaxValue, 0);
+            var seekToStartResult = ffmpeg.avformat_seek_file(InputContext, -1, long.MinValue, InputContext->start_time, long.MaxValue, 0);
 
             if (seekToStartResult < 0)
-                $"File '{MediaUrl}'. Could not seek to position {MediaStartTimestamp / ffmpeg.AV_TIME_BASE}".Warn(typeof(Neon));
+                $"File '{MediaUrl}'. Could not seek to position {(double)InputContext->start_time / ffmpeg.AV_TIME_BASE} secs.".Warn(typeof(MediaContainer));
 
         }
 
-        #region IDisposable Support
+        public void PushAction(MediaAction action)
+        {
+            lock (SyncRoot)
+            {
+                ActionQueue.Push(null, action);
+            }
 
+        }
+
+        public void Process()
+        {
+            lock (SyncRoot)
+            {
+                if (ActionQueue.Count == 0)
+                {
+                    Read();
+                }
+            }
+
+        }
+
+        private void Read()
+        {
+            // Allocate the packet to read
+            var readPacket = ffmpeg.av_packet_alloc();
+            var readResult = ffmpeg.av_read_frame(InputContext, readPacket);
+
+            if (readResult < 0)
+            {
+                // Handle failed packet reads. We don't need the allocated packet anymore
+                ffmpeg.av_packet_free(&readPacket);
+
+                // Detect an end of file situation (makes the readers enter draining mode)
+                if ((readResult == ffmpeg.AVERROR_EOF || ffmpeg.avio_feof(InputContext->pb) != 0) && IsAtEndOfFile == false)
+                {
+                    foreach (var stream in Components)
+                        stream.Value.Reader.SendEmptyPacket();
+
+                    IsAtEndOfFile = true;
+                    return;
+                }
+
+                if (InputContext->pb != null && InputContext->pb->error != 0)
+                    throw new Exception($"Input has produced an error. Error Code {InputContext->pb->error}");
+            }
+            else
+            {
+
+                IsAtEndOfFile = false;
+            }
+
+            // Enqueue the read packet depending on the the type of packet
+            var fedStreams = 0;
+            foreach (var stream in Components)
+                fedStreams += stream.Value.Reader.SendPacket(readPacket);
+
+            // Check if we were able to feed the packet. If not, simply discard it
+            if (fedStreams == 0)
+                ffmpeg.av_packet_free(&readPacket);
+        }
+
+        #region IDisposable Support
 
         protected virtual void Dispose(bool alsoManaged)
         {
@@ -433,20 +661,20 @@ namespace Unosquare.FFplayDotNet
             {
                 if (alsoManaged)
                 {
-                    // TODO: dispose managed state (managed objects).
+                    if (InputContext != null)
+                    {
+                        fixed (AVFormatContext** inputContext = &InputContext)
+                            ffmpeg.avformat_close_input(inputContext);
+
+                        ffmpeg.avformat_free_context(InputContext);
+                    }
                 }
-
-                // TODO: free unmanaged resources (unmanaged objects) and override a finalizer below.
-                if (InputContext != null)
-                    ffmpeg.avformat_free_context(InputContext);
-
-                // TODO: set large fields to null.
 
                 IsDisposing = true;
             }
         }
 
-        ~Neon()
+        ~MediaContainer()
         {
             Dispose(false);
         }

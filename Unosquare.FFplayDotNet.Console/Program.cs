@@ -1,5 +1,6 @@
 ﻿namespace Unosquare.FFplayDotNet.Console
 {
+    using System;
     using System.Collections.Generic;
     using System.Linq;
     using System.Threading;
@@ -11,7 +12,16 @@
     {
         static void Main(string[] args)
         {
-            var player = new Neon(@"c:\users\unosp\Desktop\cowboys.mp4");
+            //("udp://@225.1.1.181:5181/"
+            //@"c:\users\unosp\Desktop\cowboys.mp4"
+            var player = new MediaContainer(@"udp://@225.1.1.181:5181/");
+            var startTime = DateTime.Now;
+            for (var i = 0; i < 10000; i++)
+            {
+                player.Process();
+            }
+
+            $"Took {DateTime.Now.Subtract(startTime).TotalSeconds} seconds to decode 10,000 frames.".Info(typeof(Program));
             //player.OnVideoDataAvailable += Player_OnVideoDataAvailable;
             Terminal.ReadKey(true, true);
         }

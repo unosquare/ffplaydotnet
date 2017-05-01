@@ -496,7 +496,7 @@ namespace Unosquare.FFplayDotNet
     public unsafe class VideoComponentReader : MediaComponentReader
     {
         private SwsContext* Scaler = null;
-        private IntPtr UnmanagedBuffer;
+        private IntPtr PictureBuffer;
         private int PictureBufferLength;
         private byte[] ManagedBuffer;
         private WriteableBitmap OutputBitmap;
@@ -510,6 +510,8 @@ namespace Unosquare.FFplayDotNet
         protected override void ProcessDecoderOutput(AVPacket* packet, AVFrame* frame)
         {
             base.ProcessDecoderOutput(packet, frame);
+
+            frame->pts = ffmpeg.av_frame_get_best_effort_timestamp(frame);
 
             // Retrieve a suitable scaler or create it on the fly
             Scaler = ffmpeg.sws_getCachedContext(Scaler,
@@ -527,15 +529,15 @@ namespace Unosquare.FFplayDotNet
         {
             if (PictureBufferLength != length)
             {
-                if (UnmanagedBuffer != IntPtr.Zero)
-                    Marshal.FreeHGlobal(UnmanagedBuffer);
+                if (PictureBuffer != IntPtr.Zero)
+                    Marshal.FreeHGlobal(PictureBuffer);
 
                 PictureBufferLength = length;
-                UnmanagedBuffer = Marshal.AllocHGlobal(PictureBufferLength);
+                PictureBuffer = Marshal.AllocHGlobal(PictureBufferLength);
                 ManagedBuffer = new byte[PictureBufferLength];
             }
 
-            return UnmanagedBuffer;
+            return PictureBuffer;
         }
 
         private byte[] UpdateBitmapBuffer(AVFrame* frame)
@@ -598,8 +600,8 @@ namespace Unosquare.FFplayDotNet
             if (Scaler != null)
                 ffmpeg.sws_freeContext(Scaler);
 
-            if (UnmanagedBuffer != IntPtr.Zero)
-                Marshal.FreeHGlobal(UnmanagedBuffer);
+            if (PictureBuffer != IntPtr.Zero)
+                Marshal.FreeHGlobal(PictureBuffer);
         }
     }
 

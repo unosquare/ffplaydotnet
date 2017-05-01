@@ -1,11 +1,16 @@
 ﻿using FFmpeg.AutoGen;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
+using System.Windows;
+using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using Unosquare.FFplayDotNet.Core;
 using Unosquare.FFplayDotNet.Primitives;
 using Unosquare.Swan;
@@ -70,26 +75,24 @@ namespace Unosquare.FFplayDotNet
     public unsafe abstract class MediaComponentReader : IDisposable
     {
         protected AVCodecContext* CodecContext;
-        protected AVCodec* Codec;
         protected MediaPacketQueue Packets = new MediaPacketQueue();
         protected MediaPacketQueue SentPackets = new MediaPacketQueue();
         protected MediaType MediaType;
-        protected bool IsAudioOrVideo = false;
 
         public MediaContainer Container { get; private set; }
         public int StreamIndex { get; private set; }
 
+        public int DecodedFrames { get; private set; }
+
         protected MediaComponentReader(MediaContainer container, int streamIndex)
         {
+            // code largely based on stream_component_open
+
             Container = container ?? throw new ArgumentNullException(nameof(container));
             CodecContext = ffmpeg.avcodec_alloc_context3(null);
 
             // Set codec options
             var innerStream = container.InputContext->streams[streamIndex];
-
-            Codec = ffmpeg.avcodec_find_decoder(innerStream->codec->codec_id);
-            
-
             var setCodecParamsResult = ffmpeg.avcodec_parameters_to_context(
                 CodecContext, innerStream->codecpar);
 
@@ -98,8 +101,11 @@ namespace Unosquare.FFplayDotNet
 
             ffmpeg.av_codec_set_pkt_timebase(CodecContext, Container.InputContext->streams[streamIndex]->time_base);
 
+            var codec = ffmpeg.avcodec_find_decoder(innerStream->codec->codec_id);
+            if (codec != null)
+                CodecContext->codec_id = codec->id;
 
-            var lowResIndex = ffmpeg.av_codec_get_max_lowres(Codec);
+            var lowResIndex = ffmpeg.av_codec_get_max_lowres(codec);
             if (Container.Options.EnableLowRes)
             {
                 ffmpeg.av_codec_set_lowres(CodecContext, lowResIndex);
@@ -113,30 +119,30 @@ namespace Unosquare.FFplayDotNet
             if (Container.Options.EnableFastDecoding)
                 CodecContext->flags2 |= ffmpeg.AV_CODEC_FLAG2_FAST;
 
-            if ((Codec->capabilities & ffmpeg.AV_CODEC_CAP_DR1) != 0)
+            if ((codec->capabilities & ffmpeg.AV_CODEC_CAP_DR1) != 0)
                 CodecContext->flags |= ffmpeg.CODEC_FLAG_EMU_EDGE;
 
-            if ((Codec->capabilities & ffmpeg.AV_CODEC_CAP_TRUNCATED) != 0)
+            if ((codec->capabilities & ffmpeg.AV_CODEC_CAP_TRUNCATED) != 0)
                 CodecContext->flags |= ffmpeg.AV_CODEC_CAP_TRUNCATED;
 
-            if ((Codec->capabilities & ffmpeg.CODEC_FLAG2_CHUNKS) != 0)
+            if ((codec->capabilities & ffmpeg.CODEC_FLAG2_CHUNKS) != 0)
                 CodecContext->flags |= ffmpeg.CODEC_FLAG2_CHUNKS;
 
             var codecOptions = Container.Options.CodecOptions.FilterOptions(
-                CodecContext->codec_id, Container.InputContext, Container.InputContext->streams[streamIndex], Codec);
+                CodecContext->codec_id, Container.InputContext, Container.InputContext->streams[streamIndex], codec);
 
             if (codecOptions.HasKey("threads") == false)
                 codecOptions["threads"] = "auto";
 
             if (lowResIndex != 0)
-                codecOptions["lowres"] = lowResIndex.ToString();
+                codecOptions["lowres"] = lowResIndex.ToString(CultureInfo.InvariantCulture);
 
             if (CodecContext->codec_type == AVMediaType.AVMEDIA_TYPE_VIDEO || CodecContext->codec_type == AVMediaType.AVMEDIA_TYPE_AUDIO)
                 codecOptions["refcounted_frames"] = "1";
 
             try
             {
-                var codecOpenResult = ffmpeg.avcodec_open2(CodecContext, Codec, codecOptions.Reference);
+                var codecOpenResult = ffmpeg.avcodec_open2(CodecContext, codec, codecOptions.Reference);
                 if (codecOpenResult < 0)
                     throw new Exception($"Unable to open codec. Error code {codecOpenResult}");
 
@@ -155,7 +161,6 @@ namespace Unosquare.FFplayDotNet
             // Setup initial state.
             Container.InputContext->streams[streamIndex]->discard = AVDiscard.AVDISCARD_DEFAULT;
             MediaType = (MediaType)CodecContext->codec_type;
-            IsAudioOrVideo = MediaType == MediaType.Audio || MediaType == MediaType.Video;
         }
 
         #region IDisposable Support
@@ -194,114 +199,264 @@ namespace Unosquare.FFplayDotNet
             if (packet->stream_index != StreamIndex) return 0;
 
             Packets.Push(packet);
-            ProcessNextPacket();
+            ProcessNextPacket(false);
             return 1;
         }
 
-        protected virtual void ProcessNextPacket()
+        protected virtual void ProcessNextPacketClassic()
         {
             if (Packets.Count <= 0) return;
             var packet = Packets.Peek();
             var receivedFrameCount = 0;
 
-            if (IsAudioOrVideo)
+            var flushPacket = ffmpeg.av_packet_alloc();
+            flushPacket->data = null;
+            flushPacket->size = 0;
+
+            if (MediaType == MediaType.Video || MediaType == MediaType.Audio)
+            {
+                var outputFrame = ffmpeg.av_frame_alloc();
+                var gotFrame = 0;
+                var decodeResult = MediaType == MediaType.Video ?
+                    ffmpeg.avcodec_decode_video2(CodecContext, outputFrame, &gotFrame, packet) :
+                    ffmpeg.avcodec_decode_audio4(CodecContext, outputFrame, &gotFrame, packet);
+
+                SentPackets.Push(Packets.Dequeue());
+
+                try
+                {
+                    if (decodeResult < 0)
+                    {
+                        SentPackets.Clear();
+                        $"{MediaType}: Error decoding. Error Code: {decodeResult}".Error(typeof(MediaContainer));
+                    }
+                    else
+                    {
+                        if (gotFrame != 0)
+                        {
+                            receivedFrameCount += 1;
+                            ProcessDecoderOutput(packet, outputFrame);
+                        }
+
+                        while (gotFrame != 0 || decodeResult >= 0)
+                        {
+                            decodeResult = MediaType == MediaType.Video ?
+                                ffmpeg.avcodec_decode_video2(CodecContext, outputFrame, &gotFrame, flushPacket) :
+                                ffmpeg.avcodec_decode_audio4(CodecContext, outputFrame, &gotFrame, flushPacket);
+
+                            if (gotFrame != 0)
+                            {
+                                receivedFrameCount += 1;
+                                ProcessDecoderOutput(flushPacket, outputFrame);
+                            }
+                        }
+                    }
+
+                }
+                finally
+                {
+                    ffmpeg.av_frame_free(&outputFrame);
+                }
+
+            }
+            else if (MediaType == MediaType.Subtitle)
+            {
+                var gotFrame = 0;
+
+                var outputFrame = new AVSubtitle();
+                var decodeResult = ffmpeg.avcodec_decode_subtitle2(CodecContext, &outputFrame, &gotFrame, packet);
+                SentPackets.Push(Packets.Dequeue());
+
+                try
+                {
+                    // Check if there is an error decoding the packet.
+                    // If there is, remove the packet clear the sent packets
+                    if (decodeResult < 0)
+                    {
+                        SentPackets.Clear();
+                        $"{MediaType}: Error decoding. Error Code: {decodeResult}".Error(typeof(MediaContainer));
+                    }
+                    else
+                    {
+                        if (gotFrame != 0)
+                        {
+                            receivedFrameCount += 1;
+                            ProcessDecoderOutput(packet, &outputFrame);
+                        }
+
+                        while (gotFrame != 0 || decodeResult >= 0)
+                        {
+                            decodeResult = ffmpeg.avcodec_decode_subtitle2(CodecContext, &outputFrame, &gotFrame, flushPacket);
+                            if (gotFrame != 0)
+                            {
+                                receivedFrameCount += 1;
+                                ProcessDecoderOutput(flushPacket, &outputFrame);
+                            }
+                        }
+                    }
+                }
+                finally
+                {
+                    ffmpeg.avsubtitle_free(&outputFrame);
+                }
+
+            }
+
+            ffmpeg.av_packet_free(&flushPacket);
+
+            if (receivedFrameCount >= 1)
+            {
+                // At least 1 frame was decoded, we don't need the sent frame anymore.
+                SentPackets.Clear();
+                //$"{MediaType}: Received {receivedFrameCount} Frames. Pending Packets: {SentPackets.Count}".Trace(typeof(MediaContainer));
+            }
+
+
+        }
+
+        protected virtual void ProcessNextPacket(bool useTasks = false)
+        {
+            // Ensure there is at least one packet in the queue
+            if (Packets.Count <= 0) return;
+
+            // Setup some initial state variables
+            var packet = Packets.Peek();
+            var receiveFrameResult = 0;
+            var receivedFrameCount = 0;
+
+            // Create a temporary flush packet (will be released at the end)
+            var flushPacket = ffmpeg.av_packet_alloc();
+            flushPacket->data = null;
+            flushPacket->size = 0;
+
+            if (MediaType == MediaType.Audio || MediaType == MediaType.Video)
             {
                 // Let us send the packet to the codec for decoding a frame of uncompressed data later
                 var sendPacketResult = ffmpeg.avcodec_send_packet(CodecContext, IsEmptyPacket(packet) ? null : packet);
 
                 // Check if the send operation was successful. If not, the decoding buffer might be full
                 // We will keep the packet in the queue to process it later.
-                if (sendPacketResult == 0)
+                if (sendPacketResult != ffmpeg.AVERROR_EAGAIN)
                     SentPackets.Push(Packets.Dequeue());
 
                 // Let's check and see if we can get 1 or more frames from the packet we just sent to the decoder.
                 // Audio packets will typically contain 1 or more frames
-                // Video packets will require several packets to decode 1 frame
-                var receiveFrameResult = 0;
+                // Video packets will might only require several packets to decode 1 frame
 
-                while (true)
+                while (receiveFrameResult == 0)
                 {
-                    // Try to receive the input frame
-                    AVFrame* outputFrame = ffmpeg.av_frame_alloc();
+                    // Try to receive the decompressed frame data
+                    var outputFrame = ffmpeg.av_frame_alloc();
                     receiveFrameResult = ffmpeg.avcodec_receive_frame(CodecContext, outputFrame);
 
-                    // Break the cycle of getting frames if we are unable to decode.
-                    if (receiveFrameResult == 0)
+                    try
                     {
-                        receivedFrameCount += 1;
-                        ProcessDecoderOutput(packet, outputFrame);
-                        ffmpeg.av_frame_free(&outputFrame);
+                        // Process the output frame if we were successful on a different thread if possible
+                        // That is, using a new task
+                        if (receiveFrameResult == 0)
+                        {
+                            receivedFrameCount += 1;
+                            var processFrame = outputFrame;
+
+                            if (useTasks)
+                            {
+                                var task = Task.Run(() => { ProcessDecoderOutput(packet, processFrame); });
+                                task.Wait();
+                            }
+                            else
+                            {
+                                ProcessDecoderOutput(packet, processFrame);
+                            }
+
+                        }
                     }
-                    else
+                    finally
                     {
+
+                        // Release the frame as the decoded data has been processed.
                         ffmpeg.av_frame_free(&outputFrame);
-                        break;
                     }
                 }
-
-                // Dispose of the packets as one or more full frames were successfully decoded.
-                if (receivedFrameCount >= 1)
-                    SentPackets.Clear();
-
             }
-            else
+            else if (MediaType == MediaType.Subtitle)
             {
-                var gotSubtitle = 0;
-
-                var outputSubtitle = new AVSubtitle();
-                var decodeResult = ffmpeg.avcodec_decode_subtitle2(CodecContext, &outputSubtitle, &gotSubtitle, packet);
+                var gotFrame = 0;
+                var outputFrame = new AVSubtitle();
+                receiveFrameResult = ffmpeg.avcodec_decode_subtitle2(CodecContext, &outputFrame, &gotFrame, packet);
                 SentPackets.Push(Packets.Dequeue());
 
                 // Check if there is an error decoding the packet.
                 // If there is, remove the packet clear the sent packets
-                if (decodeResult < 0)
+                if (receiveFrameResult < 0)
                 {
+                    ffmpeg.avsubtitle_free(&outputFrame);
                     SentPackets.Clear();
-                    $"{MediaType}: Error decoding. Error Code: {decodeResult}".Error(typeof(MediaContainer));
+                    $"{MediaType}: Error decoding. Error Code: {receiveFrameResult}".Error(typeof(MediaContainer));
                 }
                 else
                 {
-                    if (gotSubtitle != 0)
+                    if (gotFrame != 0)
                     {
                         receivedFrameCount += 1;
-                        ProcessDecoderOutput(packet, &outputSubtitle);
-                        ffmpeg.avsubtitle_free(&outputSubtitle);
+                        var processFrame = &outputFrame;
+                        if (useTasks)
+                        {
+                            var task = Task.Run(() => { ProcessDecoderOutput(packet, processFrame); });
+                            task.Wait();
+                        }
+                        else
+                        {
+                            ProcessDecoderOutput(packet, processFrame);
+                        }
                     }
 
-                    while (gotSubtitle != 0 || decodeResult >= 0)
-                    {
-                        var flushPacket = ffmpeg.av_packet_alloc();
-                        flushPacket->data = null;
-                        flushPacket->size = 0;
+                    ffmpeg.avsubtitle_free(&outputFrame);
 
-                        decodeResult = ffmpeg.avcodec_decode_subtitle2(CodecContext, &outputSubtitle, &gotSubtitle, flushPacket);
-                        if (gotSubtitle != 0)
+                    while (gotFrame != 0 || receiveFrameResult >= 0)
+                    {
+                        outputFrame = new AVSubtitle();
+                        receiveFrameResult = ffmpeg.avcodec_decode_subtitle2(CodecContext, &outputFrame, &gotFrame, flushPacket);
+                        if (gotFrame != 0)
                         {
                             receivedFrameCount += 1;
-                            ProcessDecoderOutput(flushPacket, &outputSubtitle);
-                            ffmpeg.avsubtitle_free(&outputSubtitle);
+                            var processFrame = &outputFrame;
+
+                            if (useTasks)
+                            {
+                                var task = Task.Run(() => { ProcessDecoderOutput(packet, processFrame); });
+                                task.Wait();
+                            }
+                            else
+                            {
+                                ProcessDecoderOutput(packet, processFrame);
+                            }
                         }
 
-                        ffmpeg.av_packet_free(&flushPacket);
+                        ffmpeg.avsubtitle_free(&outputFrame);
                     }
-
-                    SentPackets.Clear();
                 }
             }
 
-            if (receivedFrameCount >= 1)
-                $"{MediaType}: Received {receivedFrameCount} Frames. Pending Packets: {SentPackets.Count}".Trace(typeof(MediaContainer));
+            // release the temporary flush packet
+            ffmpeg.av_packet_free(&flushPacket);
 
+            // Release the sent packets if 1 or more frames were received in the packet
+            if (receivedFrameCount >= 1)
+            {
+                DecodedFrames += receivedFrameCount;
+                SentPackets.Clear();
+                //$"{MediaType}: Received {receivedFrameCount} Frames. Pending Packets: {SentPackets.Count}".Trace(typeof(MediaContainer));
+            }
         }
 
         protected virtual void ProcessDecoderOutput(AVPacket* packet, AVFrame* frame)
         {
-            $"{MediaType}: Processing Frame from packet ({packet->pos}). PTS: {(double)frame->pts / ffmpeg.AV_TIME_BASE}".Trace(typeof(MediaContainer));
+            //$"{MediaType}: Processing Frame from packet ({packet->pos}). PTS: {(double)frame->pts / ffmpeg.AV_TIME_BASE}".Trace(typeof(MediaContainer));
         }
 
         protected virtual void ProcessDecoderOutput(AVPacket* packet, AVSubtitle* frame)
         {
-            $"{MediaType}: Processing Frame from packet ({packet->pos}). PTS: {frame->pts / ffmpeg.AV_TIME_BASE}".Trace(typeof(MediaContainer));
+            //$"{MediaType}: Processing Frame from packet ({packet->pos}). PTS: {frame->pts / ffmpeg.AV_TIME_BASE}".Trace(typeof(MediaContainer));
         }
 
         protected virtual void Dispose(bool alsoManaged)
@@ -322,7 +477,6 @@ namespace Unosquare.FFplayDotNet
 
 
                     CodecContext = null;
-                    Codec = null;
                 }
 
                 IsDisposing = true;
@@ -341,6 +495,12 @@ namespace Unosquare.FFplayDotNet
 
     public unsafe class VideoComponentReader : MediaComponentReader
     {
+        private SwsContext* Scaler = null;
+        private IntPtr UnmanagedBuffer;
+        private int PictureBufferLength;
+        private byte[] ManagedBuffer;
+        private WriteableBitmap OutputBitmap;
+
         public VideoComponentReader(MediaContainer container, int streamIndex)
             : base(container, streamIndex)
         {
@@ -350,11 +510,96 @@ namespace Unosquare.FFplayDotNet
         protected override void ProcessDecoderOutput(AVPacket* packet, AVFrame* frame)
         {
             base.ProcessDecoderOutput(packet, frame);
+
+            // Retrieve a suitable scaler or create it on the fly
+            Scaler = ffmpeg.sws_getCachedContext(Scaler,
+                    frame->width, frame->height, (AVPixelFormat)frame->format, frame->width, frame->height,
+                    Constants.OutputPixelFormat, Container.Options.VideoScalerFlags, null, null, null);
+
+            var bitmap = UpdateBitmap(frame);
+            var currentSeconds = Math.Round((decimal)frame->pts / ffmpeg.AV_TIME_BASE, 2);
+
+            //if (currentSeconds % 1M == 0)
+            //    SaveBitmapToPng($"c:\\users\\unosp\\desktop\\output\\test-{currentSeconds}.png");
+        }
+
+        private IntPtr AllocateBuffer(int length)
+        {
+            if (PictureBufferLength != length)
+            {
+                if (UnmanagedBuffer != IntPtr.Zero)
+                    Marshal.FreeHGlobal(UnmanagedBuffer);
+
+                PictureBufferLength = length;
+                UnmanagedBuffer = Marshal.AllocHGlobal(PictureBufferLength);
+                ManagedBuffer = new byte[PictureBufferLength];
+            }
+
+            return UnmanagedBuffer;
+        }
+
+        private byte[] UpdateBitmapBuffer(AVFrame* frame)
+        {
+            var targetStride = new int[] {
+                ffmpeg.av_image_get_linesize(Constants.OutputPixelFormat, frame->width, 0)
+            };
+
+            var targetLength = ffmpeg.av_image_get_buffer_size(Constants.OutputPixelFormat, frame->width, frame->height, 1);
+            var targetScan = new byte_ptrArray8();
+
+            var unmanagedBuffer = AllocateBuffer(targetLength);
+            targetScan[0] = (byte*)unmanagedBuffer;
+
+            var outputHeight = ffmpeg.sws_scale(Scaler, frame->data, frame->linesize, 0, frame->height, targetScan, targetStride);
+            Marshal.Copy(unmanagedBuffer, ManagedBuffer, 0, PictureBufferLength);
+
+            return ManagedBuffer;
+        }
+
+        private void SaveBitmapToPng(string filename)
+        {
+            using (var fileStream = new FileStream(filename, FileMode.Create))
+            {
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(OutputBitmap));
+                encoder.Save(fileStream);
+            }
+        }
+
+        private WriteableBitmap UpdateBitmap(AVFrame* frame)
+        {
+            var targetStride = new int[] {
+                ffmpeg.av_image_get_linesize(Constants.OutputPixelFormat, frame->width, 0)
+            };
+
+            var targetLength = ffmpeg.av_image_get_buffer_size(Constants.OutputPixelFormat, frame->width, frame->height, 1);
+            var targetScan = new byte_ptrArray8();
+
+            if (OutputBitmap == null || OutputBitmap.PixelWidth != frame->width || OutputBitmap.PixelHeight != frame->height)
+                OutputBitmap = new WriteableBitmap(frame->width, frame->height, 96, 96, PixelFormats.Bgr24, null);
+
+            OutputBitmap.Lock();
+            targetScan[0] = (byte*)OutputBitmap.BackBuffer;
+            var outputHeight = ffmpeg.sws_scale(Scaler, frame->data, frame->linesize, 0, frame->height, targetScan, targetStride);
+            OutputBitmap.AddDirtyRect(new Int32Rect(0, 0, OutputBitmap.PixelWidth, OutputBitmap.PixelHeight));
+            OutputBitmap.Unlock();
+
+            return OutputBitmap;
         }
 
         protected override void ProcessDecoderOutput(AVPacket* packet, AVSubtitle* frame)
         {
             throw new NotSupportedException("This stream component reader does not support subtitles.");
+        }
+
+        protected override void Dispose(bool alsoManaged)
+        {
+            base.Dispose(alsoManaged);
+            if (Scaler != null)
+                ffmpeg.sws_freeContext(Scaler);
+
+            if (UnmanagedBuffer != IntPtr.Zero)
+                Marshal.FreeHGlobal(UnmanagedBuffer);
         }
     }
 
@@ -448,6 +693,27 @@ namespace Unosquare.FFplayDotNet
 
         public double MediaDuration { get; private set; }
 
+        public int DecodedVideoFrames
+        {
+            get
+            {
+                lock (SyncRoot)
+                    return Components.ContainsKey(MediaType.Video) ?
+                        Components[MediaType.Video].Reader.DecodedFrames : 0;
+            }
+        }
+
+        public double Framerate
+        {
+            get
+            {
+                lock (SyncRoot)
+                    return InputContext != null && Components.ContainsKey(MediaType.Video) ?
+                        ffmpeg.av_q2d(InputContext->streams[Components[MediaType.Video].StreamIndex]->avg_frame_rate) :
+                        0;
+            }
+        }
+
         #endregion
 
         public MediaContainer(string mediaUrl, string formatName = null)
@@ -526,7 +792,8 @@ namespace Unosquare.FFplayDotNet
                 Components = CreateStreamComponents();
 
                 // for realtime streams
-                //ffmpeg.av_read_play(InputContext);
+                if (IsMediaRealtime)
+                    ffmpeg.av_read_play(InputContext);
             }
             catch (Exception ex)
             {
@@ -639,7 +906,6 @@ namespace Unosquare.FFplayDotNet
             }
             else
             {
-
                 IsAtEndOfFile = false;
             }
 

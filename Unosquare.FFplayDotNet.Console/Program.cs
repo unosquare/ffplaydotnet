@@ -14,14 +14,16 @@
         {
             //("udp://@225.1.1.181:5181/"
             //@"c:\users\unosp\Desktop\cowboys.mp4"
-            var player = new MediaContainer(@"udp://@225.1.1.181:5181/");
+            var player = new MediaContainer(@"c:\users\unosp\Desktop\cowboys.mp4");
             var startTime = DateTime.Now;
-            for (var i = 0; i < 10000; i++)
+            var packetsToDecode = 10000;
+
+            for (var i = 0; i < packetsToDecode; i++)
             {
                 player.Process();
             }
 
-            $"Took {DateTime.Now.Subtract(startTime).TotalSeconds} seconds to decode 10,000 frames.".Info(typeof(Program));
+            $"Took {DateTime.Now.Subtract(startTime).TotalSeconds} seconds to decode {packetsToDecode} packets, {player.DecodedVideoFrames} fames, ({player.DecodedVideoFrames / player.Framerate}) seconds.".Info(typeof(Program));
             //player.OnVideoDataAvailable += Player_OnVideoDataAvailable;
             Terminal.ReadKey(true, true);
         }

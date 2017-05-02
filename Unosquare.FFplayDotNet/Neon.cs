@@ -193,14 +193,10 @@ namespace Unosquare.FFplayDotNet
             return (packet->data == null && packet->size == 0);
         }
 
-        public int SendPacket(AVPacket* packet)
+        public void SendPacket(AVPacket* packet)
         {
-            if (packet == null) return 0;
-            if (packet->stream_index != StreamIndex) return 0;
-
             Packets.Push(packet);
             ProcessNextPacket(false);
-            return 1;
         }
 
         protected virtual void ProcessNextPacketClassic()
@@ -521,8 +517,8 @@ namespace Unosquare.FFplayDotNet
             var bitmap = UpdateBitmap(frame);
             var currentSeconds = Math.Round((decimal)frame->pts / ffmpeg.AV_TIME_BASE, 2);
 
-            //if (currentSeconds % 1M == 0)
-            //    SaveBitmapToPng($"c:\\users\\unosp\\desktop\\output\\test-{currentSeconds}.png");
+            if (currentSeconds % 1M == 0)
+                SaveBitmapToPng($"c:\\users\\unosp\\desktop\\output\\test-{currentSeconds}.png");
         }
 
         private IntPtr AllocateBuffer(int length)
@@ -875,9 +871,7 @@ namespace Unosquare.FFplayDotNet
             lock (SyncRoot)
             {
                 if (ActionQueue.Count == 0)
-                {
                     Read();
-                }
             }
 
         }
@@ -912,12 +906,23 @@ namespace Unosquare.FFplayDotNet
             }
 
             // Enqueue the read packet depending on the the type of packet
-            var fedStreams = 0;
-            foreach (var stream in Components)
-                fedStreams += stream.Value.Reader.SendPacket(readPacket);
+
+            
+
+            var wasPacketUsed = false;
+            foreach (var component in Components)
+            {
+                if (component.Value.StreamIndex == readPacket->stream_index)
+                {
+                    component.Value.Reader.SendPacket(readPacket);
+                    wasPacketUsed = true;
+                    break;
+                }
+            }
+                
 
             // Check if we were able to feed the packet. If not, simply discard it
-            if (fedStreams == 0)
+            if (wasPacketUsed == false)
                 ffmpeg.av_packet_free(&readPacket);
         }
 

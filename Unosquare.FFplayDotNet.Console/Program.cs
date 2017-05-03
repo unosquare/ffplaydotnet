@@ -12,9 +12,9 @@
     {
         static void Main(string[] args)
         {
-            //  "udp://@225.1.1.181:5181/"
+            //  @"udp://@225.1.1.181:5181/"
             //  @"c:\users\unosp\Desktop\cowboys.mp4"
-            var player = new MediaContainer(@"udp://@225.1.1.181:5181/");
+            var player = new MediaContainer(@"c:\users\unosp\Desktop\cowboys.mp4");
             var startTime = DateTime.Now;
             var packetsToDecode = 10000;
 

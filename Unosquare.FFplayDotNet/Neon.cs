@@ -16,6 +16,9 @@ using Unosquare.Swan;
 
 namespace Unosquare.FFplayDotNet
 {
+    /// <summary>
+    /// Enumerates the different Media Types
+    /// </summary>
     public enum MediaType
     {
         Video = 0,
@@ -23,54 +26,153 @@ namespace Unosquare.FFplayDotNet
         Subtitle = 3,
     }
 
-    public unsafe class MediaPacketQueue
+    /// <summary>
+    /// A data structure containing a quque of packets to process.
+    /// This class is thread safe and disposable.
+    /// Enqueued, unmanaged packets are disposed automatically by this queue.
+    /// Dequeued packets are the responsibility of the calling code.
+    /// </summary>
+    public unsafe class MediaPacketQueue : IDisposable
     {
-        private readonly List<IntPtr> PacketPointers = new List<IntPtr>();
+        #region Private Declarations
 
+        private bool IsDisposing = false; // To detect redundant calls
+        private readonly List<IntPtr> PacketPointers = new List<IntPtr>();
+        private readonly object SyncRoot = new object();
+
+        #endregion
+
+        #region Properties
+
+        /// <summary>
+        /// Gets or sets the <see cref="AVPacket"/> at the specified index.
+        /// </summary>
+        /// <value>
+        /// The <see cref="AVPacket"/>.
+        /// </value>
+        /// <param name="index">The index.</param>
+        /// <returns></returns>
         public AVPacket* this[int index]
         {
             get
             {
-                return (AVPacket*)PacketPointers[index];
+                lock (SyncRoot)
+                    return (AVPacket*)PacketPointers[index];
             }
             set
             {
-                PacketPointers[index] = (IntPtr)value;
+                lock (SyncRoot)
+                    PacketPointers[index] = (IntPtr)value;
             }
         }
 
-        public int Count { get { return PacketPointers.Count; } }
+        /// <summary>
+        /// Gets the packet count.
+        /// </summary>
+        public int Count
+        {
+            get
+            {
+                lock (SyncRoot)
+                    return PacketPointers.Count;
+            }
+        }
 
+        #endregion
+
+        #region Methods
+
+        /// <summary>
+        /// Peeks the next available packet in the queue without removing it.
+        /// If no packets are available, null is returned.
+        /// </summary>
+        /// <returns></returns>
         public AVPacket* Peek()
         {
-            if (PacketPointers.Count <= 0) return null;
-            return (AVPacket*)PacketPointers[0];
-        }
-
-        public void Push(AVPacket* packet)
-        {
-            PacketPointers.Add((IntPtr)packet);
-        }
-
-        public AVPacket* Dequeue()
-        {
-            if (PacketPointers.Count <= 0) return null;
-            var result = PacketPointers[0];
-            PacketPointers.RemoveAt(0);
-            return (AVPacket*)result;
-        }
-
-        public void Clear()
-        {
-            while (PacketPointers.Count > 0)
+            lock (SyncRoot)
             {
-                var packet = Dequeue();
-                ffmpeg.av_packet_free(&packet);
+                if (PacketPointers.Count <= 0) return null;
+                return (AVPacket*)PacketPointers[0];
             }
         }
 
+        /// <summary>
+        /// Pushes the specified packet into the queue.
+        /// In other words, enqueues the packet.
+        /// </summary>
+        /// <param name="packet">The packet.</param>
+        public void Push(AVPacket* packet)
+        {
+            lock (SyncRoot)
+                PacketPointers.Add((IntPtr)packet);
+        }
+
+        /// <summary>
+        /// Dequeues a packet from this queue.
+        /// </summary>
+        /// <returns></returns>
+        public AVPacket* Dequeue()
+        {
+            lock (SyncRoot)
+            {
+                if (PacketPointers.Count <= 0) return null;
+                var result = PacketPointers[0];
+                PacketPointers.RemoveAt(0);
+                return (AVPacket*)result;
+            }
+        }
+
+        /// <summary>
+        /// Clears and frees all the unmanaged packets from this queue.
+        /// </summary>
+        public void Clear()
+        {
+            lock (SyncRoot)
+            {
+                while (PacketPointers.Count > 0)
+                {
+                    var packet = Dequeue();
+                    ffmpeg.av_packet_free(&packet);
+                }
+            }
+        }
+
+        #endregion
+
+        #region IDisposable Support
+
+        /// <summary>
+        /// Releases unmanaged and - optionally - managed resources.
+        /// </summary>
+        /// <param name="alsoManaged"><c>true</c> to release both managed and unmanaged resources; <c>false</c> to release only unmanaged resources.</param>
+        protected virtual void Dispose(bool alsoManaged)
+        {
+            if (!IsDisposing)
+            {
+                if (alsoManaged)
+                    Clear();
+
+                IsDisposing = true;
+            }
+        }
+
+        /// <summary>
+        /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
+        /// </summary>
+        public void Dispose()
+        {
+            Dispose(true);
+        }
+
+        #endregion
     }
 
+    /// <summary>
+    /// Represents a media component of a given media type within a 
+    /// media container. Derived classes must implement frame handling
+    /// logic.
+    /// </summary>
+    /// <seealso cref="System.IDisposable" />
     public unsafe abstract class MediaComponent : IDisposable
     {
         #region Private Declarations
@@ -541,34 +643,92 @@ namespace Unosquare.FFplayDotNet
         }
     }
 
+    /// <summary>
+    /// Represents a set of Audio, Video and Subtitle components.
+    /// This class is useful in order to group all components into 
+    /// a single set. Sending packets is automatically handled by
+    /// this class. This class is not thread safe.
+    /// </summary>
     public class MediaComponentSet
     {
+        #region Private Declarations
+
         protected readonly Dictionary<MediaType, MediaComponent> Items = new Dictionary<MediaType, MediaComponent>();
 
+        #endregion
+
+        #region Constructor
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="MediaComponentSet"/> class.
+        /// </summary>
         internal MediaComponentSet()
         {
             // prevent external initialization
         }
 
+        #endregion
+
+        #region Properties
+
+        /// <summary>
+        /// Gets the video component.
+        /// </summary>
         public VideoComponent Video
         {
             get { return Items.ContainsKey(MediaType.Video) ? Items[MediaType.Video] as VideoComponent : null; }
         }
 
+        /// <summary>
+        /// Gets the audio component.
+        /// </summary>
         public AudioComponent Audio
         {
             get { return Items.ContainsKey(MediaType.Audio) ? Items[MediaType.Audio] as AudioComponent : null; }
         }
 
+        /// <summary>
+        /// Gets the subtitles component.
+        /// </summary>
         public SubtitleComponent Subtitles
         {
             get { return Items.ContainsKey(MediaType.Subtitle) ? Items[MediaType.Subtitle] as SubtitleComponent : null; }
         }
 
+        /// <summary>
+        /// Gets a value indicating whether this instance has a video component.
+        /// </summary>
+        /// <value>
+        ///   <c>true</c> if this instance has video; otherwise, <c>false</c>.
+        /// </value>
         public bool HasVideo { get { return Video != null; } }
+
+        /// <summary>
+        /// Gets a value indicating whether this instance has an audio component.
+        /// </summary>
+        /// <value>
+        ///   <c>true</c> if this instance has audio; otherwise, <c>false</c>.
+        /// </value>
         public bool HasAudio { get { return Audio != null; } }
+        
+        /// <summary>
+        /// Gets a value indicating whether this instance has a subtitles component.
+        /// </summary>
+        /// <value>
+        ///   <c>true</c> if this instance has subtitles; otherwise, <c>false</c>.
+        /// </value>
         public bool HasSubtitles { get { return Subtitles != null; } }
 
+        /// <summary>
+        /// Gets or sets the <see cref="MediaComponent"/> with the specified media type.
+        /// </summary>
+        /// <value>
+        /// The <see cref="MediaComponent"/>.
+        /// </value>
+        /// <param name="mediaType">Type of the media.</param>
+        /// <returns></returns>
+        /// <exception cref="System.ArgumentException"></exception>
+        /// <exception cref="System.ArgumentNullException">MediaComponent</exception>
         public MediaComponent this[MediaType mediaType]
         {
             get { return Items.ContainsKey(mediaType) ? Items[mediaType] : null; }
@@ -577,31 +737,49 @@ namespace Unosquare.FFplayDotNet
                 if (Items.ContainsKey(mediaType))
                     throw new ArgumentException($"A component for '{mediaType}' is already registered.");
 
-                Items[mediaType] = value;
+                Items[mediaType] = value ??
+                    throw new ArgumentNullException($"{nameof(MediaComponent)} {nameof(value)} must not be null.");
             }
         }
 
+        #endregion
+
+        #region Methods
+
+        /// <summary>
+        /// Sends the specified packet to the correct component by reading the stream index
+        /// of the packet that is being sent. No packet is sent if the provided packet is set to null.
+        /// Returns true if the packet matched a component and was sent successfully. Otherwise, it returns false.
+        /// </summary>
+        /// <param name="packet">The packet.</param>
+        /// <returns></returns>
         internal unsafe bool SendPacket(AVPacket* packet)
         {
+            if (packet == null)
+                return false;
+
             foreach (var item in Items)
             {
                 if (item.Value.StreamIndex == packet->stream_index)
                 {
                     item.Value.SendPacket(packet);
                     return true;
-                }       
+                }
             }
 
             return false;
         }
 
+        /// <summary>
+        /// Sends an empty packet to all media components.
+        /// </summary>
         internal unsafe void SendEmptyPacket()
         {
             foreach (var item in Items)
-            {
                 item.Value.SendEmptyPacket();
-            }
         }
+
+        #endregion
     }
 
     public unsafe class MediaContainer : IDisposable
@@ -741,8 +919,8 @@ namespace Unosquare.FFplayDotNet
                 if (InputContext->pb != null) InputContext->pb->eof_reached = 0;
 
                 // Setup initial state variables
-                IsMediaRealtime = new [] { "rtp", "rtsp", "sdp" }.Any(s => InputFormatName.Equals(s)) || 
-                    (InputContext->pb != null && new [] { "rtp:", "udp:" }.Any(s => MediaUrl.StartsWith(s)));
+                IsMediaRealtime = new[] { "rtp", "rtsp", "sdp" }.Any(s => InputFormatName.Equals(s)) ||
+                    (InputContext->pb != null && new[] { "rtp:", "udp:" }.Any(s => MediaUrl.StartsWith(s)));
                 InputAllowsDiscontinuities = (InputContext->iformat->flags & ffmpeg.AVFMT_TS_DISCONT) != 0;
                 EnableInfiniteBuffer = IsMediaRealtime;
                 SeekByBytes = InputAllowsDiscontinuities && (InputFormatName.Equals("ogg") == false);
@@ -770,7 +948,7 @@ namespace Unosquare.FFplayDotNet
 
         private MediaComponentSet CreateStreamComponents()
         {
-            
+
             var streamIndexes = new int[(int)AVMediaType.AVMEDIA_TYPE_NB];
             for (var i = 0; i < (int)AVMediaType.AVMEDIA_TYPE_NB; i++)
                 streamIndexes[i] = -1;

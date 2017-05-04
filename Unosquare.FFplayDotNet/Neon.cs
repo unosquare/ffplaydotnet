@@ -365,9 +365,9 @@ namespace Unosquare.FFplayDotNet
         /// <summary>
         /// Determines whether the specified packet is a Flush Packet (data = null, size = 0)
         /// </summary>
-        protected static bool IsFlushPacket(AVPacket* packet)
+        protected bool IsFlushPacket(AVPacket* packet)
         {
-            if (packet == null) return true;
+            if (packet == null || packet == FlushPacket) return true;
             return (packet->data == null && packet->size == 0);
         }
 
@@ -529,12 +529,12 @@ namespace Unosquare.FFplayDotNet
 
         protected virtual void ProcessFrame(AVPacket* packet, AVFrame* frame)
         {
-            $"{MediaType}: Processing Frame from packet ({packet->pos}). PTS: {frame->pts * ffmpeg.av_q2d(Stream->time_base)}".Trace(typeof(MediaContainer));
+            //$"{MediaType}: Processing Frame from packet ({packet->pos}). PTS: {frame->pts * ffmpeg.av_q2d(Stream->time_base)}".Trace(typeof(MediaContainer));
         }
 
         protected virtual void ProcessFrame(AVPacket* packet, AVSubtitle* frame)
         {
-            $"{MediaType}: Processing Frame from packet ({packet->pos}). PTS: {frame->pts * ffmpeg.av_q2d(Stream->time_base)}".Trace(typeof(MediaContainer));
+            //$"{MediaType}: Processing Frame from packet ({packet->pos}). PTS: {frame->pts * ffmpeg.av_q2d(Stream->time_base)}".Trace(typeof(MediaContainer));
         }
 
 

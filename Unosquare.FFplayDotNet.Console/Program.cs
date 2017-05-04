@@ -8,13 +8,39 @@
     using Unosquare.FFplayDotNet.Primitives;
     using Unosquare.Swan;
 
+    class TestStreams
+    {
+        public const string BasePath = @"c:\users\unosp\Desktop\";
+
+        public static string Mp4H264Regular = $"{BasePath}cowboys.mp4";
+
+        public static string H264MulticastStream = @"udp://@225.1.1.181:5181/";
+
+        public static string HlsMultiStream = @"http://qthttp.apple.com.edgesuite.net/1010qwoeiuryfg/sl.m3u8";
+
+        /// <summary>
+        /// Downloaded From: https://www.dropbox.com/sh/vggf640iniwxwyu/AABSeLJfAZeApEoJAY3N34Y2a?dl=0
+        /// </summary>
+        public static string MpegPart2 = $"{BasePath}big_buck_bunny_MPEG4.mp4";
+        
+        /// <summary>
+        /// The mpg file form issue https://github.com/unosquare/ffmediaelement/issues/22
+        /// </summary>
+        public static string Mpg2 = $"{BasePath}22817BT_GTCTsang.mpg";
+
+        /// <summary>
+        /// The transport stream file
+        /// From: https://github.com/unosquare/ffmediaelement/issues/16#issuecomment-299183167
+        /// </summary>
+        public static string TransportStreamFile = $"{BasePath}2013-12-18 22_45 - Anne Will.cut.ts";
+    }
+
     class Program
     {
+        
         static void Main(string[] args)
         {
-            //  @"udp://@225.1.1.181:5181/"
-            //  @"c:\users\unosp\Desktop\cowboys.mp4"
-            var player = new MediaContainer(@"c:\users\unosp\Desktop\cowboys.mp4");
+            var player = new MediaContainer(TestStreams.TransportStreamFile);
             var startTime = DateTime.Now;
             var packetsToDecode = 10000;
 

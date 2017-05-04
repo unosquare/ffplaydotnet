@@ -38,7 +38,7 @@ namespace Unosquare.FFplayDotNet
         /// Prevent reading from audio streams.
         /// Port of audio_disable
         /// </summary>
-        public bool IsAudioDisabled { get; set; } = true; // TODO: change to false.
+        public bool IsAudioDisabled { get; set; } = false;
 
         /// <summary>
         /// Prevent reading from video streams.

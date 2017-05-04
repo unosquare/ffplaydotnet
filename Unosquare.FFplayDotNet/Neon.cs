@@ -699,7 +699,7 @@ namespace Unosquare.FFplayDotNet
 
         protected override void ProcessFrame(AVPacket* packet, AVFrame* frame)
         {
-            base.ProcessFrame(packet, frame);
+            //base.ProcessFrame(packet, frame);
 
             // for vide frames, we always get the best effort timestamp as dts and pts might
             // contain different times.
@@ -729,7 +729,7 @@ namespace Unosquare.FFplayDotNet
             }
 
             // Call the callback for end-user processing
-            Container.RaiseOnVideoDataAvailabe(PictureBuffer, PictureBufferLength, PictureBufferStride, 
+            Container.RaiseOnVideoDataAvailabe(PictureBuffer, PictureBufferLength, PictureBufferStride,
                 frame->width, frame->height, MediaUtils.GetTimeSpan(frame->pts, Stream->time_base));
 
         }
@@ -766,10 +766,89 @@ namespace Unosquare.FFplayDotNet
 
     public unsafe class AudioComponent : MediaComponent
     {
+        private SwrContext* Scaler = null;
+
+        private class AudioSpec
+        {
+
+            private AudioSpec()
+            {
+
+            }
+
+            private AudioSpec(AVFrame* frame)
+            {
+                ChannelCount = ffmpeg.av_frame_get_channels(frame);
+                ChannelLayout = ffmpeg.av_frame_get_channel_layout(frame);
+                Format = (AVSampleFormat)frame->format;
+                SamplesPerChannel = frame->nb_samples;
+                BufferLength = ffmpeg.av_samples_get_buffer_size(null, ChannelCount, SamplesPerChannel, Format, 1);
+                SampleRate = frame->sample_rate;
+            }
+
+            public int ChannelCount { get; private set; }
+            public long ChannelLayout { get; private set; }
+            public int SamplesPerChannel { get; private set; }
+            public int SampleRate { get; private set; }
+            public AVSampleFormat Format { get; private set; }
+            public int BufferLength { get; private set; }
+
+            static public AudioSpec CreateSource(AVFrame* frame)
+            {
+                return new AudioSpec(frame);
+            }
+
+            static public AudioSpec CreateTarget(int wantedSamples)
+            {
+                var spec = new AudioSpec
+                {
+                    ChannelCount = 2,
+                    ChannelLayout = ffmpeg.av_get_default_channel_layout(2),
+                    Format = AVSampleFormat.AV_SAMPLE_FMT_S16,
+                    SamplesPerChannel = wantedSamples,
+                    SampleRate = 44100,
+                };
+
+                spec.BufferLength = ffmpeg.av_samples_get_buffer_size(null, spec.BufferLength, wantedSamples, spec.Format, 1);
+                return spec;
+            }
+
+            static public bool AreCompatible(AudioSpec a, AudioSpec b)
+            {
+                if (a.Format != b.Format) return false;
+                if (a.ChannelCount != b.ChannelCount) return false;
+                if (a.ChannelLayout != b.ChannelLayout) return false;
+                if (a.SamplesPerChannel != b.SamplesPerChannel) return false;
+                if (a.SampleRate != b.SampleRate) return false;
+                if (a.BufferLength != b.BufferLength) return false;
+
+                return true;
+            }
+        }
+
         public AudioComponent(MediaContainer container, int streamIndex)
             : base(container, streamIndex)
         {
 
+        }
+
+        protected override unsafe void ProcessFrame(AVPacket* packet, AVFrame* frame)
+        {
+            base.ProcessFrame(packet, frame);
+
+            var sourceSpec = AudioSpec.CreateSource(frame);
+            var targetSpec = AudioSpec.CreateTarget(frame->nb_samples);
+
+            var compatible = AudioSpec.AreCompatible(sourceSpec, targetSpec);
+            Scaler = ffmpeg.swr_alloc_set_opts(Scaler, targetSpec.ChannelLayout, targetSpec.Format, targetSpec.SampleRate,
+                sourceSpec.ChannelLayout, sourceSpec.Format, sourceSpec.SampleRate, 0, null);
+
+            var outputSamples = ffmpeg.swr_get_out_samples(Scaler, frame->nb_samples);
+            //var outputBuffer = Marshal.AllocHGlobal(targetSpec.BufferLength);
+            //outputSamplesPerChannel = 
+            //    ffmpeg.swr_convert(Scaler, XmlWriterTraceListener, XmlWriterTraceListener, frame->extended_data, frame->nb_samples);
+
+            //Marshal.FreeHGlobal(outputBuffer);
         }
     }
 

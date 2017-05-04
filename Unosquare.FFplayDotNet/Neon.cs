@@ -16,6 +16,26 @@ using Unosquare.Swan;
 
 namespace Unosquare.FFplayDotNet
 {
+    public class VideoDataAvailableEventArgs : EventArgs
+    {
+        internal VideoDataAvailableEventArgs(IntPtr buffer, int bufferLength, int bufferStride, int width, int height, TimeSpan pts)
+        {
+            Buffer = buffer;
+            BufferLength = bufferLength;
+            BufferStride = bufferStride;
+            PixelWidth = width;
+            PixelHeight = height;
+            Pts = pts;
+        }
+
+        public IntPtr Buffer { get; }
+        public int BufferLength { get; }
+        public int BufferStride { get; }
+        public int PixelWidth { get; }
+        public int PixelHeight { get; }
+        public TimeSpan Pts { get; }
+    }
+
     internal static class MediaUtils
     {
         public static TimeSpan GetTimeSpan(double pts, AVRational timeBase)
@@ -229,7 +249,6 @@ namespace Unosquare.FFplayDotNet
             public const string LowRes = "lowres";
         }
 
-
         #region Private Declarations
 
         /// <summary>
@@ -384,8 +403,8 @@ namespace Unosquare.FFplayDotNet
                 $"Codec Option '{codecOptions.First().Key}' not found.".Warn(typeof(MediaContainer));
 
             // Display stream information in the console if we are debugging
-            if (Debugger.IsAttached)
-                ffmpeg.av_dump_format(container.InputContext, 0, container.MediaUrl, 0);
+            //if (Debugger.IsAttached)
+            //    ffmpeg.av_dump_format(container.InputContext, 0, container.MediaUrl, 0);
 
             // Startup done. Set some options.
             Stream->discard = AVDiscard.AVDISCARD_DEFAULT;
@@ -597,12 +616,12 @@ namespace Unosquare.FFplayDotNet
 
         protected virtual void ProcessFrame(AVPacket* packet, AVFrame* frame)
         {
-            $"{MediaType}: Processing Frame from packet ({packet->pos}). PTS: {MediaUtils.GetTimeSpan(frame->pts, Stream->time_base)}".Trace(typeof(MediaContainer));
+            $"{MediaType}: Processing Frame from packet. PTS: {MediaUtils.GetTimeSpan(frame->pts, Stream->time_base)}".Trace(typeof(MediaContainer));
         }
 
         protected virtual void ProcessFrame(AVPacket* packet, AVSubtitle* frame)
         {
-            $"{MediaType}: Processing Frame from packet ({packet->pos}). PTS: {MediaUtils.GetTimeSpan(frame->pts, Stream->time_base)}".Trace(typeof(MediaContainer));
+            $"{MediaType}: Processing Frame from packet. PTS: {MediaUtils.GetTimeSpan(frame->pts, Stream->time_base)}".Trace(typeof(MediaContainer));
         }
 
 
@@ -657,14 +676,26 @@ namespace Unosquare.FFplayDotNet
         private SwsContext* Scaler = null;
         private IntPtr PictureBuffer;
         private int PictureBufferLength;
-        private byte[] ManagedBuffer;
-        private WriteableBitmap OutputBitmap;
+        private int PictureBufferStride;
 
         public VideoComponent(MediaContainer container, int streamIndex)
             : base(container, streamIndex)
         {
-
+            BaseFrameRate = ffmpeg.av_q2d(Stream->r_frame_rate);
+            CurrentFrameRate = BaseFrameRate;
         }
+
+        /// <summary>
+        /// Gets the base frame rate as reported by the stream component.
+        /// All discrete timestamps can be represented in this framerate.
+        /// </summary>
+        public double BaseFrameRate { get; }
+
+        /// <summary>
+        /// Gets the current frame rate as guessed by the last processed frame.
+        /// Variable framerate streams will report different values at different times.
+        /// </summary>
+        public double CurrentFrameRate { get; private set; }
 
         protected override void ProcessFrame(AVPacket* packet, AVFrame* frame)
         {
@@ -674,17 +705,33 @@ namespace Unosquare.FFplayDotNet
             // contain different times.
             frame->pts = ffmpeg.av_frame_get_best_effort_timestamp(frame);
 
+            // Update the current framerate
+            CurrentFrameRate = ffmpeg.av_q2d(ffmpeg.av_guess_frame_rate(Container.InputContext, Stream, frame));
+
+            // If we don't have a callback, we don't need any further processing
+            if (Container.HandlesOnVideoDataAvailable == false)
+                return;
+
             // Retrieve a suitable scaler or create it on the fly
             Scaler = ffmpeg.sws_getCachedContext(Scaler,
                     frame->width, frame->height, (AVPixelFormat)frame->format, frame->width, frame->height,
                     Constants.OutputPixelFormat, Container.Options.VideoScalerFlags, null, null, null);
 
-            var bitmap = UpdateBitmap(frame);
-            var currentSeconds = Math.Round(frame->pts * ffmpeg.av_q2d(Stream->time_base), 0);
-            var outputFilename = $"c:\\users\\unosp\\desktop\\output\\test-{currentSeconds:000}.png";
+            // Perform scaling and save the data to our unmanaged buffer pointer for callbacks
+            {
+                PictureBufferStride = ffmpeg.av_image_get_linesize(Constants.OutputPixelFormat, frame->width, 0);
+                var targetStride = new int[] { PictureBufferStride };
+                var targetLength = ffmpeg.av_image_get_buffer_size(Constants.OutputPixelFormat, frame->width, frame->height, 1);
+                var unmanagedBuffer = AllocateBuffer(targetLength);
+                var targetScan = new byte_ptrArray8();
+                targetScan[0] = (byte*)unmanagedBuffer;
+                var outputHeight = ffmpeg.sws_scale(Scaler, frame->data, frame->linesize, 0, frame->height, targetScan, targetStride);
+            }
 
-            if (File.Exists(outputFilename) == false)
-                SaveBitmapToPng(outputFilename);
+            // Call the callback for end-user processing
+            Container.RaiseOnVideoDataAvailabe(PictureBuffer, PictureBufferLength, PictureBufferStride, 
+                frame->width, frame->height, MediaUtils.GetTimeSpan(frame->pts, Stream->time_base));
+
         }
 
         private IntPtr AllocateBuffer(int length)
@@ -696,59 +743,9 @@ namespace Unosquare.FFplayDotNet
 
                 PictureBufferLength = length;
                 PictureBuffer = Marshal.AllocHGlobal(PictureBufferLength);
-                ManagedBuffer = new byte[PictureBufferLength];
             }
 
             return PictureBuffer;
-        }
-
-        private byte[] UpdateBitmapBuffer(AVFrame* frame)
-        {
-            var targetStride = new int[] {
-                ffmpeg.av_image_get_linesize(Constants.OutputPixelFormat, frame->width, 0)
-            };
-
-            var targetLength = ffmpeg.av_image_get_buffer_size(Constants.OutputPixelFormat, frame->width, frame->height, 1);
-            var targetScan = new byte_ptrArray8();
-
-            var unmanagedBuffer = AllocateBuffer(targetLength);
-            targetScan[0] = (byte*)unmanagedBuffer;
-
-            var outputHeight = ffmpeg.sws_scale(Scaler, frame->data, frame->linesize, 0, frame->height, targetScan, targetStride);
-            Marshal.Copy(unmanagedBuffer, ManagedBuffer, 0, PictureBufferLength);
-
-            return ManagedBuffer;
-        }
-
-        private void SaveBitmapToPng(string filename)
-        {
-            using (var fileStream = new FileStream(filename, FileMode.Create))
-            {
-                var encoder = new PngBitmapEncoder();
-                encoder.Frames.Add(BitmapFrame.Create(OutputBitmap));
-                encoder.Save(fileStream);
-            }
-        }
-
-        private WriteableBitmap UpdateBitmap(AVFrame* frame)
-        {
-            var targetStride = new int[] {
-                ffmpeg.av_image_get_linesize(Constants.OutputPixelFormat, frame->width, 0)
-            };
-
-            var targetLength = ffmpeg.av_image_get_buffer_size(Constants.OutputPixelFormat, frame->width, frame->height, 1);
-            var targetScan = new byte_ptrArray8();
-
-            if (OutputBitmap == null || OutputBitmap.PixelWidth != frame->width || OutputBitmap.PixelHeight != frame->height)
-                OutputBitmap = new WriteableBitmap(frame->width, frame->height, 96, 96, PixelFormats.Bgr24, null);
-
-            OutputBitmap.Lock();
-            targetScan[0] = (byte*)OutputBitmap.BackBuffer;
-            var outputHeight = ffmpeg.sws_scale(Scaler, frame->data, frame->linesize, 0, frame->height, targetScan, targetStride);
-            OutputBitmap.AddDirtyRect(new Int32Rect(0, 0, OutputBitmap.PixelWidth, OutputBitmap.PixelHeight));
-            OutputBitmap.Unlock();
-
-            return OutputBitmap;
         }
 
         protected override void ProcessFrame(AVPacket* packet, AVSubtitle* frame)
@@ -958,6 +955,21 @@ namespace Unosquare.FFplayDotNet
 
         #endregion
 
+        #region Events
+
+        public event EventHandler<VideoDataAvailableEventArgs> OnVideoDataAvailable;
+
+        internal bool HandlesOnVideoDataAvailable { get { return OnVideoDataAvailable != null; } }
+
+        internal void RaiseOnVideoDataAvailabe(IntPtr buffer, int bufferLength, int bufferStride, int pixelWidth, int pixelHeight, TimeSpan pts)
+        {
+            if (HandlesOnVideoDataAvailable == false) return;
+            OnVideoDataAvailable(this, new VideoDataAvailableEventArgs(buffer, bufferLength, bufferStride, pixelWidth, pixelHeight, pts));
+        }
+
+        #endregion
+
+
         #region Properties
 
         public string MediaUrl { get; private set; }
@@ -984,25 +996,6 @@ namespace Unosquare.FFplayDotNet
 
         public MediaComponentSet Components { get; }
 
-        public int DecodedVideoFrames
-        {
-            get
-            {
-                lock (SyncRoot)
-                    return Components.Video?.DecodedFrameCount ?? 0;
-            }
-        }
-
-        public double Framerate
-        {
-            get
-            {
-                lock (SyncRoot)
-                    return InputContext != null && Components.Video != null ?
-                        ffmpeg.av_q2d(Components.Video.Stream->r_frame_rate) : 0;
-            }
-        }
-
         #endregion
 
         /// <summary>
@@ -1014,7 +1007,6 @@ namespace Unosquare.FFplayDotNet
         /// <exception cref="Unosquare.FFplayDotNet.MediaContainerException"></exception>
         public MediaContainer(string mediaUrl, string formatName = null)
         {
-
             // Argument Validation
             if (string.IsNullOrWhiteSpace(mediaUrl))
                 throw new ArgumentNullException($"{nameof(mediaUrl)}");
@@ -1099,6 +1091,12 @@ namespace Unosquare.FFplayDotNet
             }
         }
 
+        /// <summary>
+        /// Creates the stream components by first finding the best available streams.
+        /// Then it initializes the components of the correct type each.
+        /// </summary>
+        /// <returns></returns>
+        /// <exception cref="Unosquare.FFplayDotNet.MediaContainerException"></exception>
         private MediaComponentSet CreateStreamComponents()
         {
 
@@ -1113,7 +1111,7 @@ namespace Unosquare.FFplayDotNet
                 if (Options.IsVideoDisabled == false)
                     streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_VIDEO] =
                         ffmpeg.av_find_best_stream(InputContext, AVMediaType.AVMEDIA_TYPE_VIDEO,
-                                            streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_VIDEO], -1, 
+                                            streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_VIDEO], -1,
                                             &requestedCodec, 0);
 
                 if (Options.IsAudioDisabled == false)
@@ -1172,18 +1170,6 @@ namespace Unosquare.FFplayDotNet
 
         }
 
-        private void SeekToStartTimestamp()
-        {
-            if (InputContext->start_time == ffmpeg.AV_NOPTS_VALUE)
-                return;
-
-            var seekToStartResult = ffmpeg.avformat_seek_file(InputContext, -1, long.MinValue, InputContext->start_time, long.MaxValue, 0);
-
-            if (seekToStartResult < 0)
-                $"File '{MediaUrl}'. Could not seek to position {(double)InputContext->start_time / ffmpeg.AV_TIME_BASE} secs.".Warn(typeof(MediaContainer));
-
-        }
-
         public void PushAction(MediaAction action)
         {
             lock (SyncRoot)
@@ -1198,7 +1184,17 @@ namespace Unosquare.FFplayDotNet
             lock (SyncRoot)
             {
                 if (ActionQueue.Count == 0)
-                    Read();
+                {
+                    try
+                    {
+                        Read();
+                    }
+                    catch (Exception ex)
+                    {
+                        $"{ex.Message}".Error(typeof(MediaContainer));
+                    }
+                }
+
             }
 
         }
@@ -1231,7 +1227,7 @@ namespace Unosquare.FFplayDotNet
             }
 
             // Check if we were able to feed the packet. If not, simply discard it
-            if (Components.SendPacket(readPacket) == false)
+            if (readPacket != null && Components.SendPacket(readPacket) == false)
                 ffmpeg.av_packet_free(&readPacket);
         }
 

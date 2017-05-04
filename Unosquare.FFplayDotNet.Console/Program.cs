@@ -40,18 +40,29 @@
         
         static void Main(string[] args)
         {
-            var player = new MediaContainer(TestStreams.TransportStreamFile);
+            var player = new MediaContainer(TestStreams.Mpg2);
+            player.OnVideoDataAvailable += (s, e) => {
+                $"Video data avaialable at {e.Pts}. Picture buffer length is {e.BufferLength}".Info(typeof(Program));
+            };
+
             var startTime = DateTime.Now;
             var packetsToDecode = 10000;
-
+            var packetsDecoded = 0;
             for (var i = 0; i < packetsToDecode; i++)
             {
                 player.Process();
+                if (player.IsAtEndOfFile)
+                {
+                    "End of file reached".Info(typeof(Program));
+                    break;
+                }
+
+                packetsDecoded += 1;
                 //if (player.IsMediaRealtime)
                 //    Thread.Sleep(10);
             }
 
-            $"Took {DateTime.Now.Subtract(startTime).TotalSeconds} seconds to decode {packetsToDecode} packets, {player.DecodedVideoFrames} fames, ({player.DecodedVideoFrames / player.Framerate}) seconds.".Info(typeof(Program));
+            $"Took {DateTime.Now.Subtract(startTime).TotalSeconds} seconds to decode {packetsDecoded} packets, {player.Components.Video?.DecodedFrameCount} frames, {player.Components.Video?.Duration} seconds.".Info(typeof(Program));
             //player.OnVideoDataAvailable += Player_OnVideoDataAvailable;
             Terminal.ReadKey(true, true);
         }

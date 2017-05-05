@@ -19,14 +19,15 @@ namespace Unosquare.FFplayDotNet
 
     public class AudioDataAvailableEventArgs : EventArgs
     {
-        internal AudioDataAvailableEventArgs(IntPtr buffer, int bufferLength, int sampleRate, int samplesPerChannel, int channels, TimeSpan pts, TimeSpan duration)
+        internal AudioDataAvailableEventArgs(IntPtr buffer, int bufferLength, int sampleRate, int samplesPerChannel, int channels,
+            TimeSpan renderTime, TimeSpan duration)
         {
             Buffer = buffer;
             BufferLength = bufferLength;
             SamplesPerChannel = samplesPerChannel;
             SampleRate = sampleRate;
             Channels = channels;
-            Pts = pts;
+            RenderTime = renderTime;
             Duration = duration;
         }
 
@@ -35,20 +36,21 @@ namespace Unosquare.FFplayDotNet
         public int SampleRate { get; }
         public int SamplesPerChannel { get; }
         public int Channels { get; }
-        public TimeSpan Pts { get; }
+        public TimeSpan RenderTime { get; }
         public TimeSpan Duration { get; }
     }
 
     public class VideoDataAvailableEventArgs : EventArgs
     {
-        internal VideoDataAvailableEventArgs(IntPtr buffer, int bufferLength, int bufferStride, int width, int height, TimeSpan pts, TimeSpan duration)
+        internal VideoDataAvailableEventArgs(IntPtr buffer, int bufferLength, int bufferStride, int width, int height,
+            TimeSpan renderTime, TimeSpan duration)
         {
             Buffer = buffer;
             BufferLength = bufferLength;
             BufferStride = bufferStride;
             PixelWidth = width;
             PixelHeight = height;
-            Pts = pts;
+            RenderTime = renderTime;
             Duration = duration;
         }
 
@@ -57,7 +59,7 @@ namespace Unosquare.FFplayDotNet
         public int BufferStride { get; }
         public int PixelWidth { get; }
         public int PixelHeight { get; }
-        public TimeSpan Pts { get; }
+        public TimeSpan RenderTime { get; }
         public TimeSpan Duration { get; }
     }
 
@@ -757,8 +759,8 @@ namespace Unosquare.FFplayDotNet
             var duration = ffmpeg.av_frame_get_pkt_duration(frame);
             Container.RaiseOnVideoDataAvailabe(
                 PictureBuffer, PictureBufferLength, PictureBufferStride,
-                frame->width, frame->height, 
-                MediaUtils.GetTimeSpan(frame->pts, Stream->time_base), 
+                frame->width, frame->height,
+                MediaUtils.GetTimeSpan(frame->pts, Stream->time_base),
                 MediaUtils.GetTimeSpan(duration, Stream->time_base));
 
         }
@@ -793,77 +795,169 @@ namespace Unosquare.FFplayDotNet
         }
     }
 
+
+    /// <summary>
+    /// Contains audio format properties useful
+    /// for scaling and audio parameter usage
+    /// </summary>
+    public unsafe class AudioComponentSpec
+    {
+        /// <summary>
+        /// The output audio spec
+        /// </summary>
+        static public readonly AudioComponentSpec Output;
+
+        #region Constructors
+
+        /// <summary>
+        /// Initializes the <see cref="AudioComponentSpec"/> class.
+        /// </summary>
+        static AudioComponentSpec()
+        {
+            Output = new AudioComponentSpec();
+            Output.ChannelCount = 2;
+            Output.SampleRate = 48000;
+            Output.Format = AVSampleFormat.AV_SAMPLE_FMT_S16;
+            Output.ChannelLayout = ffmpeg.av_get_default_channel_layout(Output.ChannelCount);
+            Output.SamplesPerChannel = Output.SampleRate + 256;
+            Output.BufferLength = ffmpeg.av_samples_get_buffer_size(
+                null, Output.ChannelCount, Output.SamplesPerChannel, Output.Format, 1);
+        }
+
+        /// <summary>
+        /// Prevents a default instance of the <see cref="AudioComponentSpec"/> class from being created.
+        /// </summary>
+        private AudioComponentSpec() { }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="AudioComponentSpec"/> class.
+        /// </summary>
+        /// <param name="frame">The frame.</param>
+        private AudioComponentSpec(AVFrame* frame)
+        {
+            ChannelCount = ffmpeg.av_frame_get_channels(frame);
+            ChannelLayout = ffmpeg.av_frame_get_channel_layout(frame);
+            Format = (AVSampleFormat)frame->format;
+            SamplesPerChannel = frame->nb_samples;
+            BufferLength = ffmpeg.av_samples_get_buffer_size(null, ChannelCount, SamplesPerChannel, Format, 1);
+            SampleRate = frame->sample_rate;
+        }
+
+        #endregion
+
+        #region Properties
+
+        /// <summary>
+        /// Gets the channel count.
+        /// </summary>
+        public int ChannelCount { get; private set; }
+
+        /// <summary>
+        /// Gets the channel layout.
+        /// </summary>
+        public long ChannelLayout { get; private set; }
+
+        /// <summary>
+        /// Gets the samples per channel.
+        /// </summary>
+        public int SamplesPerChannel { get; private set; }
+
+        /// <summary>
+        /// Gets the audio sampling rate.
+        /// </summary>
+        public int SampleRate { get; private set; }
+
+        /// <summary>
+        /// Gets the sample format.
+        /// </summary>
+        public AVSampleFormat Format { get; private set; }
+
+        /// <summary>
+        /// Gets the length of the buffer required to store 
+        /// the samples in the current format.
+        /// </summary>
+        public int BufferLength { get; private set; }
+
+        #endregion
+
+        #region Methods
+
+        /// <summary>
+        /// Creates a source audio spec based on the info in the given audio frame
+        /// </summary>
+        /// <param name="frame">The frame.</param>
+        /// <returns></returns>
+        static public AudioComponentSpec CreateSource(AVFrame* frame)
+        {
+            return new AudioComponentSpec(frame);
+        }
+
+        /// <summary>
+        /// Creates a target audio spec using the sample quantities provided 
+        /// by the given source audio frame
+        /// </summary>
+        /// <param name="frame">The frame.</param>
+        /// <returns></returns>
+        static public AudioComponentSpec CreateTarget(AVFrame* frame)
+        {
+            var spec = new AudioComponentSpec
+            {
+                ChannelCount = Output.ChannelCount,
+                Format = Output.Format,
+                SampleRate = Output.SampleRate,
+                ChannelLayout = Output.ChannelLayout
+            };
+
+            // The target transform is just a ratio of the source frame's sample. This is how many samples we desire
+            spec.SamplesPerChannel = (int)Math.Round((double)frame->nb_samples * spec.SampleRate / frame->sample_rate, 0) + 256;
+            spec.BufferLength = ffmpeg.av_samples_get_buffer_size(null, spec.ChannelCount, spec.SamplesPerChannel, spec.Format, 1);
+            return spec;
+        }
+
+        /// <summary>
+        /// Determines if the audio specs are compatible between them.
+        /// They must share format, channel count, layout and sample rate
+        /// </summary>
+        /// <param name="a">a.</param>
+        /// <param name="b">The b.</param>
+        /// <returns></returns>
+        static public bool AreCompatible(AudioComponentSpec a, AudioComponentSpec b)
+        {
+            if (a.Format != b.Format) return false;
+            if (a.ChannelCount != b.ChannelCount) return false;
+            if (a.ChannelLayout != b.ChannelLayout) return false;
+            if (a.SampleRate != b.SampleRate) return false;
+
+            return true;
+        }
+
+        #endregion
+
+    }
+
+
     public unsafe class AudioComponent : MediaComponent
     {
         private SwrContext* Scaler = null;
         private IntPtr SamplesBuffer = IntPtr.Zero;
         private int SamplesBufferLength;
-
-        private class AudioSpec
-        {
-
-            private AudioSpec()
-            {
-
-            }
-
-            private AudioSpec(AVFrame* frame)
-            {
-                ChannelCount = ffmpeg.av_frame_get_channels(frame);
-                ChannelLayout = ffmpeg.av_frame_get_channel_layout(frame);
-                Format = (AVSampleFormat)frame->format;
-                SamplesPerChannel = frame->nb_samples;
-                BufferLength = ffmpeg.av_samples_get_buffer_size(null, ChannelCount, SamplesPerChannel, Format, 1);
-                SampleRate = frame->sample_rate;
-            }
-
-            public int ChannelCount { get; private set; }
-            public long ChannelLayout { get; private set; }
-            public int SamplesPerChannel { get; private set; }
-            public int SampleRate { get; private set; }
-            public AVSampleFormat Format { get; private set; }
-            public int BufferLength { get; private set; }
-
-            static public AudioSpec CreateSource(AVFrame* frame)
-            {
-                return new AudioSpec(frame);
-            }
-
-            static public AudioSpec CreateTarget(AVFrame* frame)
-            {
-                var spec = new AudioSpec
-                {
-                    ChannelCount = 2,
-                    Format = AVSampleFormat.AV_SAMPLE_FMT_S16,
-                    SampleRate = 44100,
-                };
-
-                spec.ChannelLayout = ffmpeg.av_get_default_channel_layout(spec.ChannelCount);
-                spec.SamplesPerChannel = (int)Math.Round((double)frame->nb_samples * spec.SampleRate / frame->sample_rate, 0) + 256;
-                spec.BufferLength = ffmpeg.av_samples_get_buffer_size(null, spec.ChannelCount, spec.SamplesPerChannel, spec.Format, 1);
-                return spec;
-            }
-
-            static public bool AreCompatible(AudioSpec a, AudioSpec b)
-            {
-                if (a.Format != b.Format) return false;
-                if (a.ChannelCount != b.ChannelCount) return false;
-                if (a.ChannelLayout != b.ChannelLayout) return false;
-                if (a.SampleRate != b.SampleRate) return false;
-
-                return true;
-            }
-        }
+        private AudioComponentSpec LastSourceSpec = null;
 
         public AudioComponent(MediaContainer container, int streamIndex)
             : base(container, streamIndex)
         {
-
+            // Placeholder. Nothing else to init.
         }
 
+        /// <summary>
+        /// Allocates a buffer in inmanaged memory only if necessry.
+        /// Returns the pointer to the allocated buffer regardless of it being new or existing.
+        /// </summary>
+        /// <param name="length">The length.</param>
+        /// <returns></returns>
         private IntPtr AllocateBuffer(int length)
         {
-            if (SamplesBufferLength != length)
+            if (SamplesBufferLength < length)
             {
                 if (SamplesBuffer != IntPtr.Zero)
                     Marshal.FreeHGlobal(SamplesBuffer);
@@ -877,35 +971,45 @@ namespace Unosquare.FFplayDotNet
 
         protected override unsafe void ProcessFrame(AVPacket* packet, AVFrame* frame)
         {
-            //base.ProcessFrame(packet, frame);
-
             // Check if there is a handler to feed the conversion to.
             if (Container.HandlesOnAudioDataAvailable == false)
                 return;
 
-            var sourceSpec = AudioSpec.CreateSource(frame);
-            var targetSpec = AudioSpec.CreateTarget(frame);
+            // Create the source and target ausio specs. We might need to scale from
+            // the source to the target
+            var sourceSpec = AudioComponentSpec.CreateSource(frame);
+            var targetSpec = AudioComponentSpec.CreateTarget(frame);
 
-            Scaler = ffmpeg.swr_alloc_set_opts(Scaler, targetSpec.ChannelLayout, targetSpec.Format, targetSpec.SampleRate,
-                sourceSpec.ChannelLayout, sourceSpec.Format, sourceSpec.SampleRate, 0, null);
+            // Initialize or update the audio scaler if required
+            if (Scaler == null || LastSourceSpec == null || AudioComponentSpec.AreCompatible(LastSourceSpec, sourceSpec) == false)
+            {
+                Scaler = ffmpeg.swr_alloc_set_opts(Scaler, targetSpec.ChannelLayout, targetSpec.Format, targetSpec.SampleRate,
+                    sourceSpec.ChannelLayout, sourceSpec.Format, sourceSpec.SampleRate, 0, null);
 
-            ffmpeg.swr_init(Scaler);
+                ffmpeg.swr_init(Scaler);
+                LastSourceSpec = sourceSpec;
+            }
 
+            // Allocate the unmanaged output buffer
             var outputBuffer = AllocateBuffer(targetSpec.BufferLength);
             var outputBufferPtr = (byte*)outputBuffer;
 
+            // Execute the conversion (audio scaling). It will return the number of samples that were output
             var outputSamplesPerChannel =
                 ffmpeg.swr_convert(Scaler, &outputBufferPtr, targetSpec.SamplesPerChannel, frame->extended_data, frame->nb_samples);
 
-            var outputBufferLength = 
+            // Compute the buffer length
+            var outputBufferLength =
                 ffmpeg.av_samples_get_buffer_size(null, targetSpec.ChannelCount, outputSamplesPerChannel, targetSpec.Format, 1);
 
-            var pts = MediaUtils.GetTimeSpan(ffmpeg.av_frame_get_best_effort_timestamp(frame), Stream->time_base);
+            // Compute the timestamps
+            var renderTime = MediaUtils.GetTimeSpan(ffmpeg.av_frame_get_best_effort_timestamp(frame), Stream->time_base);
             var duration = MediaUtils.GetTimeSpan(ffmpeg.av_frame_get_pkt_duration(frame), Stream->time_base);
 
-            Container.RaiseOnAudioDataAvailabe(outputBuffer, outputBufferLength, 
-                targetSpec.SampleRate, outputSamplesPerChannel, targetSpec.ChannelCount, pts, duration);
-            
+            // Send data to event subscribers
+            Container.RaiseOnAudioDataAvailabe(outputBuffer, outputBufferLength,
+                targetSpec.SampleRate, outputSamplesPerChannel, targetSpec.ChannelCount, renderTime, duration);
+
         }
 
         protected override void Dispose(bool alsoManaged)
@@ -1110,18 +1214,20 @@ namespace Unosquare.FFplayDotNet
         internal bool HandlesOnVideoDataAvailable { get { return OnVideoDataAvailable != null; } }
         internal bool HandlesOnAudioDataAvailable { get { return OnAudioDataAvailable != null; } }
 
-        internal void RaiseOnVideoDataAvailabe(IntPtr buffer, int bufferLength, int bufferStride, 
-            int pixelWidth, int pixelHeight, TimeSpan pts, TimeSpan duration)
+        internal void RaiseOnVideoDataAvailabe(IntPtr buffer, int bufferLength, int bufferStride,
+            int pixelWidth, int pixelHeight, TimeSpan renderTime, TimeSpan duration)
         {
             if (HandlesOnVideoDataAvailable == false) return;
-            OnVideoDataAvailable(this, new VideoDataAvailableEventArgs(buffer, bufferLength, bufferStride, pixelWidth, pixelHeight, pts, duration));
+            OnVideoDataAvailable(this, new VideoDataAvailableEventArgs(buffer, bufferLength, bufferStride,
+                pixelWidth, pixelHeight, renderTime, duration));
         }
 
-        internal void RaiseOnAudioDataAvailabe(IntPtr buffer, int bufferLength, 
-            int sampleRate, int samplesPerChannel, int channels, TimeSpan pts, TimeSpan duration)
+        internal void RaiseOnAudioDataAvailabe(IntPtr buffer, int bufferLength,
+            int sampleRate, int samplesPerChannel, int channels, TimeSpan renderTime, TimeSpan duration)
         {
             if (HandlesOnAudioDataAvailable == false) return;
-            OnAudioDataAvailable(this, new AudioDataAvailableEventArgs(buffer, bufferLength, sampleRate, samplesPerChannel, channels, pts, duration));
+            OnAudioDataAvailable(this, new AudioDataAvailableEventArgs(buffer, bufferLength, sampleRate,
+                samplesPerChannel, channels, renderTime, duration));
         }
 
         #endregion
@@ -1147,9 +1253,11 @@ namespace Unosquare.FFplayDotNet
 
         public bool IsMediaRealtime { get; private set; }
 
-        public double MediaStartTime { get; private set; }
+        public TimeSpan MediaStartTime { get; private set; }
 
-        public double MediaDuration { get; private set; }
+        public TimeSpan MediaDuration { get; private set; }
+
+        public TimeSpan MediaEndTime { get; private set; }
 
         public MediaComponentSet Components { get; }
 
@@ -1228,8 +1336,14 @@ namespace Unosquare.FFplayDotNet
                 EnableInfiniteBuffer = IsMediaRealtime;
                 SeekByBytes = InputAllowsDiscontinuities && (InputFormatName.Equals("ogg") == false);
 
-                MediaStartTime = (double)InputContext->start_time / ffmpeg.AV_TIME_BASE;
-                MediaDuration = (double)InputContext->duration / ffmpeg.AV_TIME_BASE;
+                // Compute timespans
+                MediaStartTime = MediaUtils.GetTimeSpan(InputContext->start_time, ffmpeg.AV_TIME_BASE);
+                MediaDuration = MediaUtils.GetTimeSpan(InputContext->duration, ffmpeg.AV_TIME_BASE);
+
+                if (MediaStartTime != TimeSpan.MinValue && MediaDuration != TimeSpan.MinValue)
+                    MediaEndTime = MediaStartTime + MediaDuration;
+                else
+                    MediaEndTime = TimeSpan.MinValue;
 
                 //SeekToStartTimestamp();
 
@@ -1256,13 +1370,15 @@ namespace Unosquare.FFplayDotNet
         /// <exception cref="Unosquare.FFplayDotNet.MediaContainerException"></exception>
         private MediaComponentSet CreateStreamComponents()
         {
-
+            // Initialize and clear all the stream indexes.
             var streamIndexes = new int[(int)AVMediaType.AVMEDIA_TYPE_NB];
             for (var i = 0; i < (int)AVMediaType.AVMEDIA_TYPE_NB; i++)
                 streamIndexes[i] = -1;
 
             { // Find best streams for each component
 
+                // if we passed null instead of requested codec, then
+                // find_best_stream would not validate whether a valid decoder is registed.
                 AVCodec* requestedCodec = null;
 
                 if (Options.IsVideoDisabled == false)
@@ -1289,7 +1405,8 @@ namespace Unosquare.FFplayDotNet
             }
 
             var result = new MediaComponentSet();
-
+            
+            // Video Component
             try
             {
                 if (streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_VIDEO] >= 0)
@@ -1300,6 +1417,7 @@ namespace Unosquare.FFplayDotNet
                 $"Unable to initialize {MediaType.Video.ToString()} component. {ex.Message}".Error(typeof(MediaContainer));
             }
 
+            // Audio Component
             try
             {
                 if (streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_AUDIO] >= 0)
@@ -1310,6 +1428,7 @@ namespace Unosquare.FFplayDotNet
                 $"Unable to initialize {MediaType.Audio.ToString()} component. {ex.Message}".Error(typeof(MediaContainer));
             }
 
+            // Subtitles Component
             try
             {
                 if (streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_SUBTITLE] >= 0)
@@ -1320,6 +1439,7 @@ namespace Unosquare.FFplayDotNet
                 $"Unable to initialize {MediaType.Subtitle.ToString()} component. {ex.Message}".Error(typeof(MediaContainer));
             }
 
+            // Verify we have at least 1 valid stream component to work with.
             if (result.HasVideo == false && result.HasAudio == false)
                 throw new MediaContainerException($"{MediaUrl}: No audio or video streams found to decode.");
 

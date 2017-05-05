@@ -43,11 +43,12 @@
         static void Main(string[] args)
         {
             var audioData = new List<byte>();
-            var player = new MediaContainer(TestStreams.Mp4H264Regular);
+            
+            var player = new MediaContainer(TestStreams.MpegPart2);
 
             player.OnVideoDataAvailable += (s, e) =>
             {
-                $"Video PTS: {e.Pts}, DUR: {e.Duration} - Buffer: {e.BufferLength / 1024}kb".Info(typeof(Program));
+                $"Video PTS: {e.RenderTime}, DUR: {e.Duration} - Buffer: {e.BufferLength / 1024}kb".Info(typeof(Program));
             };
 
             player.OnAudioDataAvailable += (s, e) =>
@@ -55,7 +56,7 @@
                 var outputBytes = new byte[e.BufferLength];
                 Marshal.Copy(e.Buffer, outputBytes, 0, outputBytes.Length);
                 audioData.AddRange(outputBytes);
-                $"Audio PTS: {e.Pts}, DUR: {e.Duration} - Buffer: {e.BufferLength / 1024}kb".Info(typeof(Program));
+                $"Audio PTS: {e.RenderTime}, DUR: {e.Duration} - Buffer: {e.BufferLength / 1024}kb".Info(typeof(Program));
             };
 
             var startTime = DateTime.Now;
@@ -88,7 +89,7 @@
 
             using (var file = File.OpenWrite(audioFile))
             {
-                var rate = 44100;
+                var rate = 48000;
                 using (var writer = new BinaryWriter(file))
                 {
                     writer.Write("RIFF".ToCharArray()); // Group Id

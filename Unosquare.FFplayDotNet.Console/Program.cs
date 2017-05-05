@@ -2,7 +2,9 @@
 {
     using System;
     using System.Collections.Generic;
+    using System.IO;
     using System.Linq;
+    using System.Runtime.InteropServices;
     using System.Threading;
     using System.Threading.Tasks;
     using Unosquare.FFplayDotNet.Primitives;
@@ -22,7 +24,7 @@
         /// Downloaded From: https://www.dropbox.com/sh/vggf640iniwxwyu/AABSeLJfAZeApEoJAY3N34Y2a?dl=0
         /// </summary>
         public static string MpegPart2 = $"{BasePath}big_buck_bunny_MPEG4.mp4";
-        
+
         /// <summary>
         /// The mpg file form issue https://github.com/unosquare/ffmediaelement/issues/22
         /// </summary>
@@ -37,16 +39,27 @@
 
     class Program
     {
-        
+
         static void Main(string[] args)
         {
-            var player = new MediaContainer(TestStreams.Mpg2);
-            player.OnVideoDataAvailable += (s, e) => {
-                $"Video data avaialable at {e.Pts}. Picture buffer length is {e.BufferLength}".Info(typeof(Program));
+            var audioData = new List<byte>();
+            var player = new MediaContainer(TestStreams.Mp4H264Regular);
+
+            player.OnVideoDataAvailable += (s, e) =>
+            {
+                $"Video PTS: {e.Pts}, DUR: {e.Duration} - Buffer: {e.BufferLength / 1024}kb".Info(typeof(Program));
+            };
+
+            player.OnAudioDataAvailable += (s, e) =>
+            {
+                var outputBytes = new byte[e.BufferLength];
+                Marshal.Copy(e.Buffer, outputBytes, 0, outputBytes.Length);
+                audioData.AddRange(outputBytes);
+                $"Audio PTS: {e.Pts}, DUR: {e.Duration} - Buffer: {e.BufferLength / 1024}kb".Info(typeof(Program));
             };
 
             var startTime = DateTime.Now;
-            var packetsToDecode = 10000;
+            var packetsToDecode = 1000;
             var packetsDecoded = 0;
             for (var i = 0; i < packetsToDecode; i++)
             {
@@ -62,14 +75,43 @@
                 //    Thread.Sleep(10);
             }
 
-            $"Took {DateTime.Now.Subtract(startTime).TotalSeconds} seconds to decode {packetsDecoded} packets, {player.Components.Video?.DecodedFrameCount} frames, {player.Components.Video?.Duration} seconds.".Info(typeof(Program));
-            //player.OnVideoDataAvailable += Player_OnVideoDataAvailable;
+            $"Took {DateTime.Now.Subtract(startTime).TotalSeconds} seconds to decode {packetsDecoded} packets, {player.Components.Video?.DecodedFrameCount} frames.".Info(typeof(Program));
+            SaveWavFile(audioData);
             Terminal.ReadKey(true, true);
         }
 
-        private static void Player_OnVideoDataAvailable(object sender, VideoDataEventArgs e)
+        private static void SaveWavFile(List<byte> audioData)
         {
-            $"Received Picture {e.BitmapData.Length/1024}KB, {e.BitmapWidth}x{e.BitmapHeight}".Info();
+            var audioFile = @"c:\users\unosp\Desktop\output.wav";
+            if (File.Exists(audioFile))
+                File.Delete(audioFile);
+
+            using (var file = File.OpenWrite(audioFile))
+            {
+                var rate = 44100;
+                using (var writer = new BinaryWriter(file))
+                {
+                    writer.Write("RIFF".ToCharArray()); // Group Id
+                    writer.Write(0); // File Length (will be written later)
+                    writer.Write("WAVE".ToCharArray()); // sRiffType
+                    writer.Write("fmt ".ToCharArray()); // format chunk
+                    writer.Write((uint)16); // this chunk size in bytes
+                    writer.Write((ushort)1); // FormatTag (1 = MS PCM)
+                    writer.Write((ushort)2); // channels
+                    writer.Write((uint)rate); // sample rate
+                    writer.Write((uint)(rate * 2 * 2)); // nAvgBytesPerSec for buffer estimation samples * bytes per sample * channels
+                    writer.Write((ushort)4); // nBlockAlign: block size is 2 bytes per sample times 2 channels
+                    writer.Write((ushort)16); // wBitsPerSample
+                    writer.Write("data".ToCharArray()); // 
+                    writer.Write((uint)audioData.Count); // this chunk size in bytes
+                    writer.Write(audioData.ToArray());
+
+                    // Set the total file length which is the byte count of the file minus the first 8 bytes
+                    writer.Seek(4, SeekOrigin.Begin);
+                    writer.Write((uint)(writer.BaseStream.Length - 8));
+                }
+            }
         }
+
     }
 }

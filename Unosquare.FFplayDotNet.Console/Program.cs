@@ -44,10 +44,12 @@
         {
             var audioData = new List<byte>();
             
-            var player = new MediaContainer(TestStreams.TransportStreamFile);
+            var player = new MediaContainer(TestStreams.H264MulticastStream);
+            var totalDurationSeconds = 0d;
 
             player.OnVideoDataAvailable += (s, e) =>
             {
+                totalDurationSeconds += e.Duration.TotalSeconds;
                 $"Video PTS: {e.RenderTime}, DUR: {e.Duration} - Buffer: {e.BufferLength / 1024}kb".Info(typeof(Program));
             };
 
@@ -60,23 +62,22 @@
             };
 
             var startTime = DateTime.Now;
-            var packetsToDecode = 1000;
+            var packetsToDecode = 100000;
             var packetsDecoded = 0;
             for (var i = 0; i < packetsToDecode; i++)
             {
                 player.Process();
-                if (player.IsAtEndOfFile)
+                if (player.IsAtEndOfFile || totalDurationSeconds >= 10d)
                 {
-                    "End of file reached".Info(typeof(Program));
+                    "End of file reached or target decode limit met".Info(typeof(Program));
                     break;
                 }
 
                 packetsDecoded += 1;
-                //if (player.IsMediaRealtime)
-                //    Thread.Sleep(10);
             }
 
-            $"Took {DateTime.Now.Subtract(startTime).TotalSeconds} seconds to decode {packetsDecoded} packets, {player.Components.Video?.DecodedFrameCount} frames.".Info(typeof(Program));
+            ($"Took {DateTime.Now.Subtract(startTime).TotalSeconds} seconds to decode {packetsDecoded} packets, " + 
+                $"{player.Components.Video?.DecodedFrameCount} frames, {totalDurationSeconds} secs.").Info(typeof(Program));
             var audioFile = @"c:\users\unosp\Desktop\output.wav";
             SaveWavFile(audioData, audioFile);
             Terminal.ReadKey(true, true);

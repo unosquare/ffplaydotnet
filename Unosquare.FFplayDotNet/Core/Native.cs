@@ -1,7 +1,9 @@
 ﻿namespace Unosquare.FFplayDotNet.Core
 {
     using System;
+    using System.Collections.Generic;
     using System.Runtime.InteropServices;
+    using System.Text;
 
     /// <summary>
     /// Miscellaneous native methods
@@ -37,6 +39,32 @@
         public static string BytePtrToString(byte* bytePtr)
         {
             return Marshal.PtrToStringAnsi(new IntPtr(bytePtr));
+        }
+
+        /// <summary>
+        /// Converts a byte pointer to a UTF8 encoded string.
+        /// </summary>
+        /// <param name="bytePtr">The byte PTR.</param>
+        /// <returns></returns>
+        public static unsafe string BytePtrToStringUTF8(byte* bytePtr)
+        {
+            if (bytePtr == null) return null;
+            if (*bytePtr == 0) return string.Empty;
+
+            var byteBuffer = new List<byte>(1024);
+            var currentByte = default(byte);
+
+            while (true)
+            {
+                currentByte = *bytePtr;
+                if (currentByte == 0)
+                    break;
+
+                byteBuffer.Add(currentByte);
+                bytePtr++;
+            }
+
+            return Encoding.UTF8.GetString(byteBuffer.ToArray());
         }
 
         /// <summary>

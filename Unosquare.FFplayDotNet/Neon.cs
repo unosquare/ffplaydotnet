@@ -1,65 +1,16 @@
-﻿using FFmpeg.AutoGen;
-using System;
-using System.Collections.Generic;
-using System.Diagnostics;
-using System.Globalization;
-using System.Linq;
-using System.Runtime.InteropServices;
-using System.Threading;
-using Unosquare.FFplayDotNet.Core;
-using Unosquare.FFplayDotNet.Primitives;
-using Unosquare.Swan;
-
-namespace Unosquare.FFplayDotNet
+﻿namespace Unosquare.FFplayDotNet
 {
-
-    /// <summary>
-    /// Provides a set of utilities to perfrom conversion and other
-    /// miscellaneous calculations
-    /// </summary>
-    internal static class MediaUtils
-    {
-        /// <summary>
-        /// Gets a timespan given a timestamp and a timebase.
-        /// </summary>
-        /// <param name="pts">The PTS.</param>
-        /// <param name="timeBase">The time base.</param>
-        /// <returns></returns>
-        public static TimeSpan GetTimeSpan(double pts, AVRational timeBase)
-        {
-            if (double.IsNaN(pts) || pts == ffmpeg.AV_NOPTS_VALUE)
-                return TimeSpan.MinValue;
-
-            if (timeBase.den == 0)
-                return TimeSpan.FromSeconds(pts / ffmpeg.AV_TIME_BASE);
-
-            return TimeSpan.FromSeconds(pts * timeBase.num / timeBase.den);
-        }
-
-        /// <summary>
-        /// Gets a timespan given a timestamp and a timebase.
-        /// </summary>
-        /// <param name="pts">The PTS.</param>
-        /// <param name="timeBase">The time base.</param>
-        /// <returns></returns>
-        public static TimeSpan GetTimeSpan(double pts, double timeBase)
-        {
-            if (double.IsNaN(pts) || pts == ffmpeg.AV_NOPTS_VALUE)
-                return TimeSpan.MinValue;
-
-            return TimeSpan.FromSeconds(pts / timeBase);
-        }
-
-        /// <summary>
-        /// Gets a timespan given a timestamp (in AV_TIME_BASE units)
-        /// </summary>
-        /// <param name="pts">The PTS.</param>
-        /// <returns></returns>
-        public static TimeSpan GetTimeSpan(double pts)
-        {
-            return GetTimeSpan(pts, ffmpeg.AV_TIME_BASE);
-        }
-    }
+    using FFmpeg.AutoGen;
+    using System;
+    using System.Collections.Generic;
+    using System.Diagnostics;
+    using System.Globalization;
+    using System.Linq;
+    using System.Runtime.InteropServices;
+    using System.Threading;
+    using Unosquare.FFplayDotNet.Core;
+    using Unosquare.FFplayDotNet.Primitives;
+    using Unosquare.Swan;
 
     /// <summary>
     /// Enumerates the different Media Types
@@ -81,6 +32,86 @@ namespace Unosquare.FFplayDotNet
     }
 
     /// <summary>
+    /// Provides a set of utilities to perfrom conversion and other
+    /// miscellaneous calculations
+    /// </summary>
+    internal static class MediaUtils
+    {
+        /// <summary>
+        /// Gets a timespan given a timestamp and a timebase.
+        /// </summary>
+        /// <param name="pts">The PTS.</param>
+        /// <param name="timeBase">The time base.</param>
+        /// <returns></returns>
+        public static TimeSpan ToTimeSpan(this double pts, AVRational timeBase)
+        {
+            if (double.IsNaN(pts) || pts == ffmpeg.AV_NOPTS_VALUE)
+                return TimeSpan.MinValue;
+
+            if (timeBase.den == 0)
+                return TimeSpan.FromSeconds(pts / ffmpeg.AV_TIME_BASE);
+
+            return TimeSpan.FromSeconds(pts * timeBase.num / timeBase.den);
+        }
+
+        /// <summary>
+        /// Gets a timespan given a timestamp and a timebase.
+        /// </summary>
+        /// <param name="pts">The PTS.</param>
+        /// <param name="timeBase">The time base.</param>
+        /// <returns></returns>
+        public static TimeSpan ToTimeSpan(this long pts, AVRational timeBase)
+        {
+            return ((double)pts).ToTimeSpan(timeBase);
+        }
+
+        /// <summary>
+        /// Gets a timespan given a timestamp and a timebase.
+        /// </summary>
+        /// <param name="pts">The PTS.</param>
+        /// <param name="timeBase">The time base.</param>
+        /// <returns></returns>
+        public static TimeSpan ToTimeSpan(this double pts, double timeBase)
+        {
+            if (double.IsNaN(pts) || pts == ffmpeg.AV_NOPTS_VALUE)
+                return TimeSpan.MinValue;
+
+            return TimeSpan.FromSeconds(pts / timeBase);
+        }
+
+        /// <summary>
+        /// Gets a timespan given a timestamp and a timebase.
+        /// </summary>
+        /// <param name="pts">The PTS.</param>
+        /// <param name="timeBase">The time base.</param>
+        /// <returns></returns>
+        public static TimeSpan ToTimeSpan(this long pts, double timeBase)
+        {
+            return ((double)pts).ToTimeSpan(timeBase);
+        }
+
+        /// <summary>
+        /// Gets a timespan given a timestamp (in AV_TIME_BASE units)
+        /// </summary>
+        /// <param name="pts">The PTS.</param>
+        /// <returns></returns>
+        public static TimeSpan ToTimeSpan(this double pts)
+        {
+            return ToTimeSpan(pts, ffmpeg.AV_TIME_BASE);
+        }
+
+        /// <summary>
+        /// Gets a timespan given a timestamp (in AV_TIME_BASE units)
+        /// </summary>
+        /// <param name="pts">The PTS.</param>
+        /// <returns></returns>
+        public static TimeSpan ToTimeSpan(this long pts)
+        {
+            return ((double)pts).ToTimeSpan();
+        }
+    }
+
+    /// <summary>
     /// A Media Container Exception
     /// </summary>
     /// <seealso cref="System.Exception" />
@@ -93,50 +124,180 @@ namespace Unosquare.FFplayDotNet
         public MediaContainerException(string message) : base(message) { }
     }
 
-    public class AudioDataAvailableEventArgs : EventArgs
+    /// <summary>
+    /// Represents a base class for uncompressed media events
+    /// </summary>
+    /// <seealso cref="System.EventArgs" />
+    public abstract class MediaDataAvailableEventArgs : EventArgs
     {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="MediaDataAvailableEventArgs"/> class.
+        /// </summary>
+        /// <param name="mediaType">Type of the media.</param>
+        /// <param name="renderTime">The render time.</param>
+        /// <param name="duration">The duration.</param>
+        protected MediaDataAvailableEventArgs(MediaType mediaType, TimeSpan renderTime, TimeSpan duration)
+        {
+            MediaType = mediaType;
+            RenderTime = renderTime;
+            Duration = duration;
+        }
+
+        /// <summary>
+        /// Gets the time at which this data should be presented (PTS)
+        /// </summary>
+        public TimeSpan RenderTime { get; }
+
+        /// <summary>
+        /// Gets the amount of time this data has to be presented
+        /// </summary>
+        public TimeSpan Duration { get; }
+
+        /// <summary>
+        /// Gets the media type of the data
+        /// </summary>
+        public MediaType MediaType { get; }
+    }
+
+    /// <summary>
+    /// Contains result data for subtitle frame processing.
+    /// </summary>
+    /// <seealso cref="Unosquare.FFplayDotNet.MediaDataAvailableEventArgs" />
+    public class SubtitleDataAvailableEventArgs : MediaDataAvailableEventArgs
+    {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="SubtitleDataAvailableEventArgs"/> class.
+        /// </summary>
+        /// <param name="textLines">The text lines.</param>
+        /// <param name="renderTime">The render time.</param>
+        /// <param name="endTime">The end time.</param>
+        /// <param name="duration">The duration.</param>
+        internal SubtitleDataAvailableEventArgs(string[] textLines, TimeSpan renderTime, TimeSpan endTime, TimeSpan duration)
+            : base(MediaType.Subtitle, renderTime, duration)
+        {
+            TextLines = textLines ?? new string[] { };
+            EndTime = endTime;
+        }
+
+        /// <summary>
+        /// Gets the lines of text to be displayed.
+        /// </summary>
+        public string[] TextLines { get; }
+
+        /// <summary>
+        /// Gets the time at which this subtitle must stop displaying
+        /// </summary>
+        public TimeSpan EndTime { get; }
+
+    }
+
+    /// <summary>
+    /// Contains result data for audio frame processing.
+    /// </summary>
+    /// <seealso cref="Unosquare.FFplayDotNet.MediaDataAvailableEventArgs" />
+    public class AudioDataAvailableEventArgs : MediaDataAvailableEventArgs
+    {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="AudioDataAvailableEventArgs"/> class.
+        /// </summary>
+        /// <param name="buffer">The buffer.</param>
+        /// <param name="bufferLength">Length of the buffer.</param>
+        /// <param name="sampleRate">The sample rate.</param>
+        /// <param name="samplesPerChannel">The samples per channel.</param>
+        /// <param name="channels">The channels.</param>
+        /// <param name="renderTime">The render time.</param>
+        /// <param name="duration">The duration.</param>
         internal AudioDataAvailableEventArgs(IntPtr buffer, int bufferLength, int sampleRate, int samplesPerChannel, int channels,
             TimeSpan renderTime, TimeSpan duration)
+            :base(MediaType.Audio, renderTime, duration)
         {
             Buffer = buffer;
             BufferLength = bufferLength;
             SamplesPerChannel = samplesPerChannel;
             SampleRate = sampleRate;
             Channels = channels;
-            RenderTime = renderTime;
-            Duration = duration;
         }
 
+        /// <summary>
+        /// Gets a pointer to the first byte of the data buffer.
+        /// The format is interleaved stereo 16-bit, signed samples (4 bytes per sample in stereo)
+        /// </summary>
         public IntPtr Buffer { get; }
+
+        /// <summary>
+        /// Gets the length of the buffer in bytes.
+        /// </summary>
         public int BufferLength { get; }
+
+        /// <summary>
+        /// Gets the sample rate of the buffer.
+        /// Typically this is 4.8kHz
+        /// </summary>
         public int SampleRate { get; }
+
+        /// <summary>
+        /// Gets the number of samples in the data per individual audio channel.
+        /// </summary>
         public int SamplesPerChannel { get; }
+
+        /// <summary>
+        /// Gets the number of channels the data buffer represents.
+        /// </summary>
         public int Channels { get; }
-        public TimeSpan RenderTime { get; }
-        public TimeSpan Duration { get; }
     }
 
-    public class VideoDataAvailableEventArgs : EventArgs
+    /// <summary>
+    /// Contains result data for video frame processing.
+    /// </summary>
+    /// <seealso cref="System.EventArgs" />
+    public class VideoDataAvailableEventArgs : MediaDataAvailableEventArgs
     {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="VideoDataAvailableEventArgs"/> class.
+        /// </summary>
+        /// <param name="buffer">The buffer.</param>
+        /// <param name="bufferLength">Length of the buffer.</param>
+        /// <param name="bufferStride">The buffer stride.</param>
+        /// <param name="width">The width.</param>
+        /// <param name="height">The height.</param>
+        /// <param name="renderTime">The render time.</param>
+        /// <param name="duration">The duration.</param>
         internal VideoDataAvailableEventArgs(IntPtr buffer, int bufferLength, int bufferStride, int width, int height,
             TimeSpan renderTime, TimeSpan duration)
+            : base(MediaType.Video, renderTime, duration)
         {
             Buffer = buffer;
             BufferLength = bufferLength;
             BufferStride = bufferStride;
             PixelWidth = width;
             PixelHeight = height;
-            RenderTime = renderTime;
-            Duration = duration;
         }
 
+        /// <summary>
+        /// Gets a pointer to the first byte of the data buffer.
+        /// The format is 24bit in BGR
+        /// </summary>
         public IntPtr Buffer { get; }
+
+        /// <summary>
+        /// Gets the length of the buffer in bytes.
+        /// </summary>
         public int BufferLength { get; }
+
+        /// <summary>
+        /// Gets the number of bytes per scanline in the image
+        /// </summary>
         public int BufferStride { get; }
+
+        /// <summary>
+        /// Gets the number of horizontal pixels in the image.
+        /// </summary>
         public int PixelWidth { get; }
+
+        /// <summary>
+        /// Gets the number of vertical pixels in the image.
+        /// </summary>
         public int PixelHeight { get; }
-        public TimeSpan RenderTime { get; }
-        public TimeSpan Duration { get; }
     }
 
     /// <summary>
@@ -145,7 +306,7 @@ namespace Unosquare.FFplayDotNet
     /// Enqueued, unmanaged packets are disposed automatically by this queue.
     /// Dequeued packets are the responsibility of the calling code.
     /// </summary>
-    public unsafe class MediaPacketQueue : IDisposable
+    internal unsafe class MediaPacketQueue : IDisposable
     {
         #region Private Declarations
 
@@ -280,6 +441,149 @@ namespace Unosquare.FFplayDotNet
     }
 
     /// <summary>
+    /// Contains audio format properties essential
+    /// to audio resampling
+    /// </summary>
+    public sealed unsafe class AudioComponentSpec
+    {
+        #region Constant Definitions
+
+        /// <summary>
+        /// The standard output audio spec
+        /// </summary>
+        static public readonly AudioComponentSpec Output;
+
+        #endregion
+
+        #region Constructors
+
+        /// <summary>
+        /// Initializes the <see cref="AudioComponentSpec"/> class.
+        /// </summary>
+        static AudioComponentSpec()
+        {
+            Output = new AudioComponentSpec();
+            Output.ChannelCount = 2;
+            Output.SampleRate = 48000;
+            Output.Format = AVSampleFormat.AV_SAMPLE_FMT_S16;
+            Output.ChannelLayout = ffmpeg.av_get_default_channel_layout(Output.ChannelCount);
+            Output.SamplesPerChannel = Output.SampleRate + 256;
+            Output.BufferLength = ffmpeg.av_samples_get_buffer_size(
+                null, Output.ChannelCount, Output.SamplesPerChannel, Output.Format, 1);
+        }
+
+        /// <summary>
+        /// Prevents a default instance of the <see cref="AudioComponentSpec"/> class from being created.
+        /// </summary>
+        private AudioComponentSpec() { }
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="AudioComponentSpec"/> class.
+        /// </summary>
+        /// <param name="frame">The frame.</param>
+        private AudioComponentSpec(AVFrame* frame)
+        {
+            ChannelCount = ffmpeg.av_frame_get_channels(frame);
+            ChannelLayout = ffmpeg.av_frame_get_channel_layout(frame);
+            Format = (AVSampleFormat)frame->format;
+            SamplesPerChannel = frame->nb_samples;
+            BufferLength = ffmpeg.av_samples_get_buffer_size(null, ChannelCount, SamplesPerChannel, Format, 1);
+            SampleRate = frame->sample_rate;
+        }
+
+        #endregion
+
+        #region Properties
+
+        /// <summary>
+        /// Gets the channel count.
+        /// </summary>
+        public int ChannelCount { get; private set; }
+
+        /// <summary>
+        /// Gets the channel layout.
+        /// </summary>
+        public long ChannelLayout { get; private set; }
+
+        /// <summary>
+        /// Gets the samples per channel.
+        /// </summary>
+        public int SamplesPerChannel { get; private set; }
+
+        /// <summary>
+        /// Gets the audio sampling rate.
+        /// </summary>
+        public int SampleRate { get; private set; }
+
+        /// <summary>
+        /// Gets the sample format.
+        /// </summary>
+        public AVSampleFormat Format { get; private set; }
+
+        /// <summary>
+        /// Gets the length of the buffer required to store 
+        /// the samples in the current format.
+        /// </summary>
+        public int BufferLength { get; private set; }
+
+        #endregion
+
+        #region Methods
+
+        /// <summary>
+        /// Creates a source audio spec based on the info in the given audio frame
+        /// </summary>
+        /// <param name="frame">The frame.</param>
+        /// <returns></returns>
+        static internal AudioComponentSpec CreateSource(AVFrame* frame)
+        {
+            return new AudioComponentSpec(frame);
+        }
+
+        /// <summary>
+        /// Creates a target audio spec using the sample quantities provided 
+        /// by the given source audio frame
+        /// </summary>
+        /// <param name="frame">The frame.</param>
+        /// <returns></returns>
+        static internal AudioComponentSpec CreateTarget(AVFrame* frame)
+        {
+            var spec = new AudioComponentSpec
+            {
+                ChannelCount = Output.ChannelCount,
+                Format = Output.Format,
+                SampleRate = Output.SampleRate,
+                ChannelLayout = Output.ChannelLayout
+            };
+
+            // The target transform is just a ratio of the source frame's sample. This is how many samples we desire
+            spec.SamplesPerChannel = (int)Math.Round((double)frame->nb_samples * spec.SampleRate / frame->sample_rate, 0) + 256;
+            spec.BufferLength = ffmpeg.av_samples_get_buffer_size(null, spec.ChannelCount, spec.SamplesPerChannel, spec.Format, 1);
+            return spec;
+        }
+
+        /// <summary>
+        /// Determines if the audio specs are compatible between them.
+        /// They must share format, channel count, layout and sample rate
+        /// </summary>
+        /// <param name="a">a.</param>
+        /// <param name="b">The b.</param>
+        /// <returns></returns>
+        static public bool AreCompatible(AudioComponentSpec a, AudioComponentSpec b)
+        {
+            if (a.Format != b.Format) return false;
+            if (a.ChannelCount != b.ChannelCount) return false;
+            if (a.ChannelLayout != b.ChannelLayout) return false;
+            if (a.SampleRate != b.SampleRate) return false;
+
+            return true;
+        }
+
+        #endregion
+
+    }
+
+    /// <summary>
     /// Represents a media component of a given media type within a 
     /// media container. Derived classes must implement frame handling
     /// logic.
@@ -287,6 +591,8 @@ namespace Unosquare.FFplayDotNet
     /// <seealso cref="System.IDisposable" />
     public unsafe abstract class MediaComponent : IDisposable
     {
+
+        #region Constants
 
         /// <summary>
         /// Contains constants defining dictionary entry names for codec options
@@ -297,6 +603,8 @@ namespace Unosquare.FFplayDotNet
             public const string RefCountedFrames = "refcounted_frames";
             public const string LowRes = "lowres";
         }
+
+        #endregion
 
         #region Private Declarations
 
@@ -324,13 +632,13 @@ namespace Unosquare.FFplayDotNet
         /// <summary>
         /// Contains the packets pending to be sent to the decoder
         /// </summary>
-        protected readonly MediaPacketQueue Packets = new MediaPacketQueue();
+        internal readonly MediaPacketQueue Packets = new MediaPacketQueue();
 
         /// <summary>
         /// The packets that have been sent to the decoder. We keep track of them in order to dispose them
         /// once a frame has been decoded.
         /// </summary>
-        protected readonly MediaPacketQueue SentPackets = new MediaPacketQueue();
+        internal readonly MediaPacketQueue SentPackets = new MediaPacketQueue();
 
         #endregion
 
@@ -373,6 +681,16 @@ namespace Unosquare.FFplayDotNet
         /// If there is no such information it will return TimeSpan.MinValue
         /// </summary>
         public TimeSpan EndTime { get; }
+
+        /// <summary>
+        /// Gets the time in UTC at which the last frame was processed.
+        /// </summary>
+        public DateTime LastProcessedTimeUTC { get; protected set; }
+
+        /// <summary>
+        /// Gets the render time if the last processed frame.
+        /// </summary>
+        public TimeSpan LastProcessedRenderTime { get; protected set; }
 
         #endregion
 
@@ -451,25 +769,21 @@ namespace Unosquare.FFplayDotNet
             if (codecOptions.First() != null)
                 $"Codec Option '{codecOptions.First().Key}' not found.".Warn(typeof(MediaContainer));
 
-            // Display stream information in the console if we are debugging
-            if (Debugger.IsAttached)
-                ffmpeg.av_dump_format(container.InputContext, 0, container.MediaUrl, 0);
-
             // Startup done. Set some options.
             Stream->discard = AVDiscard.AVDISCARD_DEFAULT;
             MediaType = (MediaType)CodecContext->codec_type;
 
             // Compute the start time
             if (Stream->start_time == ffmpeg.AV_NOPTS_VALUE)
-                StartTime = MediaUtils.GetTimeSpan(Container.InputContext->start_time);
+                StartTime = Container.InputContext->start_time.ToTimeSpan();
             else
-                StartTime = MediaUtils.GetTimeSpan(Stream->start_time, Stream->time_base);
+                StartTime = Stream->start_time.ToTimeSpan(Stream->time_base);
 
             // compute the duration
             if (Stream->duration == ffmpeg.AV_NOPTS_VALUE || Stream->duration == 0)
-                Duration = MediaUtils.GetTimeSpan(Container.InputContext->duration);
+                Duration = Container.InputContext->duration.ToTimeSpan();
             else
-                Duration = MediaUtils.GetTimeSpan(Stream->duration, Stream->time_base);
+                Duration = Stream->duration.ToTimeSpan(Stream->time_base);
 
             // compute the end time
             if (StartTime != TimeSpan.MinValue && Duration != TimeSpan.MinValue)
@@ -635,7 +949,7 @@ namespace Unosquare.FFplayDotNet
                     // Let's check if we have more decoded frames from the same single packet
                     // Packets may contain more than 1 frame and the decoder is drained
                     // by passing a flush packet (data = null, size = 0)
-                    while (gotFrame != 0 || receiveFrameResult >= 0)
+                    while (gotFrame != 0 || receiveFrameResult > 0)
                     {
                         outputFrame = new AVSubtitle();
                         receiveFrameResult = ffmpeg.avcodec_decode_subtitle2(CodecContext, &outputFrame, &gotFrame, FlushPacket);
@@ -664,14 +978,14 @@ namespace Unosquare.FFplayDotNet
         }
 
         /// <summary>
-        /// Processes the frame.
+        /// Processes the audio or video frame.
         /// </summary>
         /// <param name="packet">The packet.</param>
         /// <param name="frame">The frame.</param>
         protected abstract void ProcessFrame(AVPacket* packet, AVFrame* frame);
 
         /// <summary>
-        /// Processes the frame.
+        /// Processes the subtitle frame.
         /// </summary>
         /// <param name="packet">The packet.</param>
         /// <param name="frame">The frame.</param>
@@ -727,7 +1041,7 @@ namespace Unosquare.FFplayDotNet
     /// Performs video picture decoding, scaling and extraction logic.
     /// </summary>
     /// <seealso cref="Unosquare.FFplayDotNet.MediaComponent" />
-    public unsafe class VideoComponent : MediaComponent
+    public sealed unsafe class VideoComponent : MediaComponent
     {
         #region Private State Variables
 
@@ -791,7 +1105,7 @@ namespace Unosquare.FFplayDotNet
 
         /// <summary>
         /// Gets the current frame rate as guessed by the last processed frame.
-        /// Variable framerate streams will report different values at different times.
+        /// Variable framerate might report different values at different times.
         /// </summary>
         public double CurrentFrameRate { get; private set; }
 
@@ -807,11 +1121,13 @@ namespace Unosquare.FFplayDotNet
         /// <param name="frame">The frame.</param>
         protected override unsafe void ProcessFrame(AVPacket* packet, AVFrame* frame)
         {
-            //base.ProcessFrame(packet, frame);
-
             // for vide frames, we always get the best effort timestamp as dts and pts might
             // contain different times.
             frame->pts = ffmpeg.av_frame_get_best_effort_timestamp(frame);
+
+            // Set the state
+            LastProcessedTimeUTC = DateTime.UtcNow;
+            LastProcessedRenderTime = frame->pts.ToTimeSpan(Stream->time_base);
 
             // Update the current framerate
             CurrentFrameRate = ffmpeg.av_q2d(ffmpeg.av_guess_frame_rate(Container.InputContext, Stream, frame));
@@ -841,11 +1157,21 @@ namespace Unosquare.FFplayDotNet
             Container.RaiseOnVideoDataAvailabe(
                 PictureBuffer, PictureBufferLength, PictureBufferStride,
                 frame->width, frame->height,
-                MediaUtils.GetTimeSpan(frame->pts, Stream->time_base),
-                MediaUtils.GetTimeSpan(duration, Stream->time_base));
+                frame->pts.ToTimeSpan(Stream->time_base),
+                duration.ToTimeSpan(Stream->time_base));
 
         }
 
+        /// <summary>
+        /// Processes the subtitle frame.
+        /// </summary>
+        /// <param name="packet">The packet.</param>
+        /// <param name="frame">The frame.</param>
+        /// <exception cref="System.NotSupportedException"></exception>
+        protected override unsafe void ProcessFrame(AVPacket* packet, AVSubtitle* frame)
+        {
+            throw new NotSupportedException($"{nameof(VideoComponent)} does not support subtitle frame processing.");
+        }
 
         /// <summary>
         /// Allocates a buffer if needed in unmanaged memory. If we already have a buffer of the specified
@@ -856,6 +1182,8 @@ namespace Unosquare.FFplayDotNet
         /// <returns></returns>
         private IntPtr AllocateBuffer(int length)
         {
+            // If there is a size mismatch between the wanted buffer length and the existing one,
+            // then let's reallocate the buffer and set the new size (dispose of the existing one if any)
             if (PictureBufferLength != length)
             {
                 if (PictureBuffer != IntPtr.Zero)
@@ -882,179 +1210,58 @@ namespace Unosquare.FFplayDotNet
                 Marshal.FreeHGlobal(PictureBuffer);
         }
 
-        /// <summary>
-        /// Processes the frame.
-        /// </summary>
-        /// <param name="packet">The packet.</param>
-        /// <param name="frame">The frame.</param>
-        /// <exception cref="System.NotSupportedException"></exception>
-        protected override unsafe void ProcessFrame(AVPacket* packet, AVSubtitle* frame)
-        {
-            throw new NotSupportedException();
-        }
-
         #endregion
-    }
-
-    /// <summary>
-    /// Contains audio format properties useful
-    /// for scaling and audio parameter usage
-    /// </summary>
-    public unsafe class AudioComponentSpec
-    {
-        #region Constant Definitions
-
-        /// <summary>
-        /// The standard output audio spec
-        /// </summary>
-        static public readonly AudioComponentSpec Output;
-
-        #endregion
-
-        #region Constructors
-
-        /// <summary>
-        /// Initializes the <see cref="AudioComponentSpec"/> class.
-        /// </summary>
-        static AudioComponentSpec()
-        {
-            Output = new AudioComponentSpec();
-            Output.ChannelCount = 2;
-            Output.SampleRate = 48000;
-            Output.Format = AVSampleFormat.AV_SAMPLE_FMT_S16;
-            Output.ChannelLayout = ffmpeg.av_get_default_channel_layout(Output.ChannelCount);
-            Output.SamplesPerChannel = Output.SampleRate + 256;
-            Output.BufferLength = ffmpeg.av_samples_get_buffer_size(
-                null, Output.ChannelCount, Output.SamplesPerChannel, Output.Format, 1);
-        }
-
-        /// <summary>
-        /// Prevents a default instance of the <see cref="AudioComponentSpec"/> class from being created.
-        /// </summary>
-        private AudioComponentSpec() { }
-
-        /// <summary>
-        /// Initializes a new instance of the <see cref="AudioComponentSpec"/> class.
-        /// </summary>
-        /// <param name="frame">The frame.</param>
-        private AudioComponentSpec(AVFrame* frame)
-        {
-            ChannelCount = ffmpeg.av_frame_get_channels(frame);
-            ChannelLayout = ffmpeg.av_frame_get_channel_layout(frame);
-            Format = (AVSampleFormat)frame->format;
-            SamplesPerChannel = frame->nb_samples;
-            BufferLength = ffmpeg.av_samples_get_buffer_size(null, ChannelCount, SamplesPerChannel, Format, 1);
-            SampleRate = frame->sample_rate;
-        }
-
-        #endregion
-
-        #region Properties
-
-        /// <summary>
-        /// Gets the channel count.
-        /// </summary>
-        public int ChannelCount { get; private set; }
-
-        /// <summary>
-        /// Gets the channel layout.
-        /// </summary>
-        public long ChannelLayout { get; private set; }
-
-        /// <summary>
-        /// Gets the samples per channel.
-        /// </summary>
-        public int SamplesPerChannel { get; private set; }
-
-        /// <summary>
-        /// Gets the audio sampling rate.
-        /// </summary>
-        public int SampleRate { get; private set; }
-
-        /// <summary>
-        /// Gets the sample format.
-        /// </summary>
-        public AVSampleFormat Format { get; private set; }
-
-        /// <summary>
-        /// Gets the length of the buffer required to store 
-        /// the samples in the current format.
-        /// </summary>
-        public int BufferLength { get; private set; }
-
-        #endregion
-
-        #region Methods
-
-        /// <summary>
-        /// Creates a source audio spec based on the info in the given audio frame
-        /// </summary>
-        /// <param name="frame">The frame.</param>
-        /// <returns></returns>
-        static internal AudioComponentSpec CreateSource(AVFrame* frame)
-        {
-            return new AudioComponentSpec(frame);
-        }
-
-        /// <summary>
-        /// Creates a target audio spec using the sample quantities provided 
-        /// by the given source audio frame
-        /// </summary>
-        /// <param name="frame">The frame.</param>
-        /// <returns></returns>
-        static internal AudioComponentSpec CreateTarget(AVFrame* frame)
-        {
-            var spec = new AudioComponentSpec
-            {
-                ChannelCount = Output.ChannelCount,
-                Format = Output.Format,
-                SampleRate = Output.SampleRate,
-                ChannelLayout = Output.ChannelLayout
-            };
-
-            // The target transform is just a ratio of the source frame's sample. This is how many samples we desire
-            spec.SamplesPerChannel = (int)Math.Round((double)frame->nb_samples * spec.SampleRate / frame->sample_rate, 0) + 256;
-            spec.BufferLength = ffmpeg.av_samples_get_buffer_size(null, spec.ChannelCount, spec.SamplesPerChannel, spec.Format, 1);
-            return spec;
-        }
-
-        /// <summary>
-        /// Determines if the audio specs are compatible between them.
-        /// They must share format, channel count, layout and sample rate
-        /// </summary>
-        /// <param name="a">a.</param>
-        /// <param name="b">The b.</param>
-        /// <returns></returns>
-        static public bool AreCompatible(AudioComponentSpec a, AudioComponentSpec b)
-        {
-            if (a.Format != b.Format) return false;
-            if (a.ChannelCount != b.ChannelCount) return false;
-            if (a.ChannelLayout != b.ChannelLayout) return false;
-            if (a.SampleRate != b.SampleRate) return false;
-
-            return true;
-        }
-
-        #endregion
-
     }
 
     /// <summary>
     /// Performs audio sample decoding, scaling and extraction logic.
     /// </summary>
     /// <seealso cref="Unosquare.FFplayDotNet.MediaComponent" />
-    public unsafe class AudioComponent : MediaComponent
+    public sealed unsafe class AudioComponent : MediaComponent
     {
+        #region Private Declarations
+
+        /// <summary>
+        /// Holds a reference to the audio resampler
+        /// This resampler gets disposed upon disposal of this object.
+        /// </summary>
         private SwrContext* Scaler = null;
+
+        /// <summary>
+        /// The audio samples buffer that has been allocated in unmanaged memory
+        /// </summary>
         private IntPtr SamplesBuffer = IntPtr.Zero;
+
+        /// <summary>
+        /// The samples buffer length. This might differ from the decompressed,
+        /// resampled data length that is obtained in the event. This represents a maximum
+        /// allocated length.
+        /// </summary>
         private int SamplesBufferLength;
+
+        /// <summary>
+        /// Used to determine if we have to reset the scaler parameters
+        /// </summary>
         private AudioComponentSpec LastSourceSpec = null;
 
-        public AudioComponent(MediaContainer container, int streamIndex)
+        #endregion
+
+        #region Constructor
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="AudioComponent"/> class.
+        /// </summary>
+        /// <param name="container">The container.</param>
+        /// <param name="streamIndex">Index of the stream.</param>
+        internal AudioComponent(MediaContainer container, int streamIndex)
             : base(container, streamIndex)
         {
             // Placeholder. Nothing else to init.
         }
+
+        #endregion
+
+        #region Methods
 
         /// <summary>
         /// Allocates a buffer in inmanaged memory only if necessry.
@@ -1076,8 +1283,22 @@ namespace Unosquare.FFplayDotNet
             return SamplesBuffer;
         }
 
+        /// <summary>
+        /// Processes the audio frame by resampling it and raising an even if there are any
+        /// event subscribers.
+        /// </summary>
+        /// <param name="packet">The packet.</param>
+        /// <param name="frame">The frame.</param>
         protected override unsafe void ProcessFrame(AVPacket* packet, AVFrame* frame)
         {
+            // Compute the timespans
+            var renderTime = ffmpeg.av_frame_get_best_effort_timestamp(frame).ToTimeSpan(Stream->time_base);
+            var duration = ffmpeg.av_frame_get_pkt_duration(frame).ToTimeSpan(Stream->time_base);
+
+            // Set the state
+            LastProcessedTimeUTC = DateTime.UtcNow;
+            LastProcessedRenderTime = renderTime;
+
             // Check if there is a handler to feed the conversion to.
             if (Container.HandlesOnAudioDataAvailable == false)
                 return;
@@ -1109,21 +1330,27 @@ namespace Unosquare.FFplayDotNet
             var outputBufferLength =
                 ffmpeg.av_samples_get_buffer_size(null, targetSpec.ChannelCount, outputSamplesPerChannel, targetSpec.Format, 1);
 
-            // Compute the timestamps
-            var renderTime = MediaUtils.GetTimeSpan(ffmpeg.av_frame_get_best_effort_timestamp(frame), Stream->time_base);
-            var duration = MediaUtils.GetTimeSpan(ffmpeg.av_frame_get_pkt_duration(frame), Stream->time_base);
-
             // Send data to event subscribers
             Container.RaiseOnAudioDataAvailabe(outputBuffer, outputBufferLength,
                 targetSpec.SampleRate, outputSamplesPerChannel, targetSpec.ChannelCount, renderTime, duration);
 
         }
 
+        /// <summary>
+        /// Processes the subtitle frame. This will throw if called.
+        /// </summary>
+        /// <param name="packet">The packet.</param>
+        /// <param name="frame">The frame.</param>
+        /// <exception cref="System.NotSupportedException"></exception>
         protected override unsafe void ProcessFrame(AVPacket* packet, AVSubtitle* frame)
         {
-            throw new NotImplementedException();
+            throw new NotSupportedException($"{nameof(AudioComponent)} does not support subtitle frame processing.");
         }
 
+        /// <summary>
+        /// Releases unmanaged and - optionally - managed resources.
+        /// </summary>
+        /// <param name="alsoManaged"><c>true</c> to release both managed and unmanaged resources; <c>false</c> to release only unmanaged resources.</param>
         protected override void Dispose(bool alsoManaged)
         {
             base.Dispose(alsoManaged);
@@ -1135,24 +1362,67 @@ namespace Unosquare.FFplayDotNet
             if (SamplesBuffer != IntPtr.Zero)
                 Marshal.FreeHGlobal(SamplesBuffer);
         }
+
+        #endregion
     }
 
-    public unsafe class SubtitleComponent : MediaComponent
+    /// <summary>
+    /// Performs subtitle text decoding and extraction logic.
+    /// </summary>
+    /// <seealso cref="Unosquare.FFplayDotNet.MediaComponent" />
+    public sealed unsafe class SubtitleComponent : MediaComponent
     {
-        public SubtitleComponent(MediaContainer container, int streamIndex)
+        internal SubtitleComponent(MediaContainer container, int streamIndex)
             : base(container, streamIndex)
         {
-
+            // placeholder. Nothing else to change here.
         }
 
+        /// <summary>
+        /// Processes the frame. If called, this will throw.
+        /// </summary>
+        /// <param name="packet">The packet.</param>
+        /// <param name="frame">The frame.</param>
+        /// <exception cref="System.NotSupportedException">SubtitleComponent</exception>
         protected override unsafe void ProcessFrame(AVPacket* packet, AVFrame* frame)
         {
-            throw new NotSupportedException();
+            throw new NotSupportedException($"{nameof(SubtitleComponent)} does not support processing of audio or video frames.");
         }
 
+        /// <summary>
+        /// Processes the subtitle frame. Only text subtitles are supported.
+        /// </summary>
+        /// <param name="packet">The packet.</param>
+        /// <param name="frame">The frame.</param>
         protected override unsafe void ProcessFrame(AVPacket* packet, AVSubtitle* frame)
         {
-            throw new NotImplementedException();
+            // Extract timing information
+            var renderTime = frame->pts.ToTimeSpan();
+            var startTime = renderTime + ((long)frame->start_display_time).ToTimeSpan(Stream->time_base);
+            var endTime = renderTime + ((long)frame->end_display_time).ToTimeSpan(Stream->time_base);
+            var duration = endTime - startTime;
+
+            // Set the state
+            LastProcessedTimeUTC = DateTime.UtcNow;
+            LastProcessedRenderTime = renderTime;
+
+            // Check if there is a handler to feed the conversion to.
+            if (Container.HandlesOnSubtitleDataAvailable == false)
+                return;
+            
+            // Extract text strings
+            var subtitleText = new List<string>();
+
+            for (var i = 0; i < frame->num_rects; i++)
+            {
+                var rect = frame->rects[i];
+                if (rect->text != null)
+                    subtitleText.Add(Native.BytePtrToStringUTF8(rect->text));
+
+            }
+
+            // Provide the data in an event
+            Container.RaiseOnSubtitleDataAvailabe(subtitleText.ToArray(), startTime, endTime, duration);
         }
     }
 
@@ -1296,7 +1566,7 @@ namespace Unosquare.FFplayDotNet
     /// </summary>
     public class MediaContainerOptions
     {
-        // TODO: Support stream selection, video output params, audio output params
+        // TODO: Support specific stream selection for each component, forced input format
 
         /// <summary>
         /// Gets or sets a value indicating whether [enable low resource].
@@ -1359,7 +1629,7 @@ namespace Unosquare.FFplayDotNet
     /// <seealso cref="System.IDisposable" />
     public unsafe class MediaContainer : IDisposable
     {
-        // TODO: Seeking and attached picture
+        // TODO: Seeking and resetting attached picture
 
         #region Constants
 
@@ -1400,12 +1670,46 @@ namespace Unosquare.FFplayDotNet
 
         #region Events
 
+        /// <summary>
+        /// Occurs when video data is available.
+        /// </summary>
         public event EventHandler<VideoDataAvailableEventArgs> OnVideoDataAvailable;
+
+        /// <summary>
+        /// Occurs when audio data is available.
+        /// </summary>
         public event EventHandler<AudioDataAvailableEventArgs> OnAudioDataAvailable;
 
+        /// <summary>
+        /// Occurs when subtitle data is available.
+        /// </summary>
+        public event EventHandler<SubtitleDataAvailableEventArgs> OnSubtitleDataAvailable;
+
+        /// <summary>
+        /// Gets a value indicating whether the event is bound
+        /// </summary>
         internal bool HandlesOnVideoDataAvailable { get { return OnVideoDataAvailable != null; } }
+
+        /// <summary>
+        /// Gets a value indicating whether the event is bound
+        /// </summary>
         internal bool HandlesOnAudioDataAvailable { get { return OnAudioDataAvailable != null; } }
 
+        /// <summary>
+        /// Gets a value indicating whether the event is bound
+        /// </summary>
+        internal bool HandlesOnSubtitleDataAvailable { get { return OnSubtitleDataAvailable != null; } }
+
+        /// <summary>
+        /// Raises the on video data availabe.
+        /// </summary>
+        /// <param name="buffer">The buffer.</param>
+        /// <param name="bufferLength">Length of the buffer.</param>
+        /// <param name="bufferStride">The buffer stride.</param>
+        /// <param name="pixelWidth">Width of the pixel.</param>
+        /// <param name="pixelHeight">Height of the pixel.</param>
+        /// <param name="renderTime">The render time.</param>
+        /// <param name="duration">The duration.</param>
         internal void RaiseOnVideoDataAvailabe(IntPtr buffer, int bufferLength, int bufferStride,
             int pixelWidth, int pixelHeight, TimeSpan renderTime, TimeSpan duration)
         {
@@ -1414,6 +1718,16 @@ namespace Unosquare.FFplayDotNet
                 pixelWidth, pixelHeight, renderTime, duration));
         }
 
+        /// <summary>
+        /// Raises the on audio data availabe.
+        /// </summary>
+        /// <param name="buffer">The buffer.</param>
+        /// <param name="bufferLength">Length of the buffer.</param>
+        /// <param name="sampleRate">The sample rate.</param>
+        /// <param name="samplesPerChannel">The samples per channel.</param>
+        /// <param name="channels">The channels.</param>
+        /// <param name="renderTime">The render time.</param>
+        /// <param name="duration">The duration.</param>
         internal void RaiseOnAudioDataAvailabe(IntPtr buffer, int bufferLength,
             int sampleRate, int samplesPerChannel, int channels, TimeSpan renderTime, TimeSpan duration)
         {
@@ -1422,8 +1736,20 @@ namespace Unosquare.FFplayDotNet
                 samplesPerChannel, channels, renderTime, duration));
         }
 
-        #endregion
+        /// <summary>
+        /// Raises the on subtitle data availabe.
+        /// </summary>
+        /// <param name="textLines">The text lines.</param>
+        /// <param name="renderTime">The render time.</param>
+        /// <param name="endTime">The end time.</param>
+        /// <param name="duration">The duration.</param>
+        internal void RaiseOnSubtitleDataAvailabe(string[] textLines, TimeSpan renderTime, TimeSpan endTime, TimeSpan duration)
+        {
+            if (HandlesOnSubtitleDataAvailable == false) return;
+            OnSubtitleDataAvailable(this, new SubtitleDataAvailableEventArgs(textLines, renderTime, endTime, duration));
+        }
 
+        #endregion
 
         #region Properties
 
@@ -1525,10 +1851,10 @@ namespace Unosquare.FFplayDotNet
         /// Initializes a new instance of the <see cref="MediaContainer"/> class.
         /// </summary>
         /// <param name="mediaUrl">The media URL.</param>
-        /// <param name="formatName">Name of the format.</param>
+        /// <param name="forcedFormatName">Name of the format.</param>
         /// <exception cref="System.ArgumentNullException">mediaUrl</exception>
         /// <exception cref="Unosquare.FFplayDotNet.MediaContainerException"></exception>
-        public MediaContainer(string mediaUrl, string formatName = null)
+        public MediaContainer(string mediaUrl, string forcedFormatName = null)
         {
             // Argument Validation
             if (string.IsNullOrWhiteSpace(mediaUrl))
@@ -1543,10 +1869,10 @@ namespace Unosquare.FFplayDotNet
 
             // Retrieve the input format (null = auto for default)
             AVInputFormat* inputFormat = null;
-            if (string.IsNullOrWhiteSpace(formatName) == false)
+            if (string.IsNullOrWhiteSpace(forcedFormatName) == false)
             {
-                inputFormat = ffmpeg.av_find_input_format(formatName);
-                $"Format '{formatName}' not found. Will use automatic format detection.".Warn(typeof(MediaContainer));
+                inputFormat = ffmpeg.av_find_input_format(forcedFormatName);
+                $"Format '{forcedFormatName}' not found. Will use automatic format detection.".Warn(typeof(MediaContainer));
             }
 
             try
@@ -1597,8 +1923,8 @@ namespace Unosquare.FFplayDotNet
                 SeekByBytes = inputAllowsDiscontinuities && (MediaFormatName.Equals("ogg") == false);
 
                 // Compute timespans
-                MediaStartTime = MediaUtils.GetTimeSpan(InputContext->start_time);
-                MediaDuration = MediaUtils.GetTimeSpan(InputContext->duration);
+                MediaStartTime = InputContext->start_time.ToTimeSpan();
+                MediaDuration = InputContext->duration.ToTimeSpan();
 
                 if (MediaStartTime != TimeSpan.MinValue && MediaDuration != TimeSpan.MinValue)
                     MediaEndTime = MediaStartTime + MediaDuration;
@@ -1634,6 +1960,10 @@ namespace Unosquare.FFplayDotNet
         /// <exception cref="Unosquare.FFplayDotNet.MediaContainerException"></exception>
         private MediaComponentSet CreateStreamComponents()
         {
+            // Display stream information in the console if we are debugging
+            if (Debugger.IsAttached)
+                ffmpeg.av_dump_format(InputContext, 0, MediaUrl, 0);
+
             // Initialize and clear all the stream indexes.
             var streamIndexes = new int[(int)AVMediaType.AVMEDIA_TYPE_NB];
             for (var i = 0; i < (int)AVMediaType.AVMEDIA_TYPE_NB; i++)
@@ -1641,7 +1971,7 @@ namespace Unosquare.FFplayDotNet
 
             { // Find best streams for each component
 
-                // if we passed null instead of requested codec, then
+                // if we passed null instead of the requestedCodec pointer, then
                 // find_best_stream would not validate whether a valid decoder is registed.
                 AVCodec* requestedCodec = null;
 
@@ -1669,39 +1999,42 @@ namespace Unosquare.FFplayDotNet
             }
 
             var result = new MediaComponentSet();
+            var allMediaTypes = Enum.GetValues(typeof(MediaType));
 
-            // Video Component
-            try
+            foreach (var mediaTypeItem in allMediaTypes)
             {
-                if (streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_VIDEO] >= 0)
-                    result[MediaType.Video] = new VideoComponent(this, streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_VIDEO]);
-            }
-            catch (Exception ex)
-            {
-                $"Unable to initialize {MediaType.Video.ToString()} component. {ex.Message}".Error(typeof(MediaContainer));
+                var mediaType = (MediaType)mediaTypeItem;
+
+                try
+                {
+                    if (streamIndexes[(int)mediaType] >= 0)
+                    {
+                        switch (mediaType)
+                        {
+                            case MediaType.Video:
+                                result[mediaType] = new VideoComponent(this, streamIndexes[(int)mediaType]);
+                                break;
+                            case MediaType.Audio:
+                                result[mediaType] = new AudioComponent(this, streamIndexes[(int)mediaType]);
+                                break;
+                            case MediaType.Subtitle:
+                                result[mediaType] = new SubtitleComponent(this, streamIndexes[(int)mediaType]);
+                                break;
+                            default:
+                                continue;
+                        }
+
+                        if (Debugger.IsAttached)
+                            $"{mediaType}: Selected Stream Index = {result[mediaType].StreamIndex}".Info(typeof(MediaContainer));
+                    }
+
+                }
+                catch (Exception ex)
+                {
+                    $"Unable to initialize {mediaType.ToString()} component. {ex.Message}".Error(typeof(MediaContainer));
+                }
             }
 
-            // Audio Component
-            try
-            {
-                if (streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_AUDIO] >= 0)
-                    result[MediaType.Audio] = new AudioComponent(this, streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_AUDIO]);
-            }
-            catch (Exception ex)
-            {
-                $"Unable to initialize {MediaType.Audio.ToString()} component. {ex.Message}".Error(typeof(MediaContainer));
-            }
-
-            // Subtitles Component
-            try
-            {
-                if (streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_SUBTITLE] >= 0)
-                    result[MediaType.Subtitle] = new SubtitleComponent(this, streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_SUBTITLE]);
-            }
-            catch (Exception ex)
-            {
-                $"Unable to initialize {MediaType.Subtitle.ToString()} component. {ex.Message}".Error(typeof(MediaContainer));
-            }
 
             // Verify we have at least 1 valid stream component to work with.
             if (result.HasVideo == false && result.HasAudio == false)

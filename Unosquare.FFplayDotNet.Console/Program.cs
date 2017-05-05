@@ -35,6 +35,12 @@
         /// From: https://github.com/unosquare/ffmediaelement/issues/16#issuecomment-299183167
         /// </summary>
         public static string TransportStreamFile = $"{BasePath}2013-12-18 22_45 - Anne Will.cut.ts";
+
+        /// <summary>
+        /// The matroska test. It contains various subtitle an audio tracks
+        /// Files can be obtained here: https://sourceforge.net/projects/matroska/files/test_files/matroska_test_w1_1.zip/download
+        /// </summary>
+        public static string MatroskaTest = $"{BasePath}test5.mkv";
     }
 
     class Program
@@ -43,22 +49,43 @@
         static void Main(string[] args)
         {
             var audioData = new List<byte>();
-            
-            var player = new MediaContainer(TestStreams.H264MulticastStream);
+
+            var player = new MediaContainer(TestStreams.Mp4H264Regular);
             var totalDurationSeconds = 0d;
+            var totalBytes = 0;
+            var SyncRoot = new object();
 
             player.OnVideoDataAvailable += (s, e) =>
             {
-                totalDurationSeconds += e.Duration.TotalSeconds;
-                $"Video PTS: {e.RenderTime}, DUR: {e.Duration} - Buffer: {e.BufferLength / 1024}kb".Info(typeof(Program));
+                lock (SyncRoot)
+                {
+                    totalBytes += e.BufferLength;
+                    totalDurationSeconds += e.Duration.TotalSeconds;
+                    $"Video PTS: {e.RenderTime}, DUR: {e.Duration} - Buffer: {e.BufferLength / 1024}KB".Info(typeof(Program));
+                }
+
             };
 
             player.OnAudioDataAvailable += (s, e) =>
             {
-                var outputBytes = new byte[e.BufferLength];
-                Marshal.Copy(e.Buffer, outputBytes, 0, outputBytes.Length);
-                audioData.AddRange(outputBytes);
-                $"Audio PTS: {e.RenderTime}, DUR: {e.Duration} - Buffer: {e.BufferLength / 1024}kb".Info(typeof(Program));
+                lock (SyncRoot)
+                {
+                    totalBytes += e.BufferLength;
+                    var outputBytes = new byte[e.BufferLength];
+                    Marshal.Copy(e.Buffer, outputBytes, 0, outputBytes.Length);
+                    audioData.AddRange(outputBytes);
+                    $"Audio PTS: {e.RenderTime}, DUR: {e.Duration} - Buffer: {e.BufferLength / 1024}KB".Info(typeof(Program));
+                }
+
+            };
+
+            player.OnSubtitleDataAvailable += (s, e) =>
+            {
+                lock (SyncRoot)
+                {
+                    $"Subs PTS: {e.RenderTime}, DUR: {e.Duration}: {string.Join("; ", e.TextLines)}".Info(typeof(Program));
+                }
+
             };
 
             var startTime = DateTime.Now;
@@ -76,8 +103,8 @@
                 packetsDecoded += 1;
             }
 
-            ($"Took {DateTime.Now.Subtract(startTime).TotalSeconds} seconds to decode {packetsDecoded} packets, " + 
-                $"{player.Components.Video?.DecodedFrameCount} frames, {totalDurationSeconds} secs.").Info(typeof(Program));
+            ($"Took {DateTime.Now.Subtract(startTime).TotalSeconds} seconds to decode {packetsDecoded} packets, " +
+                $"{player.Components.Video?.DecodedFrameCount} frames, {totalDurationSeconds} secs. {totalBytes / (1024 * 1024)}MB data.").Info(typeof(Program));
             var audioFile = @"c:\users\unosp\Desktop\output.wav";
             SaveWavFile(audioData, audioFile);
             Terminal.ReadKey(true, true);

@@ -44,7 +44,7 @@
         {
             var audioData = new List<byte>();
             
-            var player = new MediaContainer(TestStreams.MpegPart2);
+            var player = new MediaContainer(TestStreams.TransportStreamFile);
 
             player.OnVideoDataAvailable += (s, e) =>
             {
@@ -77,32 +77,33 @@
             }
 
             $"Took {DateTime.Now.Subtract(startTime).TotalSeconds} seconds to decode {packetsDecoded} packets, {player.Components.Video?.DecodedFrameCount} frames.".Info(typeof(Program));
-            SaveWavFile(audioData);
+            var audioFile = @"c:\users\unosp\Desktop\output.wav";
+            SaveWavFile(audioData, audioFile);
             Terminal.ReadKey(true, true);
         }
 
-        private static void SaveWavFile(List<byte> audioData)
+        private static void SaveWavFile(List<byte> audioData, string audioFile)
         {
-            var audioFile = @"c:\users\unosp\Desktop\output.wav";
             if (File.Exists(audioFile))
                 File.Delete(audioFile);
 
             using (var file = File.OpenWrite(audioFile))
             {
-                var rate = 48000;
+                var bytesPerSample = 2;
+                var spec = AudioComponentSpec.Output;
                 using (var writer = new BinaryWriter(file))
                 {
                     writer.Write("RIFF".ToCharArray()); // Group Id
                     writer.Write(0); // File Length (will be written later)
                     writer.Write("WAVE".ToCharArray()); // sRiffType
                     writer.Write("fmt ".ToCharArray()); // format chunk
-                    writer.Write((uint)16); // this chunk size in bytes
+                    writer.Write((uint)16); // the size of the header we just wrote (16 bytes)
                     writer.Write((ushort)1); // FormatTag (1 = MS PCM)
-                    writer.Write((ushort)2); // channels
-                    writer.Write((uint)rate); // sample rate
-                    writer.Write((uint)(rate * 2 * 2)); // nAvgBytesPerSec for buffer estimation samples * bytes per sample * channels
-                    writer.Write((ushort)4); // nBlockAlign: block size is 2 bytes per sample times 2 channels
-                    writer.Write((ushort)16); // wBitsPerSample
+                    writer.Write((ushort)spec.ChannelCount); // channels
+                    writer.Write((uint)spec.SampleRate); // sample rate
+                    writer.Write((uint)(spec.SampleRate * spec.ChannelCount * bytesPerSample)); // nAvgBytesPerSec for buffer estimation samples * bytes per sample * channels
+                    writer.Write((ushort)(bytesPerSample * spec.ChannelCount)); // nBlockAlign: block size is 2 bytes per sample times 2 channels
+                    writer.Write((ushort)(bytesPerSample * 8)); // wBitsPerSample
                     writer.Write("data".ToCharArray()); // 
                     writer.Write((uint)audioData.Count); // this chunk size in bytes
                     writer.Write(audioData.ToArray());

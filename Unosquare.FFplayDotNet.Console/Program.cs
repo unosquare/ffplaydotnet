@@ -49,43 +49,34 @@
         static void Main(string[] args)
         {
             var audioData = new List<byte>();
-
-            var player = new MediaContainer(TestStreams.Mp4H264Regular);
             var totalDurationSeconds = 0d;
             var totalBytes = 0;
-            var SyncRoot = new object();
+
+            var player = new MediaContainer(TestStreams.Mp4H264Regular);
 
             player.OnVideoDataAvailable += (s, e) =>
             {
-                lock (SyncRoot)
-                {
-                    totalBytes += e.BufferLength;
-                    totalDurationSeconds += e.Duration.TotalSeconds;
-                    $"Video PTS: {e.RenderTime}, DUR: {e.Duration} - Buffer: {e.BufferLength / 1024}KB".Info(typeof(Program));
-                }
+                totalBytes += e.BufferLength;
+                totalDurationSeconds += e.Duration.TotalSeconds;
 
+                var bytes = new byte[e.BufferLength];
+                Marshal.Copy(e.Buffer, bytes, 0, e.BufferLength);
+
+                $"Video PTS: {e.RenderTime}, DUR: {e.Duration} - Buffer: {e.BufferLength / 1024}KB".Info(typeof(Program));
             };
 
             player.OnAudioDataAvailable += (s, e) =>
             {
-                lock (SyncRoot)
-                {
-                    totalBytes += e.BufferLength;
-                    var outputBytes = new byte[e.BufferLength];
-                    Marshal.Copy(e.Buffer, outputBytes, 0, outputBytes.Length);
-                    audioData.AddRange(outputBytes);
-                    $"Audio PTS: {e.RenderTime}, DUR: {e.Duration} - Buffer: {e.BufferLength / 1024}KB".Info(typeof(Program));
-                }
-
+                totalBytes += e.BufferLength;
+                var outputBytes = new byte[e.BufferLength];
+                Marshal.Copy(e.Buffer, outputBytes, 0, outputBytes.Length);
+                audioData.AddRange(outputBytes);
+                $"Audio PTS: {e.RenderTime}, DUR: {e.Duration} - Buffer: {e.BufferLength / 1024}KB".Info(typeof(Program));
             };
 
             player.OnSubtitleDataAvailable += (s, e) =>
             {
-                lock (SyncRoot)
-                {
-                    $"Subs PTS: {e.RenderTime}, DUR: {e.Duration}: {string.Join("; ", e.TextLines)}".Info(typeof(Program));
-                }
-
+                $"Subs PTS: {e.RenderTime}, DUR: {e.Duration}: {string.Join("; ", e.TextLines)}".Info(typeof(Program));
             };
 
             var startTime = DateTime.Now;

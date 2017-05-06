@@ -209,7 +209,7 @@
         /// <param name="duration">The duration.</param>
         internal AudioDataAvailableEventArgs(IntPtr buffer, int bufferLength, int sampleRate, int samplesPerChannel, int channels,
             TimeSpan renderTime, TimeSpan duration)
-            :base(MediaType.Audio, renderTime, duration)
+            : base(MediaType.Audio, renderTime, duration)
         {
             Buffer = buffer;
             BufferLength = bufferLength;
@@ -1409,7 +1409,7 @@
             // Check if there is a handler to feed the conversion to.
             if (Container.HandlesOnSubtitleDataAvailable == false)
                 return;
-            
+
             // Extract text strings
             var subtitleText = new List<string>();
 
@@ -1733,7 +1733,7 @@
         {
             if (HandlesOnAudioDataAvailable == false) return;
             OnAudioDataAvailable(this, new AudioDataAvailableEventArgs(buffer, bufferLength, sampleRate,
-                samplesPerChannel, channels, renderTime, duration));
+            samplesPerChannel, channels, renderTime, duration));
         }
 
         /// <summary>

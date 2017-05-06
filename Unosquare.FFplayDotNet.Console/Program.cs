@@ -10,9 +10,9 @@
     using Unosquare.FFplayDotNet.Primitives;
     using Unosquare.Swan;
 
-    class TestStreams
+    static class TestStreams
     {
-        public const string BasePath = @"c:\users\unosp\Desktop\";
+        private const string BasePath = @"c:\users\unosp\Desktop\";
 
         public static string Mp4H264Regular = $"{BasePath}cowboys.mp4";
 
@@ -48,56 +48,76 @@
 
         static void Main(string[] args)
         {
+            var player = new MediaContainer(TestStreams.HlsMultiStream);
+            var saveWaveFile = true;
+            var decodeDurationLimit = 40d;
+
             var audioData = new List<byte>();
             var totalDurationSeconds = 0d;
-            var totalBytes = 0;
-
-            var player = new MediaContainer(TestStreams.Mp4H264Regular);
+            ulong totalBytes = 0;
+            var packetsDecoded = 0;
 
             player.OnVideoDataAvailable += (s, e) =>
             {
-                totalBytes += e.BufferLength;
+                totalBytes += (ulong)e.BufferLength;
                 totalDurationSeconds += e.Duration.TotalSeconds;
-
                 var bytes = new byte[e.BufferLength];
                 Marshal.Copy(e.Buffer, bytes, 0, e.BufferLength);
-
-                $"Video PTS: {e.RenderTime}, DUR: {e.Duration} - Buffer: {e.BufferLength / 1024}KB".Info(typeof(Program));
+                $"{e.MediaType,-10} | PTS: {e.RenderTime.TotalSeconds,10:0.000} | DUR: {e.Duration.TotalSeconds,10:0.000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB".Info(typeof(Program));
             };
 
             player.OnAudioDataAvailable += (s, e) =>
             {
-                totalBytes += e.BufferLength;
+                totalBytes += (ulong)e.BufferLength;
                 var outputBytes = new byte[e.BufferLength];
                 Marshal.Copy(e.Buffer, outputBytes, 0, outputBytes.Length);
                 audioData.AddRange(outputBytes);
-                $"Audio PTS: {e.RenderTime}, DUR: {e.Duration} - Buffer: {e.BufferLength / 1024}KB".Info(typeof(Program));
+                $"{e.MediaType,-10} | PTS: {e.RenderTime.TotalSeconds,10:0.000} | DUR: {e.Duration.TotalSeconds,10:0.000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB".Info(typeof(Program));
             };
 
             player.OnSubtitleDataAvailable += (s, e) =>
             {
-                $"Subs PTS: {e.RenderTime}, DUR: {e.Duration}: {string.Join("; ", e.TextLines)}".Info(typeof(Program));
+                $"{e.MediaType,-10} | PTS: {e.RenderTime.TotalSeconds,10:0.000} | DUR: {e.Duration.TotalSeconds,10:0.000} | BUF: {string.Join("", e.TextLines).Length * 2,10}B".Info(typeof(Program));
             };
 
             var startTime = DateTime.Now;
-            var packetsToDecode = 100000;
-            var packetsDecoded = 0;
-            for (var i = 0; i < packetsToDecode; i++)
+
+            while (true)
             {
                 player.Process();
-                if (player.IsAtEndOfFile || totalDurationSeconds >= 10d)
+
+                if (totalDurationSeconds >= decodeDurationLimit)
                 {
-                    "End of file reached or target decode limit met".Info(typeof(Program));
+                    $"Decoder limit duration reached: {decodeDurationLimit,10:0.000} seconds".Info(typeof(Program));
+                    break;
+                }
+
+                if (player.IsAtEndOfFile)
+                {
+                    "End of file reached.".Warn(typeof(Program));
                     break;
                 }
 
                 packetsDecoded += 1;
             }
 
-            ($"Took {DateTime.Now.Subtract(startTime).TotalSeconds} seconds to decode {packetsDecoded} packets, " +
-                $"{player.Components.Video?.DecodedFrameCount} frames, {totalDurationSeconds} secs. {totalBytes / (1024 * 1024)}MB data.").Info(typeof(Program));
-            var audioFile = @"c:\users\unosp\Desktop\output.wav";
-            SaveWavFile(audioData, audioFile);
+            ($"Media Info - {player.MediaUrl}\r\n" + 
+                $"    Duration    : {player.MediaDuration.TotalSeconds, 10:0.000} secs\r\n" + 
+                $"    Seekable    : {player.IsMediaSeekable, 10}\r\n" + 
+                $"    Realtime    : {player.IsMediaRealtime, 10}\r\n" +
+                $"    Decode Took : {DateTime.Now.Subtract(startTime).TotalSeconds, 10:0.000} secs\r\n" +
+                $"    Packets     : {player.Components.ReceivedPacketCount, 10}\r\n" +
+                $"    Frames      : {player.Components.DecodedFrameCount, 10}\r\n" +
+                $"    Raw Data    : {totalBytes / (double)(1024 * 1024), 10:0.00} MB"
+                ).Info(typeof(Program));
+
+            if (saveWaveFile)
+            {
+                var audioFile = @"c:\users\unosp\Desktop\output.wav";
+                SaveWavFile(audioData, audioFile);
+                $"Saved wave file to '{audioFile}'".Warn(typeof(Program));
+            }
+
             Terminal.ReadKey(true, true);
         }
 

@@ -662,7 +662,7 @@
         /// <summary>
         /// Gets the number of frames that have been decoded by this component
         /// </summary>
-        public int DecodedFrameCount { get; private set; }
+        public ulong DecodedFrameCount { get; private set; }
 
         /// <summary>
         /// Gets the start time of this stream component.
@@ -841,6 +841,12 @@
         }
 
         /// <summary>
+        /// Gets the number of packets that have been received
+        /// by this media component.
+        /// </summary>
+        public ulong ReceivedPacketCount { get; private set; }
+
+        /// <summary>
         /// Pushes a packet into the decoding Packet Queue
         /// and processes the packet in order to try to decode
         /// 1 or more frames. The packet has to be within the range of
@@ -853,8 +859,9 @@
             // ffplay.c reference: pkt_in_play_range
 
             Packets.Push(packet);
+            ReceivedPacketCount += 1;
             while (Packets.Count > 0)
-                DecodedFrameCount += ReceiveFramesFromPacketQueue();
+                DecodedFrameCount += (ulong)ReceiveFramesFromPacketQueue();
         }
 
         /// <summary>
@@ -1196,6 +1203,10 @@
             return PictureBuffer;
         }
 
+        #endregion
+
+        #region IDisposable Support
+
         /// <summary>
         /// Releases unmanaged and - optionally - managed resources.
         /// </summary>
@@ -1347,6 +1358,10 @@
             throw new NotSupportedException($"{nameof(AudioComponent)} does not support subtitle frame processing.");
         }
 
+        #endregion
+
+        #region IDisposable Support
+
         /// <summary>
         /// Releases unmanaged and - optionally - managed resources.
         /// </summary>
@@ -1364,6 +1379,7 @@
         }
 
         #endregion
+
     }
 
     /// <summary>
@@ -1430,11 +1446,21 @@
     /// Represents a set of Audio, Video and Subtitle components.
     /// This class is useful in order to group all components into 
     /// a single set. Sending packets is automatically handled by
-    /// this class. This class is not thread safe.
+    /// this class. This class is thread safe.
     /// </summary>
-    public class MediaComponentSet
+    public class MediaComponentSet : IDisposable
     {
         #region Private Declarations
+
+        /// <summary>
+        /// The synchronization root for locking
+        /// </summary>
+        private readonly object SyncRoot = new object();
+
+        /// <summary>
+        /// To detect redundant Dispose calls
+        /// </summary>
+        private bool IsDisposing = false;
 
         /// <summary>
         /// The internal Components
@@ -1463,7 +1489,11 @@
         /// </summary>
         public VideoComponent Video
         {
-            get { return Items.ContainsKey(MediaType.Video) ? Items[MediaType.Video] as VideoComponent : null; }
+            get
+            {
+                lock (SyncRoot)
+                    return Items.ContainsKey(MediaType.Video) ? Items[MediaType.Video] as VideoComponent : null;
+            }
         }
 
         /// <summary>
@@ -1472,7 +1502,11 @@
         /// </summary>
         public AudioComponent Audio
         {
-            get { return Items.ContainsKey(MediaType.Audio) ? Items[MediaType.Audio] as AudioComponent : null; }
+            get
+            {
+                lock (SyncRoot)
+                    return Items.ContainsKey(MediaType.Audio) ? Items[MediaType.Audio] as AudioComponent : null;
+            }
         }
 
         /// <summary>
@@ -1481,7 +1515,35 @@
         /// </summary>
         public SubtitleComponent Subtitles
         {
-            get { return Items.ContainsKey(MediaType.Subtitle) ? Items[MediaType.Subtitle] as SubtitleComponent : null; }
+            get
+            {
+                lock (SyncRoot)
+                    return Items.ContainsKey(MediaType.Subtitle) ? Items[MediaType.Subtitle] as SubtitleComponent : null;
+            }
+        }
+
+        /// <summary>
+        /// Gets the sum of decoded frame count of all media components.
+        /// </summary>
+        public ulong DecodedFrameCount
+        {
+            get
+            {
+                lock (SyncRoot)
+                    return (ulong)Items.Sum(s => (double)s.Value.DecodedFrameCount);
+            }
+        }
+
+        /// <summary>
+        /// Gets the sum of received packets of all media components.
+        /// </summary>
+        public ulong ReceivedPacketCount
+        {
+            get
+            {
+                lock (SyncRoot)
+                    return (ulong)Items.Sum(s => (double)s.Value.ReceivedPacketCount);
+            }
         }
 
         /// <summary>
@@ -1510,14 +1572,43 @@
         /// <exception cref="System.ArgumentNullException">MediaComponent</exception>
         public MediaComponent this[MediaType mediaType]
         {
-            get { return Items.ContainsKey(mediaType) ? Items[mediaType] : null; }
+            get
+            {
+                lock (SyncRoot)
+                    return Items.ContainsKey(mediaType) ? Items[mediaType] : null;
+            }
             set
             {
-                if (Items.ContainsKey(mediaType))
-                    throw new ArgumentException($"A component for '{mediaType}' is already registered.");
+                lock (SyncRoot)
+                {
+                    if (Items.ContainsKey(mediaType))
+                        throw new ArgumentException($"A component for '{mediaType}' is already registered.");
 
-                Items[mediaType] = value ??
-                    throw new ArgumentNullException($"{nameof(MediaComponent)} {nameof(value)} must not be null.");
+                    Items[mediaType] = value ??
+                        throw new ArgumentNullException($"{nameof(MediaComponent)} {nameof(value)} must not be null.");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Removes the component of specified media type (if registered).
+        /// It calls the dispose method of the media component too.
+        /// </summary>
+        /// <param name="mediaType">Type of the media.</param>
+        public void Remove(MediaType mediaType)
+        {
+            lock (SyncRoot)
+            {
+                if (Items.ContainsKey(mediaType) == false) return;
+
+                try
+                {
+                    var component = Items[mediaType];
+                    Items.Remove(mediaType);
+                    component.Dispose();
+                }
+                catch
+                { }
             }
         }
 
@@ -1556,6 +1647,43 @@
         {
             foreach (var item in Items)
                 item.Value.SendFlushPacket();
+        }
+
+        #endregion
+
+        #region IDisposable Support
+
+        /// <summary>
+        /// Releases unmanaged and - optionally - managed resources.
+        /// </summary>
+        /// <param name="alsoManaged"><c>true</c> to release both managed and unmanaged resources; <c>false</c> to release only unmanaged resources.</param>
+        protected virtual void Dispose(bool alsoManaged)
+        {
+            if (!IsDisposing)
+            {
+                if (alsoManaged)
+                {
+                    lock (SyncRoot)
+                    {
+                        var componentKeys = Items.Keys.ToArray();
+                        foreach (var mediaType in componentKeys)
+                            Remove(mediaType);
+                    }
+                }
+
+                // free unmanaged resources (unmanaged objects) and override a finalizer below.
+                // set large fields to null.
+
+                IsDisposing = true;
+            }
+        }
+
+        /// <summary>
+        /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
+        /// </summary>
+        public void Dispose()
+        {
+            Dispose(true);
         }
 
         #endregion
@@ -1656,13 +1784,25 @@
         /// <summary>
         /// Determines if the stream seeks by bytes always
         /// </summary>
-        private bool SeekByBytes = false;
+        internal bool MediaSeeksByBytes = false;
 
+        /// <summary>
+        /// Hold the value for the internal property with the same name.
+        /// Picture attachments are required when video streams support them
+        /// and these attached packets must be read before reading the first frame
+        /// of the stream and after seeking.
+        /// </summary>
         private bool m_RequiresPictureAttachments = true;
 
-        private readonly object SyncRoot = new object();
-
+        /// <summary>
+        /// To detect redundat Dispose calls
+        /// </summary>
         private bool IsDisposing = false;
+
+        /// <summary>
+        /// The synchronization root for locking
+        /// </summary>
+        private readonly object SyncRoot = new object();
 
         private readonly MediaActionQueue ActionQueue = new MediaActionQueue();
 
@@ -1783,9 +1923,15 @@
         public bool IsMediaRealtime { get; private set; }
 
         /// <summary>
+        /// Gets a value indicating whether the underlying media is seekable.
+        /// </summary>
+        public bool IsMediaSeekable { get { return MediaDuration.TotalSeconds > 0; } }
+
+        /// <summary>
         /// Gets a value indicating whether a packet read delay witll be enforced.
-        /// RSTP formats of MMSH Urls will have this property set to true.
-        /// Reading packets will block for 10 or less milliseconds depending on the last read time.
+        /// RSTP formats or MMSH Urls will have this property set to true.
+        /// Reading packets will block for at most 10 milliseconds depending on the last read time.
+        /// This is a hack according to the source code in ffplay.c
         /// </summary>
         public bool RequiresPacketReadDelay { get; private set; }
 
@@ -1820,6 +1966,11 @@
         /// </summary>
         public MediaComponentSet Components { get; }
 
+        /// <summary>
+        /// Picture attachments are required when video streams support them
+        /// and these attached packets must be read before reading the first frame
+        /// of the stream and after seeking. This property is not part of the public API
+        /// and is meant more for internal purposes
         private bool RequiresPictureAttachments
         {
             get
@@ -1844,8 +1995,9 @@
             }
         }
 
-
         #endregion
+
+        #region Constructor
 
         /// <summary>
         /// Initializes a new instance of the <see cref="MediaContainer"/> class.
@@ -1920,7 +2072,7 @@
 
                 RequiresPacketReadDelay = MediaFormatName.Equals("rstp") || MediaUrl.StartsWith("mmsh:");
                 var inputAllowsDiscontinuities = (InputContext->iformat->flags & ffmpeg.AVFMT_TS_DISCONT) != 0;
-                SeekByBytes = inputAllowsDiscontinuities && (MediaFormatName.Equals("ogg") == false);
+                MediaSeeksByBytes = inputAllowsDiscontinuities && (MediaFormatName.Equals("ogg") == false);
 
                 // Compute timespans
                 MediaStartTime = InputContext->start_time.ToTimeSpan();
@@ -1951,6 +2103,8 @@
                 throw;
             }
         }
+
+        #endregion
 
         /// <summary>
         /// Creates the stream components by first finding the best available streams.
@@ -2052,7 +2206,7 @@
                 {
                     try
                     {
-                        Read();
+                        ReadNextPacket();
                     }
                     catch (Exception ex)
                     {
@@ -2064,7 +2218,7 @@
 
         }
 
-        private void Read()
+        private void ReadNextPacket()
         {
             if (RequiresPacketReadDelay)
             {
@@ -2119,6 +2273,16 @@
             // Check if we were able to feed the packet. If not, simply discard it
             if (readPacket != null && Components.SendPacket(readPacket) == false)
                 ffmpeg.av_packet_free(&readPacket);
+        }
+
+        private void NetworkPause()
+        {
+
+        }
+
+        private void NetworkPlay()
+        {
+
         }
 
         #region IDisposable Support

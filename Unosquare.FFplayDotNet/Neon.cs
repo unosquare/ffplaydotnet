@@ -2395,8 +2395,10 @@
             streamIndex = component.StreamIndex;
             timeBase = component.Stream->time_base;
             var seekTarget = (long)Math.Round(targetTime.TotalSeconds * timeBase.den / timeBase.num, 0);
-            var seekResult = ffmpeg.avformat_seek_file(InputContext, streamIndex, long.MinValue, seekTarget, seekTarget, seekFlags);
 
+            var startTime = DateTime.Now;
+            var seekResult = ffmpeg.avformat_seek_file(InputContext, streamIndex, long.MinValue, seekTarget, seekTarget, seekFlags);
+            $"{DateTime.Now.Subtract(startTime).TotalMilliseconds,10:0.000} ms Long seek".Trace(typeof(MediaContainer));
 
             if (seekResult >= 0)
             {

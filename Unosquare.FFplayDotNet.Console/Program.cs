@@ -72,10 +72,10 @@
 
         static void Main(string[] args)
         {
-            var inputFile = TestInputs.MatroskaLocalFile;
+            var inputFile = TestInputs.YoutubeLocalFile;
             var decodeDurationLimit = 8d;
-            var seekStart = 30d;
-            var seekTarget = 10d;
+            var seekStart = 200;
+            var seekTarget = 100;
             var saveWaveFile = true;
             var saveSnapshots = true;
 

@@ -614,12 +614,6 @@
         private bool IsDisposing = false;
 
         /// <summary>
-        /// Holds a reference to a flush packet. 
-        /// It will be freed upon disposal of this object.
-        /// </summary>
-        private AVPacket* FlushPacket;
-
-        /// <summary>
         /// Holds a reference to the Codec Context.
         /// </summary>
         internal AVCodecContext* CodecContext;
@@ -690,7 +684,12 @@
         /// <summary>
         /// Gets the render time if the last processed frame.
         /// </summary>
-        public TimeSpan LastProcessedRenderTime { get; protected set; }
+        public TimeSpan LastFrameRenderTime { get; protected set; }
+
+        /// <summary>
+        /// Gets the render time or the last packet that was received by this media component.
+        /// </summary>
+        public TimeSpan LastPacketRenderTime { get; protected set; }
 
         #endregion
 
@@ -793,13 +792,6 @@
 
             $"{MediaType}: Start Time: {StartTime}; End Time: {EndTime}; Duration: {Duration}".Trace(typeof(MediaContainer));
 
-            // Create a temporary flush packet (will be released upon Dispose)
-            // Flush packets are used to drain the old API decoder (subtitles in this case) when
-            // there is more than 1 frame in a single packet
-            FlushPacket = ffmpeg.av_packet_alloc();
-            FlushPacket->data = null;
-            FlushPacket->size = 0;
-
         }
 
         #endregion
@@ -807,11 +799,12 @@
         #region Methods
 
         /// <summary>
-        /// Determines whether the specified packet is a Flush Packet (data = null, size = 0)
+        /// Determines whether the specified packet is a Null Packet (data = null, size = 0)
+        /// These null packets are used to read multiple frames from a single packet.
         /// </summary>
-        protected bool IsFlushPacket(AVPacket* packet)
+        protected bool IsEmptyPacket(AVPacket* packet)
         {
-            if (packet == null || packet == FlushPacket) return true;
+            if (packet == null) return false;
             return (packet->data == null && packet->size == 0);
         }
 
@@ -821,23 +814,26 @@
         /// </summary>
         public void ClearPacketQueues()
         {
+            // Release packets that are already in the queue.
+            SentPackets.Clear();
+            Packets.Clear();
+
             // Discard any data that was buffered in codec's internal memory.
             // reset the buffer
             if (CodecContext != null)
                 ffmpeg.avcodec_flush_buffers(CodecContext);
-
-            // Release packets that are already in the queue.
-            SentPackets.Clear();
-            Packets.Clear();
         }
 
         /// <summary>
-        /// Sends a special kind of packet (a flush packet)
+        /// Sends a special kind of packet (an empty packet)
         /// that tells the decoder to enter draining mode.
         /// </summary>
-        public virtual void SendFlushPacket()
+        public virtual void SendEmptyPacket()
         {
-            SendPacket(FlushPacket);
+            var emptyPacket = ffmpeg.av_packet_alloc();
+            emptyPacket->data = null;
+            emptyPacket->size = 0;
+            SendPacket(emptyPacket);
         }
 
         /// <summary>
@@ -857,8 +853,12 @@
         {
             // TODO: check if packet is in play range
             // ffplay.c reference: pkt_in_play_range
+            if (packet == null) return;
 
             Packets.Push(packet);
+            if (IsEmptyPacket(packet) == false)
+                LastPacketRenderTime = packet->pts.ToTimeSpan(Stream->time_base);
+
             ReceivedPacketCount += 1;
             while (Packets.Count > 0)
                 DecodedFrameCount += (ulong)ReceiveFramesFromPacketQueue();
@@ -885,7 +885,7 @@
             {
                 // If it's audio or video, we use the new API and the decoded frames are stored in AVFrame
                 // Let us send the packet to the codec for decoding a frame of uncompressed data later
-                var sendPacketResult = ffmpeg.avcodec_send_packet(CodecContext, IsFlushPacket(packet) ? null : packet);
+                var sendPacketResult = ffmpeg.avcodec_send_packet(CodecContext, IsEmptyPacket(packet) ? null : packet);
 
 
                 // Check if the send operation was successful. If not, the decoding buffer might be full
@@ -955,17 +955,26 @@
 
                     // Let's check if we have more decoded frames from the same single packet
                     // Packets may contain more than 1 frame and the decoder is drained
-                    // by passing a flush packet (data = null, size = 0)
-                    while (gotFrame != 0 || receiveFrameResult > 0)
+                    // by passing an empty packet (data = null, size = 0)
+                    while (gotFrame != 0 && receiveFrameResult > 0)
                     {
                         outputFrame = new AVSubtitle();
-                        receiveFrameResult = ffmpeg.avcodec_decode_subtitle2(CodecContext, &outputFrame, &gotFrame, FlushPacket);
-                        if (gotFrame != 0)
+
+                        var emptyPacket = ffmpeg.av_packet_alloc();
+                        emptyPacket->data = null;
+                        emptyPacket->size = 0;
+
+                        // Receive the frames in a loop
+                        receiveFrameResult = ffmpeg.avcodec_decode_subtitle2(CodecContext, &outputFrame, &gotFrame, emptyPacket);
+                        if (gotFrame != 0 && receiveFrameResult > 0)
                         {
                             // Send the subtitle to processing
                             receivedFrameCount += 1;
                             ProcessFrame(packet, &outputFrame);
                         }
+
+                        // free the empty packet
+                        ffmpeg.av_packet_free(&emptyPacket);
 
                         // once the subtitle is processed. Release it from memory
                         ffmpeg.avsubtitle_free(&outputFrame);
@@ -1016,10 +1025,6 @@
                     {
                         fixed (AVCodecContext** codecContext = &CodecContext)
                             ffmpeg.avcodec_free_context(codecContext);
-
-                        // release the Flush packet
-                        fixed (AVPacket** flushPacket = &FlushPacket)
-                            ffmpeg.av_packet_free(flushPacket);
 
                         // free all the pending and sent packets
                         ClearPacketQueues();
@@ -1134,7 +1139,7 @@
 
             // Set the state
             LastProcessedTimeUTC = DateTime.UtcNow;
-            LastProcessedRenderTime = frame->pts.ToTimeSpan(Stream->time_base);
+            LastFrameRenderTime = frame->pts.ToTimeSpan(Stream->time_base);
 
             // Update the current framerate
             CurrentFrameRate = ffmpeg.av_q2d(ffmpeg.av_guess_frame_rate(Container.InputContext, Stream, frame));
@@ -1308,7 +1313,7 @@
 
             // Set the state
             LastProcessedTimeUTC = DateTime.UtcNow;
-            LastProcessedRenderTime = renderTime;
+            LastFrameRenderTime = renderTime;
 
             // Check if there is a handler to feed the conversion to.
             if (Container.HandlesOnAudioDataAvailable == false)
@@ -1420,7 +1425,7 @@
 
             // Set the state
             LastProcessedTimeUTC = DateTime.UtcNow;
-            LastProcessedRenderTime = renderTime;
+            LastFrameRenderTime = renderTime;
 
             // Check if there is a handler to feed the conversion to.
             if (Container.HandlesOnSubtitleDataAvailable == false)
@@ -1628,6 +1633,7 @@
             if (packet == null)
                 return false;
 
+
             foreach (var item in Items)
             {
                 if (item.Value.StreamIndex == packet->stream_index)
@@ -1641,12 +1647,26 @@
         }
 
         /// <summary>
-        /// Sends a flush packet to all media components.
+        /// Sends an empty packet to all media components.
+        /// When an EOF/EOS situation is encountered, this forces
+        /// the decoders to enter drainig mode untill all frames are decoded.
         /// </summary>
-        internal unsafe void SendFlushPacket()
+        internal void SendEmptyPackets()
         {
             foreach (var item in Items)
-                item.Value.SendFlushPacket();
+                item.Value.SendEmptyPacket();
+        }
+
+        /// <summary>
+        /// Clears the packet queues for all components.
+        /// Additionally it flushes the codec buffered packets.
+        /// This is useful after a seek operation is performed or a stream
+        /// index is changed.
+        /// </summary>
+        internal void ClearPacketQueues()
+        {
+            foreach (var item in Items)
+                item.Value.ClearPacketQueues();
         }
 
         #endregion
@@ -1905,40 +1925,22 @@
         public string MediaFormatName { get; private set; }
 
         /// <summary>
+        /// Gets the media bitrate. Returns 0 if not available.
+        /// </summary>
+        public long MediaBitrate
+        {
+            get
+            {
+                if (InputContext == null) return 0;
+                return InputContext->bit_rate;
+            }
+        }
+
+        /// <summary>
         /// If available, the title will be extracted from the metadata of the media.
         /// Otherwise, this will be set to false.
         /// </summary>
         public string MediaTitle { get; private set; }
-
-        /// <summary>
-        /// Will be set to true whenever an End Of File situation is reached.
-        /// </summary>
-        public bool IsAtEndOfFile { get; private set; }
-
-        /// <summary>
-        /// Gets a value indicating whether this container represents realtime media.
-        /// If the format name is rtp, rtsp, or sdp or if the url starts with udp: or rtp:
-        /// then this property will be set to true.
-        /// </summary>
-        public bool IsMediaRealtime { get; private set; }
-
-        /// <summary>
-        /// Gets a value indicating whether the underlying media is seekable.
-        /// </summary>
-        public bool IsMediaSeekable { get { return MediaDuration.TotalSeconds > 0; } }
-
-        /// <summary>
-        /// Gets a value indicating whether a packet read delay witll be enforced.
-        /// RSTP formats or MMSH Urls will have this property set to true.
-        /// Reading packets will block for at most 10 milliseconds depending on the last read time.
-        /// This is a hack according to the source code in ffplay.c
-        /// </summary>
-        public bool RequiresPacketReadDelay { get; private set; }
-
-        /// <summary>
-        /// Gets the time the last packet was read from the input
-        /// </summary>
-        public DateTime LastPacketReadTimeUtc { get; private set; } = DateTime.MinValue;
 
         /// <summary>
         /// Gets the media start time. It could be something other than 0.
@@ -1962,9 +1964,68 @@
         public TimeSpan MediaEndTime { get; private set; }
 
         /// <summary>
+        /// Will be set to true whenever an End Of File situation is reached.
+        /// </summary>
+        public bool IsAtEndOfStream { get; private set; }
+
+
+        /// <summary>
+        /// Gets the byte position at which the stream is being read.
+        /// </summary>
+        public long StreamPosition
+        {
+            get
+            {
+                if (InputContext == null) return 0;
+                return ffmpeg.avio_tell(InputContext->pb);
+            }
+        }
+
+        /// <summary>
+        /// Gets a value indicating whether the container holds a network stream.
+        /// </summary>
+        public bool IsNetworkStream { get; private set; }
+
+        /// <summary>
+        /// Gets a value indicating whether the underlying media is seekable.
+        /// </summary>
+        public bool IsStreamSeekable { get { return MediaDuration.TotalSeconds > 0; } }
+
+        /// <summary>
+        /// Gets a value indicating whether this container represents realtime media.
+        /// If the format name is rtp, rtsp, or sdp or if the url starts with udp: or rtp:
+        /// then this property will be set to true.
+        /// </summary>
+        public bool IsRealtimeStream { get; private set; }
+
+        /// <summary>
+        /// Gets a value indicating whether a packet read delay witll be enforced.
+        /// RSTP formats or MMSH Urls will have this property set to true.
+        /// Reading packets will block for at most 10 milliseconds depending on the last read time.
+        /// This is a hack according to the source code in ffplay.c
+        /// </summary>
+        public bool RequiresReadDelay { get; private set; }
+
+        /// <summary>
+        /// Gets the time the last packet was read from the input
+        /// </summary>
+        public DateTime LastReadTimeUtc { get; private set; } = DateTime.MinValue;
+
+        /// <summary>
+        /// For RTSP and other realtime streams reads can be suspended.
+        /// </summary>
+        public bool CanReadSuspend { get; private set; }
+
+        /// <summary>
+        /// For RTSP and other realtime streams reads can be suspended.
+        /// This property will return true if reads have been suspended.
+        /// </summary>
+        public bool IsReadSuspended { get; private set; }
+
+        /// <summary>
         /// Provides direct access to the individual Media components of the input stream.
         /// </summary>
-        public MediaComponentSet Components { get; }
+        public MediaComponentSet Components { get; private set; }
 
         /// <summary>
         /// Picture attachments are required when video streams support them
@@ -2036,14 +2097,17 @@
                         formatOptions.Set(EntryName.ScanAllPMTs, "1", true);
 
                     // Allocate the input context and save it
-                    var inputContext = ffmpeg.avformat_alloc_context();
-                    InputContext = inputContext; // we save the InputContext as it will be used by other funtions (including dispose)
+                    InputContext = ffmpeg.avformat_alloc_context();
 
-                    // Open the input file
-                    var openResult = ffmpeg.avformat_open_input(&inputContext, MediaUrl, inputFormat, formatOptions.Reference);
+                    // Try to open the input
+                    fixed (AVFormatContext** inputContext = &InputContext)
+                    {
+                        // Open the input file
+                        var openResult = ffmpeg.avformat_open_input(inputContext, MediaUrl, inputFormat, formatOptions.Reference);
 
-                    // Validate the open operation
-                    if (openResult < 0) throw new MediaContainerException($"Could not open '{MediaUrl}'. Error code: {openResult}");
+                        // Validate the open operation
+                        if (openResult < 0) throw new MediaContainerException($"Could not open '{MediaUrl}'. Error code: {openResult}");
+                    }
 
                     // Set some general properties
                     MediaFormatName = Native.BytePtrToString(InputContext->iformat->name);
@@ -2067,10 +2131,10 @@
 
                 // Setup initial state variables
                 MediaTitle = FFDictionary.GetEntry(InputContext->metadata, EntryName.Title, false)?.Value;
-                IsMediaRealtime = new[] { "rtp", "rtsp", "sdp" }.Any(s => MediaFormatName.Equals(s)) ||
+                IsRealtimeStream = new[] { "rtp", "rtsp", "sdp" }.Any(s => MediaFormatName.Equals(s)) ||
                     (InputContext->pb != null && new[] { "rtp:", "udp:" }.Any(s => MediaUrl.StartsWith(s)));
 
-                RequiresPacketReadDelay = MediaFormatName.Equals("rstp") || MediaUrl.StartsWith("mmsh:");
+                RequiresReadDelay = MediaFormatName.Equals("rstp") || MediaUrl.StartsWith("mmsh:");
                 var inputAllowsDiscontinuities = (InputContext->iformat->flags & ffmpeg.AVFMT_TS_DISCONT) != 0;
                 MediaSeeksByBytes = inputAllowsDiscontinuities && (MediaFormatName.Equals("ogg") == false);
 
@@ -2083,18 +2147,18 @@
                 else
                     MediaEndTime = TimeSpan.MinValue;
 
-                //SeekToStartTimestamp();
-
                 // Open the best suitable streams. Throw if no audio and/or video streams are found
                 Components = CreateStreamComponents();
+
+                // For network streams, figure out if reads can be paused and then start them.
+                CanReadSuspend = ffmpeg.av_read_pause(InputContext) == 0;
+                ffmpeg.av_read_play(InputContext);
+                IsReadSuspended = false;
 
                 // Initially and depending on the video component, rquire picture attachments.
                 // Picture attachments are only required after the first read or after a seek.
                 RequiresPictureAttachments = true;
 
-                // for realtime streams
-                if (IsMediaRealtime)
-                    ffmpeg.av_read_play(InputContext);
             }
             catch (Exception ex)
             {
@@ -2206,7 +2270,7 @@
                 {
                     try
                     {
-                        ReadNextPacket();
+                        StreamReadNextPacket();
                     }
                     catch (Exception ex)
                     {
@@ -2218,12 +2282,15 @@
 
         }
 
-        private void ReadNextPacket()
+        private void StreamReadNextPacket()
         {
-            if (RequiresPacketReadDelay)
+            // Ensure read is not suspended
+            StreamReadResume();
+
+            if (RequiresReadDelay)
             {
                 // in ffplay.c this is referenced via CONFIG_RTSP_DEMUXER || CONFIG_MMSH_PROTOCOL
-                var millisecondsDifference = (int)Math.Round(DateTime.UtcNow.Subtract(LastPacketReadTimeUtc).TotalMilliseconds, 2);
+                var millisecondsDifference = (int)Math.Round(DateTime.UtcNow.Subtract(LastReadTimeUtc).TotalMilliseconds, 2);
                 var sleepMilliseconds = 10 - millisecondsDifference;
 
                 // wait at least 10 ms to avoid trying to get another packet
@@ -2238,7 +2305,7 @@
                 if (copyPacketResult >= 0 && attachedPacket != null)
                 {
                     Components.Video.SendPacket(attachedPacket);
-                    Components.Video.SendFlushPacket();
+                    Components.Video.SendEmptyPacket();
                 }
 
                 RequiresPictureAttachments = false;
@@ -2247,7 +2314,7 @@
             // Allocate the packet to read
             var readPacket = ffmpeg.av_packet_alloc();
             var readResult = ffmpeg.av_read_frame(InputContext, readPacket);
-            LastPacketReadTimeUtc = DateTime.UtcNow;
+            LastReadTimeUtc = DateTime.UtcNow;
 
             if (readResult < 0)
             {
@@ -2255,34 +2322,112 @@
                 ffmpeg.av_packet_free(&readPacket);
 
                 // Detect an end of file situation (makes the readers enter draining mode)
-                if ((readResult == ffmpeg.AVERROR_EOF || ffmpeg.avio_feof(InputContext->pb) != 0) && IsAtEndOfFile == false)
+                if ((readResult == ffmpeg.AVERROR_EOF || ffmpeg.avio_feof(InputContext->pb) != 0) && IsAtEndOfStream == false)
                 {
-                    Components.SendFlushPacket();
-                    IsAtEndOfFile = true;
+                    // Forece the decoders to enter draining mode (with empry packets)
+                    Components.SendEmptyPackets();
+                    IsAtEndOfStream = true;
                     return;
                 }
+                else
+                {
+                    IsAtEndOfStream = false;
+                }
 
-                if (IsAtEndOfFile == false && InputContext->pb != null && InputContext->pb->error != 0)
+                if (IsAtEndOfStream == false && InputContext->pb != null && InputContext->pb->error != 0)
                     throw new MediaContainerException($"Input has produced an error. Error Code {InputContext->pb->error}");
             }
             else
             {
-                IsAtEndOfFile = false;
+                IsAtEndOfStream = false;
             }
 
             // Check if we were able to feed the packet. If not, simply discard it
-            if (readPacket != null && Components.SendPacket(readPacket) == false)
-                ffmpeg.av_packet_free(&readPacket);
+            if (readPacket != null)
+            {
+                var readPacketResult = Components.SendPacket(readPacket);
+                if (readPacketResult == false)
+                    ffmpeg.av_packet_free(&readPacket);
+            }
         }
 
-        private void NetworkPause()
+        private void StreamReadSuspend()
         {
-
+            if (InputContext == null || CanReadSuspend == false || IsReadSuspended) return;
+            ffmpeg.av_read_pause(InputContext);
+            IsReadSuspended = true;
         }
 
-        private void NetworkPlay()
+        private void StreamReadResume()
         {
+            if (InputContext == null || CanReadSuspend == false || IsReadSuspended == false) return;
+            ffmpeg.av_read_play(InputContext);
+            IsReadSuspended = false;
+        }
 
+        public void StreamSeek(TimeSpan targetTime)
+        {
+            if (IsStreamSeekable == false)
+            {
+                $"Unable to seek. Underlying stream does not support seeking.".Warn(typeof(MediaContainer));
+                return;
+            }
+
+            if (MediaSeeksByBytes == false)
+            {
+                if (targetTime > MediaEndTime) targetTime = MediaEndTime;
+                if (targetTime < MediaStartTime) targetTime = MediaStartTime;
+            }
+
+            var seekFlags = MediaSeeksByBytes ? ffmpeg.AVSEEK_FLAG_BYTE : 0;
+
+            var streamIndex = -1;
+            var timeBase = ffmpeg.AV_TIME_BASE_Q;
+            var component = Components.HasVideo ?
+                Components.Video as MediaComponent : Components.Audio as MediaComponent;
+
+            if (component == null) return;
+
+            // Check if we really need to seek.
+            if (component.LastFrameRenderTime == targetTime)
+                return;
+
+            streamIndex = component.StreamIndex;
+            timeBase = component.Stream->time_base;
+            var seekTarget = (long)Math.Round(targetTime.TotalSeconds * timeBase.den / timeBase.num, 0);
+            var seekResult = ffmpeg.avformat_seek_file(InputContext, streamIndex, long.MinValue, seekTarget, seekTarget, seekFlags);
+
+
+            if (seekResult >= 0)
+            {
+                Components.ClearPacketQueues();
+                RequiresPictureAttachments = true;
+                IsAtEndOfStream = false;
+
+                if (component != null)
+                {
+                    // Perform reads until the next component frame is obtained
+                    // as we need to check where in the component stream we have landed after the seek.
+                    $"SEEK INIT".Trace(typeof(MediaContainer));
+                    var beforeFrameRenderTime = component.LastFrameRenderTime;
+                    while (beforeFrameRenderTime == component.LastFrameRenderTime)
+                        StreamReadNextPacket();
+
+                    $"SEEK START | Current {component.LastFrameRenderTime.TotalSeconds,10:0.000} | Target {targetTime.TotalSeconds,10:0.000}".Trace(typeof(MediaContainer));
+                    while (component.LastFrameRenderTime < targetTime)
+                    {
+                        StreamReadNextPacket();
+                        if (IsAtEndOfStream)
+                            break;
+                    }
+
+                    $"SEEK END   | Current {component.LastFrameRenderTime.TotalSeconds,10:0.000} | Target {targetTime.TotalSeconds,10:0.000}".Trace(typeof(MediaContainer));
+                }
+            }
+            else
+            {
+
+            }
         }
 
         #region IDisposable Support

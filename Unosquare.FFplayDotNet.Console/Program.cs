@@ -7,72 +7,151 @@
     using System.Runtime.InteropServices;
     using System.Threading;
     using System.Threading.Tasks;
+    using System.Windows;
+    using System.Windows.Media;
+    using System.Windows.Media.Imaging;
     using Unosquare.FFplayDotNet.Primitives;
     using Unosquare.Swan;
 
-    static class TestStreams
+    static class TestInputs
     {
-        private const string BasePath = @"c:\users\unosp\Desktop\";
+        private static string InputBasePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "videos");
 
-        public static string Mp4H264Regular = $"{BasePath}cowboys.mp4";
-
-        public static string H264MulticastStream = @"udp://@225.1.1.181:5181/";
-
-        public static string HlsMultiStream = @"http://qthttp.apple.com.edgesuite.net/1010qwoeiuryfg/sl.m3u8";
-
-        /// <summary>
-        /// Downloaded From: https://www.dropbox.com/sh/vggf640iniwxwyu/AABSeLJfAZeApEoJAY3N34Y2a?dl=0
-        /// </summary>
-        public static string MpegPart2 = $"{BasePath}big_buck_bunny_MPEG4.mp4";
-
-        /// <summary>
-        /// The mpg file form issue https://github.com/unosquare/ffmediaelement/issues/22
-        /// </summary>
-        public static string Mpg2 = $"{BasePath}22817BT_GTCTsang.mpg";
-
-        /// <summary>
-        /// The transport stream file
-        /// From: https://github.com/unosquare/ffmediaelement/issues/16#issuecomment-299183167
-        /// </summary>
-        public static string TransportStreamFile = $"{BasePath}2013-12-18 22_45 - Anne Will.cut.ts";
+        #region Local Files
 
         /// <summary>
         /// The matroska test. It contains various subtitle an audio tracks
         /// Files can be obtained here: https://sourceforge.net/projects/matroska/files/test_files/matroska_test_w1_1.zip/download
         /// </summary>
-        public static string MatroskaTest = $"{BasePath}test5.mkv";
+        public static string MatroskaLocalFile = $"{InputBasePath}\\matroska.mkv";
+
+        /// <summary>
+        /// The transport stream file
+        /// From: https://github.com/unosquare/ffmediaelement/issues/16#issuecomment-299183167
+        /// </summary>
+        public static string TransportLocalFile = $"{InputBasePath}\\transport.ts";
+
+        /// <summary>
+        /// Downloaded From: https://www.dropbox.com/sh/vggf640iniwxwyu/AABSeLJfAZeApEoJAY3N34Y2a?dl=0
+        /// </summary>
+        public static string BigBuckBunnyLocal = $"{InputBasePath}\\bigbuckbunny.mp4";
+
+        public static string YoutubeLocalFile = $"{InputBasePath}\\youtube.mp4";
+
+        /// <summary>
+        /// The mpg file form issue https://github.com/unosquare/ffmediaelement/issues/22
+        /// </summary>
+        public static string MpegPart2LocalFile = $"{InputBasePath}\\mpegpart2.mpg";
+
+        public static string PngTestLocalFile = $"{InputBasePath}\\pngtest.png";
+
+        #endregion
+
+        #region Network Files
+
+        public static string UdpStream = @"udp://@225.1.1.181:5181/";
+
+        public static string HlsStream = @"http://qthttp.apple.com.edgesuite.net/1010qwoeiuryfg/sl.m3u8";
+
+        /// <summary>
+        /// The RTSP stream from http://g33ktricks.blogspot.mx/p/the-rtsp-real-time-streaming-protocol.html
+        /// </summary>
+        public static string RtspStream = "rtsp://184.72.239.149/vod/mp4:BigBuckBunny_175k.mov";
+
+        public static string NetworkShareStream = @"\\STARBIRD\Dropbox\MEXICO 20120415 TOLUCA 0-3 CRUZ AZUL.mp4";
+
+        #endregion
     }
 
     class Program
     {
+        private static string OutputPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "output");
+
+        [DllImport("kernel32")]
+        public static extern void CopyMemory(IntPtr destination, IntPtr source, uint length);
 
         static void Main(string[] args)
         {
-            var player = new MediaContainer(TestStreams.HlsMultiStream);
+            var inputFile = TestInputs.MatroskaLocalFile;
+            var decodeDurationLimit = 8d;
+            var seekStart = 30d;
+            var seekTarget = 10d;
             var saveWaveFile = true;
-            var decodeDurationLimit = 40d;
+            var saveSnapshots = true;
 
+            #region Setup
+
+            var player = new MediaContainer(inputFile);
+            PrepareOutputDirectory(saveWaveFile, saveSnapshots);
             var audioData = new List<byte>();
+            WriteableBitmap bitmap = null;
             var totalDurationSeconds = 0d;
             ulong totalBytes = 0;
             var packetsDecoded = 0;
+
+            #endregion
+
+            #region Frame Handlers
 
             player.OnVideoDataAvailable += (s, e) =>
             {
                 totalBytes += (ulong)e.BufferLength;
                 totalDurationSeconds += e.Duration.TotalSeconds;
-                var bytes = new byte[e.BufferLength];
-                Marshal.Copy(e.Buffer, bytes, 0, e.BufferLength);
-                $"{e.MediaType,-10} | PTS: {e.RenderTime.TotalSeconds,10:0.000} | DUR: {e.Duration.TotalSeconds,10:0.000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB".Info(typeof(Program));
+                $"{e.MediaType,-10} | PTS: {e.RenderTime.TotalSeconds,10:0.000} | DUR: {e.Duration.TotalSeconds,10:0.000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB | LRT: {player.Components.Video.LastFrameRenderTime.TotalSeconds,10:0.000}".Info(typeof(Program));
+
+                if (saveSnapshots == false) return;
+
+                var fileSequence = Math.Round(e.RenderTime.TotalSeconds, 0);
+                var outputFile = Path.Combine(OutputPath, $"{fileSequence:0000}.png");
+                if (File.Exists(outputFile))
+                    return;
+
+                if (bitmap == null) bitmap =
+                    new WriteableBitmap(e.PixelWidth, e.PixelHeight, 96, 96, PixelFormats.Bgr24, null);
+
+                bitmap.Lock();
+
+                if (bitmap.BackBufferStride != e.BufferStride)
+                {
+                    var sourceBase = e.Buffer;
+                    var targetBase = bitmap.BackBuffer;
+
+                    for (var y = 0; y < bitmap.PixelHeight; y++)
+                    {
+                        var sourceAddress = sourceBase + (e.BufferStride * y);
+                        var targetAddress = targetBase + (bitmap.BackBufferStride * y);
+                        CopyMemory(targetAddress, sourceAddress, (uint)e.BufferStride);
+                    }
+                }
+                else
+                {
+                    CopyMemory(bitmap.BackBuffer, e.Buffer, (uint)e.BufferLength);
+                }
+
+                bitmap.AddDirtyRect(new Int32Rect(0, 0, e.PixelWidth, e.PixelHeight));
+                bitmap.Unlock();
+
+                using (var stream = File.OpenWrite(outputFile))
+                {
+                    var bitmapEncoder = new PngBitmapEncoder();
+                    bitmapEncoder.Frames.Clear();
+                    bitmapEncoder.Frames.Add(BitmapFrame.Create(bitmap));
+                    bitmapEncoder.Save(stream);
+                }
+
             };
 
             player.OnAudioDataAvailable += (s, e) =>
             {
                 totalBytes += (ulong)e.BufferLength;
-                var outputBytes = new byte[e.BufferLength];
-                Marshal.Copy(e.Buffer, outputBytes, 0, outputBytes.Length);
-                audioData.AddRange(outputBytes);
-                $"{e.MediaType,-10} | PTS: {e.RenderTime.TotalSeconds,10:0.000} | DUR: {e.Duration.TotalSeconds,10:0.000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB".Info(typeof(Program));
+                if (saveWaveFile)
+                {
+                    var outputBytes = new byte[e.BufferLength];
+                    Marshal.Copy(e.Buffer, outputBytes, 0, outputBytes.Length);
+                    audioData.AddRange(outputBytes);
+                }
+
+                $"{e.MediaType,-10} | PTS: {e.RenderTime.TotalSeconds,10:0.000} | DUR: {e.Duration.TotalSeconds,10:0.000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB | LRT: {player.Components.Audio.LastFrameRenderTime.TotalSeconds,10:0.000}".Info(typeof(Program));
             };
 
             player.OnSubtitleDataAvailable += (s, e) =>
@@ -80,11 +159,29 @@
                 $"{e.MediaType,-10} | PTS: {e.RenderTime.TotalSeconds,10:0.000} | DUR: {e.Duration.TotalSeconds,10:0.000} | BUF: {string.Join("", e.TextLines).Length * 2,10}B".Info(typeof(Program));
             };
 
+            #endregion
+
             var startTime = DateTime.Now;
 
+            //player.Process();
+            player.StreamSeek(TimeSpan.FromSeconds(seekStart));
+
+            var hasSeeked = false;
             while (true)
             {
                 player.Process();
+
+                if (totalDurationSeconds >= 3 && hasSeeked == false)
+                {
+                    var targetTime = TimeSpan.FromSeconds(seekTarget);
+                    $"Seeking to target time: {targetTime}.".Warn(typeof(Program));
+                    player.StreamSeek(targetTime);
+                    hasSeeked = true;
+
+                    continue;
+                }
+
+                //$"Last Render Time: {player.LastFrameRenderTime}".Warn();
 
                 if (totalDurationSeconds >= decodeDurationLimit)
                 {
@@ -92,7 +189,7 @@
                     break;
                 }
 
-                if (player.IsAtEndOfFile)
+                if (player.IsAtEndOfStream)
                 {
                     "End of file reached.".Warn(typeof(Program));
                     break;
@@ -101,19 +198,24 @@
                 packetsDecoded += 1;
             }
 
-            ($"Media Info - {player.MediaUrl}\r\n" + 
-                $"    Duration    : {player.MediaDuration.TotalSeconds, 10:0.000} secs\r\n" + 
-                $"    Seekable    : {player.IsMediaSeekable, 10}\r\n" + 
-                $"    Realtime    : {player.IsMediaRealtime, 10}\r\n" +
-                $"    Decode Took : {DateTime.Now.Subtract(startTime).TotalSeconds, 10:0.000} secs\r\n" +
-                $"    Packets     : {player.Components.ReceivedPacketCount, 10}\r\n" +
-                $"    Frames      : {player.Components.DecodedFrameCount, 10}\r\n" +
-                $"    Raw Data    : {totalBytes / (double)(1024 * 1024), 10:0.00} MB"
+            ($"Media Info\r\n" +
+                $"    URL         : {player.MediaUrl}\r\n" +
+                $"    Bitrate     : {player.MediaBitrate,10} bps\r\n" +
+                $"    Start Time  : {player.MediaStartTime.TotalSeconds,10:0.000}\r\n" +
+                $"    Duration    : {player.MediaDuration.TotalSeconds,10:0.000} secs\r\n" +
+                $"    Seekable    : {player.IsStreamSeekable,10}\r\n" +
+                $"    Can Suspend : {player.CanReadSuspend,10}\r\n" +
+                $"    Is Realtime : {player.IsRealtimeStream,10}\r\n" +
+                $"    Packets     : {player.Components.ReceivedPacketCount,10}\r\n" +
+                $"    Frames      : {player.Components.DecodedFrameCount,10}\r\n" +
+                $"    Raw Data    : {totalBytes / (double)(1024 * 1024),10:0.00} MB\r\n" +
+                $"    Decoded     : {totalDurationSeconds,10:0.000} secs\r\n" +
+                $"    Benchmark   : {DateTime.Now.Subtract(startTime).TotalSeconds,10:0.000} secs"
                 ).Info(typeof(Program));
 
             if (saveWaveFile)
             {
-                var audioFile = @"c:\users\unosp\Desktop\output.wav";
+                var audioFile = Path.Combine(OutputPath, "audio.wav");
                 SaveWavFile(audioData, audioFile);
                 $"Saved wave file to '{audioFile}'".Warn(typeof(Program));
             }
@@ -153,6 +255,24 @@
                 }
             }
         }
+
+        static private void PrepareOutputDirectory(bool cleanWavs, bool cleanPngs)
+        {
+            if (Directory.Exists(OutputPath) == false)
+                Directory.CreateDirectory(OutputPath);
+
+            var extensions = new List<string>();
+            if (cleanWavs) extensions.Add("*.wav");
+            if (cleanPngs) extensions.Add("*.png");
+
+            foreach (var extension in extensions)
+            {
+                var entries = Directory.GetFiles(OutputPath, extension);
+                foreach (var entry in entries)
+                    File.Delete(entry);
+            }
+        }
+
 
     }
 }

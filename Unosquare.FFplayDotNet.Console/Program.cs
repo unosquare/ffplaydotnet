@@ -77,10 +77,10 @@
         static void Main(string[] args)
         {
             // Each compnent with own thread, BigBuckBunnyLocal, 20 seconds, 2.156 secs.
-            var inputFile = TestInputs.NetworkShareStream2;
-            var decodeDurationLimit = 20d;
-            var saveWaveFile = false;
-            var saveSnapshots = false;
+            var inputFile = TestInputs.UdpStream2;
+            var decodeDurationLimit = 60d;
+            var saveWaveFile = true;
+            var saveSnapshots = true;
 
             #region Setup
 
@@ -167,14 +167,19 @@
 
             while (true)
             {
-                if (player.Components.PacketBufferCount < 10)
-                    player.Read(25).WaitOne();
-
+                
+                if (player.Components.PacketBufferCount < 25)
+                {
+                    var isReadDone = player.Read(25);
+                    if (player.IsRealtimeStream)
+                        isReadDone.WaitOne();
+                }
+                
                 player.DecodeFrames().WaitOne();
-                var currentPosition = player.Components.Video.LastFrameRenderTime.TotalSeconds;
+
+                var currentPosition = player.Components.Video.LastFrameRenderTime.TotalSeconds - player.Components.Video.StartTime.TotalSeconds;
                 if (currentPosition >= decodeDurationLimit)
                 {
-                    //player.DecodeFrames().WaitOne();
                     $"Decoder limit duration reached at {currentPosition,10:0.000} secs. Limit was: {decodeDurationLimit,10:0.000} seconds".Info(typeof(Program));
                     break;
                 }
@@ -186,19 +191,25 @@
                 }
             }
 
+            var elapsed = DateTime.Now.Subtract(startTime).TotalSeconds;
+            var decodeSpeed = player.Components.DecodedFrameCount / elapsed;
+
             ($"Media Info\r\n" +
                 $"    URL         : {player.MediaUrl}\r\n" +
                 $"    Bitrate     : {player.MediaBitrate,10} bps\r\n" +
+                $"    FPS         : {player.Components.Video.BaseFrameRate,10:0.000}\r\n" +
                 $"    Start Time  : {player.MediaStartTime.TotalSeconds,10:0.000}\r\n" +
                 $"    Duration    : {player.MediaDuration.TotalSeconds,10:0.000} secs\r\n" +
                 $"    Seekable    : {player.IsStreamSeekable,10}\r\n" +
                 $"    Can Suspend : {player.CanReadSuspend,10}\r\n" +
                 $"    Is Realtime : {player.IsRealtimeStream,10}\r\n" +
                 $"    Packets     : {player.Components.ReceivedPacketCount,10}\r\n" +
-                $"    Frames      : {player.Components.DecodedFrameCount,10}\r\n" +
                 $"    Raw Data    : {totalBytes / (double)(1024 * 1024),10:0.00} MB\r\n" +
                 $"    Decoded     : {totalDurationSeconds,10:0.000} secs\r\n" +
-                $"    Benchmark   : {DateTime.Now.Subtract(startTime).TotalSeconds,10:0.000} secs"
+                $"    Decode Speed: {decodeSpeed,10:0.000}\r\n" +
+                $"    Frames      : {player.Components.DecodedFrameCount,10:0.000}\r\n" +
+                $"    Speed Ratio : {decodeSpeed / player.Components.Video.BaseFrameRate,10:0.000}\r\n" +
+                $"    Benchmark T : {elapsed,10:0.000} secs"
                 ).Info(typeof(Program));
 
             if (saveWaveFile)

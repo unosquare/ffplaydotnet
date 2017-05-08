@@ -1217,6 +1217,27 @@
         #region Methods
 
         /// <summary>
+        /// Gets the pixel format replacing deprecated pixel formats.
+        /// AV_PIX_FMT_YUVJ
+        /// </summary>
+        /// <param name="frame">The frame.</param>
+        /// <returns></returns>
+        private static AVPixelFormat GetPixelFormat(AVFrame* frame)
+        {
+            var currentFormat = (AVPixelFormat)frame->format;
+            switch (currentFormat)
+            {
+                case AVPixelFormat.AV_PIX_FMT_YUVJ411P: return AVPixelFormat.AV_PIX_FMT_YUV411P;
+                case AVPixelFormat.AV_PIX_FMT_YUVJ420P: return AVPixelFormat.AV_PIX_FMT_YUV420P;
+                case AVPixelFormat.AV_PIX_FMT_YUVJ422P: return AVPixelFormat.AV_PIX_FMT_YUV422P;
+                case AVPixelFormat.AV_PIX_FMT_YUVJ440P: return AVPixelFormat.AV_PIX_FMT_YUV440P;
+                case AVPixelFormat.AV_PIX_FMT_YUVJ444P: return AVPixelFormat.AV_PIX_FMT_YUV444P;
+                default: return currentFormat;
+            }
+                
+        }
+
+        /// <summary>
         /// Processes the frame data by performing a framebuffer allocation, scaling the image
         /// and raising an event containing the bitmap.
         /// </summary>
@@ -1241,7 +1262,7 @@
 
             // Retrieve a suitable scaler or create it on the fly
             Scaler = ffmpeg.sws_getCachedContext(Scaler,
-                    frame->width, frame->height, (AVPixelFormat)frame->format, frame->width, frame->height,
+                    frame->width, frame->height, GetPixelFormat(frame), frame->width, frame->height,
                     Constants.OutputPixelFormat, ScalerFlags, null, null, null);
 
             // Perform scaling and save the data to our unmanaged buffer pointer for callbacks

@@ -2030,11 +2030,11 @@
         {
             if (HandlesOnVideoDataAvailable == false) return;
 
-            CurrentDispatcher.Invoke(() =>
-            {
+            //CurrentDispatcher.Invoke(() =>
+            //{
                 OnVideoDataAvailable(this, new VideoDataAvailableEventArgs(buffer, bufferLength, bufferStride,
                     pixelWidth, pixelHeight, renderTime, duration));
-            }, DispatcherPriority.DataBind);
+            //}, DispatcherPriority.DataBind);
 
         }
 
@@ -2052,11 +2052,11 @@
             int sampleRate, int samplesPerChannel, int channels, TimeSpan renderTime, TimeSpan duration)
         {
             if (HandlesOnAudioDataAvailable == false) return;
-            CurrentDispatcher.Invoke(() =>
-            {
+            //CurrentDispatcher.Invoke(() =>
+            //{
                 OnAudioDataAvailable(this, new AudioDataAvailableEventArgs(buffer, bufferLength, sampleRate,
                     samplesPerChannel, channels, renderTime, duration));
-            }, DispatcherPriority.DataBind);
+            //}, DispatcherPriority.DataBind);
         }
 
         /// <summary>
@@ -2069,10 +2069,10 @@
         internal void RaiseOnSubtitleDataAvailabe(string[] textLines, TimeSpan renderTime, TimeSpan endTime, TimeSpan duration)
         {
             if (HandlesOnSubtitleDataAvailable == false) return;
-            CurrentDispatcher.Invoke(() =>
-            {
+            //CurrentDispatcher.Invoke(() =>
+            //{
                 OnSubtitleDataAvailable(this, new SubtitleDataAvailableEventArgs(textLines, renderTime, endTime, duration));
-            }, DispatcherPriority.DataBind);
+            //}, DispatcherPriority.DataBind);
         }
 
         #endregion

@@ -2,6 +2,7 @@
 {
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics;
     using System.IO;
     using System.Runtime.InteropServices;
     using System.Threading.Tasks;
@@ -75,12 +76,15 @@
         static void Main(string[] args)
         {
 
-            // Each compnent with own thread, BigBuckBunnyLocal, 20 seconds, 2.156 secs.
-            // TODO: compare with May 5th version.
-            var inputFile = TestInputs.UdpStream;
-            var decodeDurationLimit = 60d;
+            // BigBuckBunnyLocal, 20 seconds, 1.036 secs.
+            // TODO: 
+            // May 5th: 1.255 secs to decode 20 seconds 
+            // May 8th: 1.466 secs to decode 20 seconds
+            var inputFile = TestInputs.BigBuckBunnyLocal;
+            var decodeDurationLimit = 20d;
             var saveWaveFile = true;
-            var saveSnapshots = false;
+            var saveSnapshots = true;
+            var isBenchmarking = true;
 
             #region Setup
 
@@ -101,6 +105,7 @@
                 totalDurationSeconds += e.Duration.TotalSeconds;
                 $"{e.MediaType,-10} | PTS: {e.RenderTime.TotalSeconds,10:0.000} | DUR: {e.Duration.TotalSeconds,10:0.000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB | LRT: {player.Components.Video.LastFrameRenderTime.TotalSeconds,10:0.000}".Info(typeof(Program));
 
+                if (isBenchmarking) return;
 
                 if (bitmap == null) bitmap = new WriteableBitmap(e.PixelWidth, e.PixelHeight, 96, 96, PixelFormats.Bgr24, null);
 
@@ -131,30 +136,25 @@
                 var fileSequence = Math.Round(e.RenderTime.TotalSeconds, 0);
                 var outputFile = Path.Combine(OutputPath, $"{fileSequence:0000}.png");
 
-                if (File.Exists(outputFile))
-                    return;
+                if (File.Exists(outputFile)) return;
 
                 var bitmapFrame = BitmapFrame.Create(bitmap);
-                var saveAction = new Action<BitmapFrame, string>(
-                    (bf, filename) =>
-                    {
-                        using (var stream = File.OpenWrite(filename))
-                        {
-                            var bitmapEncoder = new PngBitmapEncoder();
-                            bitmapEncoder.Frames.Clear();
-                            bitmapEncoder.Frames.Add(bf);
-                            bitmapEncoder.Save(stream);
-                        }
-                    });
-
-                saveAction(bitmapFrame, outputFile);
-                //appDispatcher.Invoke(saveAction, DispatcherPriority.Loaded, bitmapFrame, outputFile);
+                using (var stream = File.OpenWrite(outputFile))
+                {
+                    var bitmapEncoder = new PngBitmapEncoder();
+                    bitmapEncoder.Frames.Clear();
+                    bitmapEncoder.Frames.Add(bitmapFrame);
+                    bitmapEncoder.Save(stream);
+                }
 
             };
 
             player.OnAudioDataAvailable += (s, e) =>
             {
+
                 totalBytes += (ulong)e.BufferLength;
+
+                if (isBenchmarking) return;
                 if (saveWaveFile)
                 {
                     var outputBytes = new byte[e.BufferLength];
@@ -172,8 +172,10 @@
 
             #endregion
 
-            var startTime = DateTime.Now;
-            var readTask = Task.Run(() => {
+            var bench = new Stopwatch();
+            bench.Start();
+            var readTask = Task.Run(() =>
+            {
                 while (true)
                 {
                     player.DecodeFrames().WaitOne();
@@ -204,8 +206,9 @@
             });
 
             readTask.Wait();
+            bench.Stop();
 
-            var elapsed = DateTime.Now.Subtract(startTime).TotalSeconds;
+            var elapsed = bench.ElapsedMilliseconds / 1000d;
             var decodeSpeed = player.Components.Video.DecodedFrameCount / elapsed;
 
             ($"Media Info\r\n" +
@@ -226,7 +229,7 @@
                 $"    Benchmark T : {elapsed,10:0.000} secs"
                 ).Info(typeof(Program));
 
-            if (saveWaveFile)
+            if (saveWaveFile && !isBenchmarking)
             {
                 var audioFile = Path.Combine(OutputPath, "audio.wav");
                 SaveWavFile(audioData, audioFile);

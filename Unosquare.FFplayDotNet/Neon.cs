@@ -8,6 +8,7 @@
     using System.Linq;
     using System.Runtime.InteropServices;
     using System.Threading;
+    using System.Threading.Tasks;
     using Unosquare.FFplayDotNet.Core;
     using Unosquare.FFplayDotNet.Primitives;
     using Unosquare.Swan;
@@ -326,7 +327,7 @@
         /// </value>
         /// <param name="index">The index.</param>
         /// <returns></returns>
-        public AVPacket* this[int index]
+        private AVPacket* this[int index]
         {
             get
             {
@@ -351,6 +352,17 @@
                     return PacketPointers.Count;
             }
         }
+
+        /// <summary>
+        /// Gets the sum of all the packet sizes contained
+        /// by this queue.
+        /// </summary>
+        public int BufferLength { get; private set; }
+
+        /// <summary>
+        /// Gets the total duration in stream TimeBase units.
+        /// </summary>
+        public long Duration { get; private set; }
 
         #endregion
 
@@ -378,7 +390,12 @@
         public void Push(AVPacket* packet)
         {
             lock (SyncRoot)
+            {
                 PacketPointers.Add((IntPtr)packet);
+                BufferLength += packet->size;
+                Duration += packet->duration;
+            }
+
         }
 
         /// <summary>
@@ -392,7 +409,11 @@
                 if (PacketPointers.Count <= 0) return null;
                 var result = PacketPointers[0];
                 PacketPointers.RemoveAt(0);
-                return (AVPacket*)result;
+
+                var packet = (AVPacket*)result;
+                BufferLength -= packet->size;
+                Duration -= packet->size;
+                return packet;
             }
         }
 
@@ -408,6 +429,9 @@
                     var packet = Dequeue();
                     ffmpeg.av_packet_free(&packet);
                 }
+
+                BufferLength = 0;
+                Duration = 0;
             }
         }
 
@@ -634,6 +658,18 @@
         /// </summary>
         internal readonly MediaPacketQueue SentPackets = new MediaPacketQueue();
 
+        /// <summary>
+        /// This task continuously checks the packet queue and decodes frames as
+        /// packets become available.
+        /// </summary>
+        private Task DecodingTask;
+
+        /// <summary>
+        /// The decoding task control for cancellation
+        /// </summary>
+        private CancellationTokenSource DecodingTaskControl = new CancellationTokenSource();
+
+
         #endregion
 
         #region Properties
@@ -690,6 +726,12 @@
         /// Gets the render time or the last packet that was received by this media component.
         /// </summary>
         public TimeSpan LastPacketRenderTime { get; protected set; }
+
+        /// <summary>
+        /// Gets the number of packets in the queue. These packets
+        /// are continuously fed into the decoder.
+        /// </summary>
+        public int PacketBufferCount { get { return Packets.Count; } }
 
         #endregion
 
@@ -791,12 +833,32 @@
                 EndTime = TimeSpan.MinValue;
 
             $"{MediaType}: Start Time: {StartTime}; End Time: {EndTime}; Duration: {Duration}".Trace(typeof(MediaContainer));
+            StartDecodingTask();
 
         }
 
         #endregion
 
         #region Methods
+
+        private void StartDecodingTask()
+        {
+            // Let's start the continuous decoder thread. It has to be different from the read thread
+            // because otherwise we don't let the buffers come in.
+            DecodingTask = Task.Run(() =>
+            {
+                while (DecodingTaskControl.IsCancellationRequested == false)
+                {
+                    var decodedFrames = DecodeNextPacketInternal();
+
+                    if (decodedFrames > 0)
+                        DecodedFrameCount += (ulong)decodedFrames;
+                    else
+                        while (PacketBufferCount <= 0)
+                            Thread.Sleep(1); // Wait before more packets arrive
+                }
+            }, DecodingTaskControl.Token);
+        }
 
         /// <summary>
         /// Determines whether the specified packet is a Null Packet (data = null, size = 0)
@@ -843,6 +905,17 @@
         public ulong ReceivedPacketCount { get; private set; }
 
         /// <summary>
+        /// Gets the current length in bytes of the 
+        /// packet buffer.
+        /// </summary>
+        public int PacketBufferLength { get { return Packets.BufferLength; } }
+
+        /// <summary>
+        /// Gets the current duration of the packet buffer.
+        /// </summary>
+        public TimeSpan PacketBufferDuration { get { return Packets.Duration.ToTimeSpan(Stream->time_base); } }
+
+        /// <summary>
         /// Pushes a packet into the decoding Packet Queue
         /// and processes the packet in order to try to decode
         /// 1 or more frames. The packet has to be within the range of
@@ -860,21 +933,19 @@
                 LastPacketRenderTime = packet->pts.ToTimeSpan(Stream->time_base);
 
             ReceivedPacketCount += 1;
-            while (Packets.Count > 0)
-                DecodedFrameCount += (ulong)ReceiveFramesFromPacketQueue();
         }
 
         /// <summary>
-        /// Receives 0 or more frames from the current Packet Queue.
+        /// Receives 0 or more frames from the next available packet in the Queue.
         /// This sends the first available packet to dequeue to the decoder
         /// and uses the decoded frames (if any) to their corresponding
         /// ProcessFrame method.
         /// </summary>
         /// <returns></returns>
-        protected virtual int ReceiveFramesFromPacketQueue()
+        private int DecodeNextPacketInternal()
         {
             // Ensure there is at least one packet in the queue
-            if (Packets.Count <= 0) return 0;
+            if (PacketBufferCount <= 0) return 0;
 
             // Setup some initial state variables
             var packet = Packets.Peek();
@@ -1026,8 +1097,18 @@
                         fixed (AVCodecContext** codecContext = &CodecContext)
                             ffmpeg.avcodec_free_context(codecContext);
 
+                        // cancel the doecder task
+                        // TODO: to be tested
+                        try { DecodingTaskControl.Cancel(false); }
+                        catch { }
+                        finally
+                        {
+                            var wasCleanExit = DecodingTask.Wait(10);
+                        }
+
                         // free all the pending and sent packets
                         ClearPacketQueues();
+
                     }
 
                     CodecContext = null;
@@ -1552,6 +1633,32 @@
         }
 
         /// <summary>
+        /// Gets the length in bytes of the packet buffer.
+        /// These packets are the ones that have not been yet deecoded.
+        /// </summary>
+        public int PacketBufferLength
+        {
+            get
+            {
+                lock (SyncRoot)
+                    return Items.Sum(s => s.Value.PacketBufferLength);
+            }
+        }
+
+        /// <summary>
+        /// Gets the number of packets that have not been
+        /// fed to the decoders.
+        /// </summary>
+        public int PacketBufferCount
+        {
+            get
+            {
+                lock (SyncRoot)
+                    return Items.Sum(s => s.Value.PacketBufferCount);
+            }
+        }
+
+        /// <summary>
         /// Gets a value indicating whether this instance has a video component.
         /// </summary>
         public bool HasVideo { get { return Video != null; } }
@@ -1819,12 +1926,10 @@
         /// </summary>
         private bool IsDisposing = false;
 
-        /// <summary>
-        /// The synchronization root for locking
-        /// </summary>
-        private readonly object SyncRoot = new object();
-
         private readonly MediaActionQueue ActionQueue = new MediaActionQueue();
+
+        private Task ActionWorker;
+        private CancellationTokenSource ActionWorkerControl = new CancellationTokenSource();
 
         #endregion
 
@@ -2159,6 +2264,9 @@
                 // Picture attachments are only required after the first read or after a seek.
                 RequiresPictureAttachments = true;
 
+                // Go ahead and start the queue worker!
+                StartActionWorker();
+
             }
             catch (Exception ex)
             {
@@ -2166,6 +2274,68 @@
                 Dispose(true);
                 throw;
             }
+        }
+
+        #endregion
+
+        private void StartActionWorker()
+        {
+            ActionWorker = Task.Run(() =>
+            {
+                while (ActionWorkerControl.IsCancellationRequested == false)
+                {
+                    var next = ActionQueue.Dequeue();
+
+                    try
+                    {
+                        if (next.Action == MediaAction.Default)
+                        {
+                            if (ActionQueue.Count == 0)
+                                Thread.Sleep(1);
+                        }
+                        else if (next.Action == MediaAction.DecodeFrames)
+                        {
+                            while (Components.PacketBufferCount > 0)
+                                Thread.Sleep(1);
+                        }
+                        else if (next.Action == MediaAction.ReadPacket)
+                        {
+                            StreamReadNextPacket();
+                        }
+                        else if (next.Action == MediaAction.ReadPackets)
+                        {
+                            var packetCount = (int)next.Arguments;
+                            for (var i = 0; i < packetCount; i++)
+                            {
+                                if (IsAtEndOfStream) break;
+                                StreamReadNextPacket();
+                            }
+                        }
+                    }
+                    finally
+                    {
+                        next.IsFinished.Set();
+                    }
+
+                }
+            }, ActionWorkerControl.Token);
+        }
+
+        #region Public API
+
+        public WaitHandle Read()
+        {
+            return ActionQueue.Push(MediaAction.ReadPacket, null).IsFinished.WaitHandle;
+        }
+
+        public WaitHandle Read(int numPackets)
+        {
+            return ActionQueue.Push(MediaAction.ReadPackets, numPackets).IsFinished.WaitHandle;
+        }
+
+        public WaitHandle DecodeFrames()
+        {
+            return ActionQueue.Push(MediaAction.DecodeFrames, null).IsFinished.WaitHandle;
         }
 
         #endregion
@@ -2262,26 +2432,6 @@
 
         }
 
-        public void Process()
-        {
-            lock (SyncRoot)
-            {
-                if (ActionQueue.Count == 0)
-                {
-                    try
-                    {
-                        StreamReadNextPacket();
-                    }
-                    catch (Exception ex)
-                    {
-                        $"{ex.Message}".Error(typeof(MediaContainer));
-                    }
-                }
-
-            }
-
-        }
-
         private void StreamReadNextPacket()
         {
             // Ensure read is not suspended
@@ -2345,8 +2495,8 @@
             // Check if we were able to feed the packet. If not, simply discard it
             if (readPacket != null)
             {
-                var readPacketResult = Components.SendPacket(readPacket);
-                if (readPacketResult == false)
+                var wasPacketAccepted = Components.SendPacket(readPacket);
+                if (wasPacketAccepted == false)
                     ffmpeg.av_packet_free(&readPacket);
             }
         }
@@ -2365,7 +2515,7 @@
             IsReadSuspended = false;
         }
 
-        public void StreamSeek(TimeSpan targetTime)
+        private void StreamSeek(TimeSpan targetTime)
         {
             if (IsStreamSeekable == false)
             {
@@ -2446,6 +2596,8 @@
                             ffmpeg.avformat_close_input(inputContext);
 
                         ffmpeg.avformat_free_context(InputContext);
+
+                        Components.Dispose();
                     }
                 }
 

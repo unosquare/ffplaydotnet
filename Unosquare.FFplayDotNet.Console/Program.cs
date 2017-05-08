@@ -51,6 +51,8 @@
 
         public static string UdpStream = @"udp://@225.1.1.181:5181/";
 
+        public static string UdpStream2 = @"udp://@225.1.1.3:5003/";
+
         public static string HlsStream = @"http://qthttp.apple.com.edgesuite.net/1010qwoeiuryfg/sl.m3u8";
 
         /// <summary>
@@ -72,10 +74,9 @@
 
         static void Main(string[] args)
         {
-            var inputFile = TestInputs.YoutubeLocalFile;
-            var decodeDurationLimit = 8d;
-            var seekStart = 200;
-            var seekTarget = 100;
+            // Each compnent with own thread, BigBuckBunnyLocal, 20 seconds, 2.156 secs.
+            var inputFile = TestInputs.BigBuckBunnyLocal;
+            var decodeDurationLimit = 20d;
             var saveWaveFile = true;
             var saveSnapshots = true;
 
@@ -87,7 +88,6 @@
             WriteableBitmap bitmap = null;
             var totalDurationSeconds = 0d;
             ulong totalBytes = 0;
-            var packetsDecoded = 0;
 
             #endregion
 
@@ -162,27 +162,12 @@
             #endregion
 
             var startTime = DateTime.Now;
+            
 
-            //player.Process();
-            player.StreamSeek(TimeSpan.FromSeconds(seekStart));
-
-            var hasSeeked = false;
             while (true)
             {
-                player.Process();
-
-                if (totalDurationSeconds >= 3 && hasSeeked == false)
-                {
-                    var targetTime = TimeSpan.FromSeconds(seekTarget);
-                    $"Seeking to target time: {targetTime}.".Warn(typeof(Program));
-                    player.StreamSeek(targetTime);
-                    hasSeeked = true;
-
-                    continue;
-                }
-
-                //$"Last Render Time: {player.LastFrameRenderTime}".Warn();
-
+                player.Read(10);
+                player.DecodeFrames().WaitOne();
                 if (totalDurationSeconds >= decodeDurationLimit)
                 {
                     $"Decoder limit duration reached: {decodeDurationLimit,10:0.000} seconds".Info(typeof(Program));
@@ -194,8 +179,6 @@
                     "End of file reached.".Warn(typeof(Program));
                     break;
                 }
-
-                packetsDecoded += 1;
             }
 
             ($"Media Info\r\n" +

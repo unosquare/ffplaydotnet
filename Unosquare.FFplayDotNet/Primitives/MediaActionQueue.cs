@@ -1,10 +1,15 @@
 ﻿namespace Unosquare.FFplayDotNet.Primitives
 {
     using System.Collections.Generic;
+    using System.Threading;
 
     public enum MediaAction
     {
-        None,
+        Default,
+        ReadPacket,
+        ReadPackets,
+        DecodeFrames,
+
         Quit,
         ToggleFullScreen,
         TogglePause,
@@ -26,27 +31,35 @@
 
     public class MediaActionItem
     {
-        public MediaActionItem(object sender, MediaAction action)
+        public MediaActionItem(MediaAction action, object arguments)
         {
-            Sender = sender;
+            Arguments = arguments;
             Action = action;
         }
 
-        public object Sender { get; private set; }
         public MediaAction Action { get; private set; }
+
+        public object Arguments { get; private set; }
+
+        public ManualResetEventSlim IsFinished { get; } = new ManualResetEventSlim(false);
     }
 
     public class MediaActionQueue
     {
-        public static readonly MediaActionItem NoAction = new MediaActionItem(null, MediaAction.None);
+        public static readonly MediaActionItem Default = new MediaActionItem(MediaAction.Default, null);
 
         private readonly object SyncRoot = new object();
         private readonly List<MediaActionItem> Queue = new List<MediaActionItem>();
 
-        public void Push(FFplay sender, MediaAction action)
+        public MediaActionItem Push(MediaAction action, object arguments)
         {
             lock (SyncRoot)
-                Queue.Add(new MediaActionItem(sender, action));
+            {
+                var item = new MediaActionItem(action, arguments);
+                Queue.Add(item);
+                return item;
+            }
+                
         }
 
         public MediaActionItem Peek()
@@ -56,7 +69,7 @@
                 if (Queue.Count > 0)
                     return Queue[0];
                 else
-                    return NoAction;
+                    return Default;
 
             }
         }
@@ -66,7 +79,7 @@
             lock (SyncRoot)
             {
                 if (Queue.Count <= 0)
-                    return NoAction;
+                    return Default;
 
                 var item = Queue[0];
                 Queue.RemoveAt(0);

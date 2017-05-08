@@ -5,6 +5,7 @@
     using System.Diagnostics;
     using System.IO;
     using System.Runtime.InteropServices;
+    using System.Threading;
     using System.Threading.Tasks;
     using System.Windows;
     using System.Windows.Media;
@@ -178,7 +179,15 @@
             {
                 while (true)
                 {
-                    player.DecodeFrames().WaitOne();
+                    while (player.Components.PacketBufferCount <= 50)
+                        player.StreamReadNextPacket();
+                    
+                    ($"Buffer     | DUR: {player.Components.PacketBufferDuration.TotalSeconds,10:0.000}"
+                        + $" | LEN: {player.Components.PacketBufferLength / 1024d,9:0.00}K"
+                        + $" | CNT: {player.Components.PacketBufferCount,12}").Warn(typeof(Program));
+                    
+                    while (player.Components.PacketBufferCount > 10)
+                        Thread.Sleep(1);
 
                     var currentPosition = player.Components.Video.LastFrameRenderTime.TotalSeconds - player.Components.Video.StartTime.TotalSeconds;
                     if (currentPosition >= decodeDurationLimit)
@@ -192,16 +201,6 @@
                         "End of file reached.".Warn(typeof(Program));
                         break;
                     }
-
-
-                    if (player.Components.PacketBufferDuration.TotalSeconds < 1d)
-                    {
-                        player.Read(TimeSpan.FromSeconds(1)).WaitOne();
-                        ($"Buffer     | DUR: {player.Components.PacketBufferDuration.TotalSeconds,10:0.000}"
-                            + $" | LEN: {player.Components.PacketBufferLength / 1024d,9:0.00}K"
-                            + $" | CNT: {player.Components.PacketBufferCount,12}").Warn(typeof(Program));
-                    }
-
                 }
             });
 

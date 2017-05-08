@@ -858,10 +858,10 @@
             {
                 while (DecodingTaskControl.IsCancellationRequested == false)
                 {
-                    if (PacketBufferCount == 0)
-                        PacketsAvailable.WaitOne(1);
+                    while (PacketBufferCount > 0)
+                        DecodedFrameCount += (ulong)DecodeNextPacketInternal();
 
-                    DecodedFrameCount += (ulong)DecodeNextPacketInternal();
+                    PacketsAvailable.WaitOne(5);
 
                 }
             }, DecodingTaskControl.Token);
@@ -2032,8 +2032,8 @@
 
             //CurrentDispatcher.Invoke(() =>
             //{
-                OnVideoDataAvailable(this, new VideoDataAvailableEventArgs(buffer, bufferLength, bufferStride,
-                    pixelWidth, pixelHeight, renderTime, duration));
+            OnVideoDataAvailable(this, new VideoDataAvailableEventArgs(buffer, bufferLength, bufferStride,
+                pixelWidth, pixelHeight, renderTime, duration));
             //}, DispatcherPriority.DataBind);
 
         }
@@ -2054,8 +2054,8 @@
             if (HandlesOnAudioDataAvailable == false) return;
             //CurrentDispatcher.Invoke(() =>
             //{
-                OnAudioDataAvailable(this, new AudioDataAvailableEventArgs(buffer, bufferLength, sampleRate,
-                    samplesPerChannel, channels, renderTime, duration));
+            OnAudioDataAvailable(this, new AudioDataAvailableEventArgs(buffer, bufferLength, sampleRate,
+                samplesPerChannel, channels, renderTime, duration));
             //}, DispatcherPriority.DataBind);
         }
 
@@ -2071,7 +2071,7 @@
             if (HandlesOnSubtitleDataAvailable == false) return;
             //CurrentDispatcher.Invoke(() =>
             //{
-                OnSubtitleDataAvailable(this, new SubtitleDataAvailableEventArgs(textLines, renderTime, endTime, duration));
+            OnSubtitleDataAvailable(this, new SubtitleDataAvailableEventArgs(textLines, renderTime, endTime, duration));
             //}, DispatcherPriority.DataBind);
         }
 
@@ -2519,7 +2519,7 @@
 
         }
 
-        private void StreamReadNextPacket()
+        public void StreamReadNextPacket()
         {
             // Ensure read is not suspended
             StreamReadResume();

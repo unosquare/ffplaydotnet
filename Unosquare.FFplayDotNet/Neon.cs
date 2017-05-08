@@ -669,6 +669,10 @@
         /// </summary>
         private CancellationTokenSource DecodingTaskControl = new CancellationTokenSource();
 
+        /// <summary>
+        /// Signaled whenever new packets are pushed in the queue
+        /// </summary>
+        private AutoResetEvent PacketsAvailable = new AutoResetEvent(false);
 
         #endregion
 
@@ -841,6 +845,9 @@
 
         #region Methods
 
+        /// <summary>
+        /// Starts the continuous decoding task
+        /// </summary>
         private void StartDecodingTask()
         {
             // Let's start the continuous decoder thread. It has to be different from the read thread
@@ -849,13 +856,15 @@
             {
                 while (DecodingTaskControl.IsCancellationRequested == false)
                 {
-                    var decodedFrames = DecodeNextPacketInternal();
-
-                    if (decodedFrames > 0)
-                        DecodedFrameCount += (ulong)decodedFrames;
-                    else
-                        while (PacketBufferCount <= 0)
-                            Thread.Sleep(1); // Wait before more packets arrive
+                    if (PacketBufferCount == 0)
+                    {
+                        PacketsAvailable.WaitOne(1);
+                        continue;
+                    }
+                        
+                    
+                    DecodedFrameCount += (ulong)DecodeNextPacketInternal();
+                    
                 }
             }, DecodingTaskControl.Token);
         }
@@ -933,6 +942,7 @@
                 LastPacketRenderTime = packet->pts.ToTimeSpan(Stream->time_base);
 
             ReceivedPacketCount += 1;
+            PacketsAvailable.Set();
         }
 
         /// <summary>

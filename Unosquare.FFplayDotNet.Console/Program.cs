@@ -62,6 +62,8 @@
 
         public static string NetworkShareStream = @"\\STARBIRD\Dropbox\MEXICO 20120415 TOLUCA 0-3 CRUZ AZUL.mp4";
 
+        public static string NetworkShareStream2 = @"\\STARBIRD\Public\Movies\Ender's Game (2013).mp4";
+
         #endregion
     }
 
@@ -75,10 +77,10 @@
         static void Main(string[] args)
         {
             // Each compnent with own thread, BigBuckBunnyLocal, 20 seconds, 2.156 secs.
-            var inputFile = TestInputs.BigBuckBunnyLocal;
+            var inputFile = TestInputs.NetworkShareStream2;
             var decodeDurationLimit = 20d;
-            var saveWaveFile = true;
-            var saveSnapshots = true;
+            var saveWaveFile = false;
+            var saveSnapshots = false;
 
             #region Setup
 
@@ -99,15 +101,7 @@
                 totalDurationSeconds += e.Duration.TotalSeconds;
                 $"{e.MediaType,-10} | PTS: {e.RenderTime.TotalSeconds,10:0.000} | DUR: {e.Duration.TotalSeconds,10:0.000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB | LRT: {player.Components.Video.LastFrameRenderTime.TotalSeconds,10:0.000}".Info(typeof(Program));
 
-                if (saveSnapshots == false) return;
-
-                var fileSequence = Math.Round(e.RenderTime.TotalSeconds, 0);
-                var outputFile = Path.Combine(OutputPath, $"{fileSequence:0000}.png");
-                if (File.Exists(outputFile))
-                    return;
-
-                if (bitmap == null) bitmap =
-                    new WriteableBitmap(e.PixelWidth, e.PixelHeight, 96, 96, PixelFormats.Bgr24, null);
+                if (bitmap == null) bitmap = new WriteableBitmap(e.PixelWidth, e.PixelHeight, 96, 96, PixelFormats.Bgr24, null);
 
                 bitmap.Lock();
 
@@ -130,6 +124,13 @@
 
                 bitmap.AddDirtyRect(new Int32Rect(0, 0, e.PixelWidth, e.PixelHeight));
                 bitmap.Unlock();
+
+                if (saveSnapshots == false) return;
+
+                var fileSequence = Math.Round(e.RenderTime.TotalSeconds, 0);
+                var outputFile = Path.Combine(OutputPath, $"{fileSequence:0000}.png");
+                if (File.Exists(outputFile))
+                    return;
 
                 using (var stream = File.OpenWrite(outputFile))
                 {
@@ -166,11 +167,15 @@
 
             while (true)
             {
-                player.Read(10);
+                if (player.Components.PacketBufferCount < 10)
+                    player.Read(25).WaitOne();
+
                 player.DecodeFrames().WaitOne();
-                if (totalDurationSeconds >= decodeDurationLimit)
+                var currentPosition = player.Components.Video.LastFrameRenderTime.TotalSeconds;
+                if (currentPosition >= decodeDurationLimit)
                 {
-                    $"Decoder limit duration reached: {decodeDurationLimit,10:0.000} seconds".Info(typeof(Program));
+                    //player.DecodeFrames().WaitOne();
+                    $"Decoder limit duration reached at {currentPosition,10:0.000} secs. Limit was: {decodeDurationLimit,10:0.000} seconds".Info(typeof(Program));
                     break;
                 }
 

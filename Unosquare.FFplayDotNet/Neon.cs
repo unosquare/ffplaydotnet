@@ -9,6 +9,8 @@
     using System.Runtime.InteropServices;
     using System.Threading;
     using System.Threading.Tasks;
+    using System.Windows;
+    using System.Windows.Threading;
     using Unosquare.FFplayDotNet.Core;
     using Unosquare.FFplayDotNet.Primitives;
     using Unosquare.Swan;
@@ -412,7 +414,7 @@
 
                 var packet = (AVPacket*)result;
                 BufferLength -= packet->size;
-                Duration -= packet->size;
+                Duration -= packet->duration;
                 return packet;
             }
         }
@@ -857,14 +859,10 @@
                 while (DecodingTaskControl.IsCancellationRequested == false)
                 {
                     if (PacketBufferCount == 0)
-                    {
                         PacketsAvailable.WaitOne(1);
-                        continue;
-                    }
-                        
-                    
+
                     DecodedFrameCount += (ulong)DecodeNextPacketInternal();
-                    
+
                 }
             }, DecodingTaskControl.Token);
         }
@@ -922,7 +920,13 @@
         /// <summary>
         /// Gets the current duration of the packet buffer.
         /// </summary>
-        public TimeSpan PacketBufferDuration { get { return Packets.Duration.ToTimeSpan(Stream->time_base); } }
+        public TimeSpan PacketBufferDuration
+        {
+            get
+            {
+                return Packets.Duration.ToTimeSpan(Stream->time_base);
+            }
+        }
 
         /// <summary>
         /// Pushes a packet into the decoding Packet Queue
@@ -968,12 +972,6 @@
                 // Let us send the packet to the codec for decoding a frame of uncompressed data later
                 var sendPacketResult = ffmpeg.avcodec_send_packet(CodecContext, IsEmptyPacket(packet) ? null : packet);
 
-
-                // Check if the send operation was successful. If not, the decoding buffer might be full
-                // We will keep the packet in the queue to process it later.
-                if (sendPacketResult != ffmpeg.AVERROR_EAGAIN)
-                    SentPackets.Push(Packets.Dequeue());
-
                 // Let's check and see if we can get 1 or more frames from the packet we just sent to the decoder.
                 // Audio packets will typically contain 1 or more audioframes
                 // Video packets might require several packets to decode 1 frame
@@ -1010,7 +1008,6 @@
                 var gotFrame = 0;
                 var outputFrame = new AVSubtitle(); // We create the struct in managed memory as there is no API to create a subtitle.
                 receiveFrameResult = ffmpeg.avcodec_decode_subtitle2(CodecContext, &outputFrame, &gotFrame, packet);
-                SentPackets.Push(Packets.Dequeue());
 
                 // Check if there is an error decoding the packet.
                 // If there is, remove the packet clear the sent packets
@@ -1062,6 +1059,10 @@
                     }
                 }
             }
+
+            // The packets are alwasy sent. We dequeue them and keep a reference to them
+            // in the SentPackets queue
+            SentPackets.Push(Packets.Dequeue());
 
             // Release the sent packets if 1 or more frames were received in the packet
             if (receivedFrameCount >= 1)
@@ -1234,7 +1235,7 @@
                 case AVPixelFormat.AV_PIX_FMT_YUVJ444P: return AVPixelFormat.AV_PIX_FMT_YUV444P;
                 default: return currentFormat;
             }
-                
+
         }
 
         /// <summary>
@@ -1248,10 +1249,12 @@
             // for vide frames, we always get the best effort timestamp as dts and pts might
             // contain different times.
             frame->pts = ffmpeg.av_frame_get_best_effort_timestamp(frame);
+            var renderTime = frame->pts.ToTimeSpan(Stream->time_base);
+            var duration = ffmpeg.av_frame_get_pkt_duration(frame).ToTimeSpan(Stream->time_base);
 
             // Set the state
             LastProcessedTimeUTC = DateTime.UtcNow;
-            LastFrameRenderTime = frame->pts.ToTimeSpan(Stream->time_base);
+            LastFrameRenderTime = renderTime;
 
             // Update the current framerate
             CurrentFrameRate = ffmpeg.av_q2d(ffmpeg.av_guess_frame_rate(Container.InputContext, Stream, frame));
@@ -1277,12 +1280,11 @@
             }
 
             // Raise the data available event with all the decompressed frame data
-            var duration = ffmpeg.av_frame_get_pkt_duration(frame);
             Container.RaiseOnVideoDataAvailabe(
                 PictureBuffer, PictureBufferLength, PictureBufferStride,
                 frame->width, frame->height,
-                frame->pts.ToTimeSpan(Stream->time_base),
-                duration.ToTimeSpan(Stream->time_base));
+                renderTime,
+                duration);
 
         }
 
@@ -1690,6 +1692,18 @@
         }
 
         /// <summary>
+        /// Gets the smallest duration of all the component's packet buffer.
+        /// </summary>
+        public TimeSpan PacketBufferDuration
+        {
+            get
+            {
+                lock (SyncRoot)
+                    return Items.Min(s => s.Value.PacketBufferDuration);
+            }
+        }
+
+        /// <summary>
         /// Gets a value indicating whether this instance has a video component.
         /// </summary>
         public bool HasVideo { get { return Video != null; } }
@@ -1940,6 +1954,11 @@
         internal MediaContainerOptions Options = null;
 
         /// <summary>
+        /// The current dispatcher
+        /// </summary>
+        internal Dispatcher CurrentDispatcher = null;
+
+        /// <summary>
         /// Determines if the stream seeks by bytes always
         /// </summary>
         internal bool MediaSeeksByBytes = false;
@@ -2010,8 +2029,13 @@
             int pixelWidth, int pixelHeight, TimeSpan renderTime, TimeSpan duration)
         {
             if (HandlesOnVideoDataAvailable == false) return;
-            OnVideoDataAvailable(this, new VideoDataAvailableEventArgs(buffer, bufferLength, bufferStride,
-                pixelWidth, pixelHeight, renderTime, duration));
+
+            CurrentDispatcher.Invoke(() =>
+            {
+                OnVideoDataAvailable(this, new VideoDataAvailableEventArgs(buffer, bufferLength, bufferStride,
+                    pixelWidth, pixelHeight, renderTime, duration));
+            }, DispatcherPriority.DataBind);
+
         }
 
         /// <summary>
@@ -2028,8 +2052,11 @@
             int sampleRate, int samplesPerChannel, int channels, TimeSpan renderTime, TimeSpan duration)
         {
             if (HandlesOnAudioDataAvailable == false) return;
-            OnAudioDataAvailable(this, new AudioDataAvailableEventArgs(buffer, bufferLength, sampleRate,
-            samplesPerChannel, channels, renderTime, duration));
+            CurrentDispatcher.Invoke(() =>
+            {
+                OnAudioDataAvailable(this, new AudioDataAvailableEventArgs(buffer, bufferLength, sampleRate,
+                    samplesPerChannel, channels, renderTime, duration));
+            }, DispatcherPriority.DataBind);
         }
 
         /// <summary>
@@ -2042,7 +2069,10 @@
         internal void RaiseOnSubtitleDataAvailabe(string[] textLines, TimeSpan renderTime, TimeSpan endTime, TimeSpan duration)
         {
             if (HandlesOnSubtitleDataAvailable == false) return;
-            OnSubtitleDataAvailable(this, new SubtitleDataAvailableEventArgs(textLines, renderTime, endTime, duration));
+            CurrentDispatcher.Invoke(() =>
+            {
+                OnSubtitleDataAvailable(this, new SubtitleDataAvailableEventArgs(textLines, renderTime, endTime, duration));
+            }, DispatcherPriority.DataBind);
         }
 
         #endregion
@@ -2116,11 +2146,6 @@
                 return ffmpeg.avio_tell(InputContext->pb);
             }
         }
-
-        /// <summary>
-        /// Gets a value indicating whether the container holds a network stream.
-        /// </summary>
-        public bool IsNetworkStream { get; private set; }
 
         /// <summary>
         /// Gets a value indicating whether the underlying media is seekable.
@@ -2205,6 +2230,10 @@
         /// <exception cref="Unosquare.FFplayDotNet.MediaContainerException"></exception>
         public MediaContainer(string mediaUrl, string forcedFormatName = null)
         {
+            // Get a reference to the main app dispatcher or to the dispatcher
+            // that created this container. Events will be risen here.
+            CurrentDispatcher = Application.Current?.Dispatcher ?? Dispatcher.CurrentDispatcher;
+
             // Argument Validation
             if (string.IsNullOrWhiteSpace(mediaUrl))
                 throw new ArgumentNullException($"{nameof(mediaUrl)}");
@@ -2326,21 +2355,38 @@
                         }
                         else if (next.Action == MediaAction.DecodeFrames)
                         {
-                            while (Components.PacketBufferCount > 0)
+                            var packetCount = (int)next.Arguments;
+                            while (Components.PacketBufferCount > packetCount)
                                 Thread.Sleep(1);
-                        }
-                        else if (next.Action == MediaAction.ReadPacket)
-                        {
-                            StreamReadNextPacket();
                         }
                         else if (next.Action == MediaAction.ReadPackets)
                         {
-                            var packetCount = (int)next.Arguments;
-                            for (var i = 0; i < packetCount; i++)
+                            var argumentType = next.Arguments.GetType();
+                            if (argumentType == typeof(int))
                             {
-                                if (IsAtEndOfStream) break;
-                                StreamReadNextPacket();
+                                var packetCount = (int)next.Arguments;
+                                for (var i = 0; i < packetCount; i++)
+                                {
+                                    if (IsAtEndOfStream) break;
+                                    StreamReadNextPacket();
+                                }
                             }
+                            else if (argumentType == typeof(TimeSpan))
+                            {
+                                var time = (TimeSpan)next.Arguments;
+                                var cycles = 0;
+                                var cycleLimit = (int)(25 * time.TotalSeconds);
+
+                                while (Components.PacketBufferDuration < time)
+                                {
+                                    if (IsAtEndOfStream) break;
+                                    if (cycles >= cycleLimit) break;
+
+                                    StreamReadNextPacket();
+                                    cycles++;
+                                }
+                            }
+
                         }
                     }
                     finally
@@ -2356,7 +2402,7 @@
 
         public WaitHandle Read()
         {
-            return ActionQueue.Push(MediaAction.ReadPacket, null).IsFinished.WaitHandle;
+            return ActionQueue.Push(MediaAction.ReadPackets, 1).IsFinished.WaitHandle;
         }
 
         public WaitHandle Read(int numPackets)
@@ -2364,9 +2410,19 @@
             return ActionQueue.Push(MediaAction.ReadPackets, numPackets).IsFinished.WaitHandle;
         }
 
+        public WaitHandle Read(TimeSpan time)
+        {
+            return ActionQueue.Push(MediaAction.ReadPackets, time).IsFinished.WaitHandle;
+        }
+
         public WaitHandle DecodeFrames()
         {
-            return ActionQueue.Push(MediaAction.DecodeFrames, null).IsFinished.WaitHandle;
+            return ActionQueue.Push(MediaAction.DecodeFrames, 0).IsFinished.WaitHandle;
+        }
+
+        public WaitHandle DecodeFrames(int leaveNumPackets)
+        {
+            return ActionQueue.Push(MediaAction.DecodeFrames, leaveNumPackets).IsFinished.WaitHandle;
         }
 
         #endregion

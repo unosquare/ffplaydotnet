@@ -6,7 +6,6 @@
     public enum MediaAction
     {
         Default,
-        ReadPacket,
         ReadPackets,
         DecodeFrames,
 

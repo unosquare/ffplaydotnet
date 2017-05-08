@@ -179,14 +179,14 @@
             {
                 while (true)
                 {
-                    while (player.Components.PacketBufferCount <= 50)
+                    while (player.Components.PacketBufferCount <= 40)
                         player.StreamReadNextPacket();
                     
                     ($"Buffer     | DUR: {player.Components.PacketBufferDuration.TotalSeconds,10:0.000}"
                         + $" | LEN: {player.Components.PacketBufferLength / 1024d,9:0.00}K"
                         + $" | CNT: {player.Components.PacketBufferCount,12}").Warn(typeof(Program));
                     
-                    while (player.Components.PacketBufferCount > 10)
+                    while (player.Components.PacketBufferCount > 0)
                         Thread.Sleep(1);
 
                     var currentPosition = player.Components.Video.LastFrameRenderTime.TotalSeconds - player.Components.Video.StartTime.TotalSeconds;

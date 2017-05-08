@@ -1692,7 +1692,7 @@
         }
 
         /// <summary>
-        /// Gets the smallest duration of all the component's packet buffer.
+        /// Gets the smallest duration of all the component's packet buffers.
         /// </summary>
         public TimeSpan PacketBufferDuration
         {

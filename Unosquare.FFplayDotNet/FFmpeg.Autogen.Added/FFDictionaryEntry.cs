@@ -1,7 +1,6 @@
-﻿namespace Unosquare.FFplayDotNet.Primitives
+﻿namespace FFmpeg.AutoGen
 {
-    using FFmpeg.AutoGen;
-    using Unosquare.FFplayDotNet.Core;
+    using Unosquare.FFplayDotNet;
 
     /// <summary>
     /// An AVDictionaryEntry wrapper
@@ -28,7 +27,7 @@
             get
             {
                 return Pointer != null ?
-                    Native.BytePtrToString(Pointer->key) : null;
+                    Utils.PtrToString(Pointer->key) : null;
             }
         }
 
@@ -40,7 +39,7 @@
             get
             {
                 return Pointer != null ?
-                    Native.BytePtrToString(Pointer->value) : null;
+                    Utils.PtrToString(Pointer->value) : null;
             }
         }
     }

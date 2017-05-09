@@ -1,4 +1,4 @@
-﻿namespace Unosquare.FFplayDotNet.Core
+﻿namespace Unosquare.FFplayDotNet
 {
     /// <summary>
     /// Provides access to the paths where FFmpeg binaries are extracted to
@@ -10,7 +10,7 @@
         /// </summary>
         static Paths()
         {
-            Helper.RegisterFFmpeg();
+            Utils.RegisterFFmpeg();
         }
 
         /// <summary>

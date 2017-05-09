@@ -1,4 +1,4 @@
-﻿namespace Unosquare.FFplayDotNet.Primitives
+﻿namespace Unosquare.FFplayDotNet
 {
     using System.Collections.Generic;
     using System.Threading;

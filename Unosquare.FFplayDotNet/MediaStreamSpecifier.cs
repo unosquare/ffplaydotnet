@@ -1,22 +1,18 @@
-﻿namespace Unosquare.FFplayDotNet.Primitives
+﻿namespace Unosquare.FFplayDotNet
 {
     using System;
-    using System.Collections.Generic;
     using System.Globalization;
-    using System.Linq;
-    using System.Text;
-    using System.Threading.Tasks;
 
-    public class StreamSpecifier
+    public class MediaStreamSpecifier
     {
 
-        public StreamSpecifier()
+        public MediaStreamSpecifier()
         {
             StreamType = string.Empty;
             StreamId = -1;
         }
 
-        public StreamSpecifier(int streamId)
+        public MediaStreamSpecifier(int streamId)
         {
             if (streamId < 0)
                 throw new ArgumentException($"{nameof(streamId)} must be greater than or equal to 0");
@@ -25,7 +21,7 @@
             StreamId = streamId;
         }
 
-        public StreamSpecifier(char streamType)
+        public MediaStreamSpecifier(char streamType)
         {
             if (streamType != 'a' && streamType != 'v' && streamType != 's')
                 throw new ArgumentException($"{nameof(streamType)} must be either a, v, or s");
@@ -34,7 +30,7 @@
             StreamId = -1;
         }
 
-        public StreamSpecifier(char streamType, int streamId)
+        public MediaStreamSpecifier(char streamType, int streamId)
         {
             if (streamType != 'a' && streamType != 'v' && streamType != 's')
                 throw new ArgumentException($"{nameof(streamType)} must be either a, v, or s");

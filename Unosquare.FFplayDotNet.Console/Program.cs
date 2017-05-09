@@ -71,12 +71,10 @@
     {
         private static string OutputPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "output");
 
-        [DllImport("kernel32")]
-        public static extern void CopyMemory(IntPtr destination, IntPtr source, uint length);
 
         static void Main(string[] args)
         {
-
+            
             // BigBuckBunnyLocal, 20 seconds, 1.036 secs.
             // TODO: 
             // May 5th: 1.255 secs to decode 20 seconds 
@@ -121,12 +119,12 @@
                     {
                         var sourceAddress = sourceBase + (e.BufferStride * y);
                         var targetAddress = targetBase + (bitmap.BackBufferStride * y);
-                        CopyMemory(targetAddress, sourceAddress, (uint)e.BufferStride);
+                        Utils.CopyMemory(targetAddress, sourceAddress, (uint)e.BufferStride);
                     }
                 }
                 else
                 {
-                    CopyMemory(bitmap.BackBuffer, e.Buffer, (uint)e.BufferLength);
+                    Utils.CopyMemory(bitmap.BackBuffer, e.Buffer, (uint)e.BufferLength);
                 }
 
                 bitmap.AddDirtyRect(new Int32Rect(0, 0, e.PixelWidth, e.PixelHeight));

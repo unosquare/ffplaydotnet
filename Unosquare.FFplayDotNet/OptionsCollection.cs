@@ -2,20 +2,19 @@
 {
     using FFmpeg.AutoGen;
     using System.Collections.Generic;
-    using Unosquare.FFplayDotNet.Primitives;
 
     public class OptionsCollection
     {
         private class CodecOptionItem
         {
-            public CodecOptionItem(StreamSpecifier spec, string key, string value)
+            public CodecOptionItem(MediaStreamSpecifier spec, string key, string value)
             {
                 StreamSpecifier = spec;
                 Key = key;
                 Value = value;
             }
 
-            public StreamSpecifier StreamSpecifier { get; set; }
+            public MediaStreamSpecifier StreamSpecifier { get; set; }
             public string Key { get; set; }
             public string Value { get; set; }
         }
@@ -30,19 +29,19 @@
 
         public void Add(string key, string value, char streamType)
         {
-            var option = new CodecOptionItem(new StreamSpecifier(streamType), key, value);
+            var option = new CodecOptionItem(new MediaStreamSpecifier(streamType), key, value);
             Options.Add(option);
         }
 
         public void Add(string key, string value, int streamIndex)
         {
-            var option = new CodecOptionItem(new StreamSpecifier(streamIndex), key, value);
+            var option = new CodecOptionItem(new MediaStreamSpecifier(streamIndex), key, value);
             Options.Add(option);
         }
 
         public void Add(string key, string value, char streamType, int streamIndex)
         {
-            var option = new CodecOptionItem(new StreamSpecifier(streamType, streamIndex), key, value);
+            var option = new CodecOptionItem(new MediaStreamSpecifier(streamType, streamIndex), key, value);
             Options.Add(option);
         }
 

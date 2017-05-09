@@ -1,6 +1,5 @@
-﻿namespace Unosquare.FFplayDotNet.Primitives
+﻿namespace FFmpeg.AutoGen
 {
-    using FFmpeg.AutoGen;
     using System;
     using System.Collections.Generic;
 

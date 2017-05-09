@@ -51,29 +51,13 @@
         /// <summary>
         /// Contains the packets pending to be sent to the decoder
         /// </summary>
-        internal readonly MediaPacketQueue Packets = new MediaPacketQueue();
+        private readonly MediaPacketQueue Packets = new MediaPacketQueue();
 
         /// <summary>
         /// The packets that have been sent to the decoder. We keep track of them in order to dispose them
         /// once a frame has been decoded.
         /// </summary>
-        internal readonly MediaPacketQueue SentPackets = new MediaPacketQueue();
-
-        /// <summary>
-        /// This task continuously checks the packet queue and decodes frames as
-        /// packets become available.
-        /// </summary>
-        private Task DecodingTask;
-
-        /// <summary>
-        /// The decoding task control for cancellation
-        /// </summary>
-        private CancellationTokenSource DecodingTaskControl = new CancellationTokenSource();
-
-        /// <summary>
-        /// Signaled whenever new packets are pushed in the queue
-        /// </summary>
-        private AutoResetEvent PacketsAvailable = new AutoResetEvent(false);
+        private readonly MediaPacketQueue SentPackets = new MediaPacketQueue();
 
         #endregion
 
@@ -95,11 +79,6 @@
         public int StreamIndex { get; }
 
         /// <summary>
-        /// Gets the number of frames that have been decoded by this component
-        /// </summary>
-        public ulong DecodedFrameCount { get; private set; }
-
-        /// <summary>
         /// Gets the start time of this stream component.
         /// If there is no such information it will return TimeSpan.MinValue
         /// </summary>
@@ -118,6 +97,11 @@
         public TimeSpan EndTime { get; }
 
         /// <summary>
+        /// Gets the number of frames that have been decoded by this component
+        /// </summary>
+        public ulong DecodedFrameCount { get; private set; }
+
+        /// <summary>
         /// Gets the time in UTC at which the last frame was processed.
         /// </summary>
         public DateTime LastProcessedTimeUTC { get; protected set; }
@@ -131,6 +115,29 @@
         /// Gets the render time or the last packet that was received by this media component.
         /// </summary>
         public TimeSpan LastPacketRenderTime { get; protected set; }
+
+        /// <summary>
+        /// Gets the number of packets that have been received
+        /// by this media component.
+        /// </summary>
+        public ulong ReceivedPacketCount { get; private set; }
+
+        /// <summary>
+        /// Gets the current length in bytes of the 
+        /// packet buffer.
+        /// </summary>
+        public int PacketBufferLength { get { return Packets.BufferLength; } }
+
+        /// <summary>
+        /// Gets the current duration of the packet buffer.
+        /// </summary>
+        public TimeSpan PacketBufferDuration
+        {
+            get
+            {
+                return Packets.Duration.ToTimeSpan(Stream->time_base);
+            }
+        }
 
         /// <summary>
         /// Gets the number of packets in the queue. These packets
@@ -238,7 +245,6 @@
                 EndTime = TimeSpan.MinValue;
 
             $"{MediaType}: Start Time: {StartTime}; End Time: {EndTime}; Duration: {Duration}".Trace(typeof(MediaContainer));
-            StartDecodingTask();
 
         }
 
@@ -246,25 +252,6 @@
 
         #region Methods
 
-        /// <summary>
-        /// Starts the continuous decoding task
-        /// </summary>
-        private void StartDecodingTask()
-        {
-            // Let's start the continuous decoder thread. It has to be different from the read thread
-            // because otherwise we don't let the buffers come in.
-            DecodingTask = Task.Run(() =>
-            {
-                while (DecodingTaskControl.IsCancellationRequested == false)
-                {
-                    while (PacketBufferCount > 0)
-                        DecodedFrameCount += (ulong)DecodeNextPacketInternal();
-
-                    PacketsAvailable.WaitOne(5);
-
-                }
-            }, DecodingTaskControl.Token);
-        }
 
         /// <summary>
         /// Determines whether the specified packet is a Null Packet (data = null, size = 0)
@@ -280,7 +267,7 @@
         /// Clears the pending and sent Packet Queues releasing all memory held by those packets.
         /// Additionally it flushes the codec buffered packets.
         /// </summary>
-        public void ClearPacketQueues()
+        internal void ClearPacketQueues()
         {
             // Release packets that are already in the queue.
             SentPackets.Clear();
@@ -296,35 +283,12 @@
         /// Sends a special kind of packet (an empty packet)
         /// that tells the decoder to enter draining mode.
         /// </summary>
-        public virtual void SendEmptyPacket()
+        internal void SendEmptyPacket()
         {
             var emptyPacket = ffmpeg.av_packet_alloc();
             emptyPacket->data = null;
             emptyPacket->size = 0;
             SendPacket(emptyPacket);
-        }
-
-        /// <summary>
-        /// Gets the number of packets that have been received
-        /// by this media component.
-        /// </summary>
-        public ulong ReceivedPacketCount { get; private set; }
-
-        /// <summary>
-        /// Gets the current length in bytes of the 
-        /// packet buffer.
-        /// </summary>
-        public int PacketBufferLength { get { return Packets.BufferLength; } }
-
-        /// <summary>
-        /// Gets the current duration of the packet buffer.
-        /// </summary>
-        public TimeSpan PacketBufferDuration
-        {
-            get
-            {
-                return Packets.Duration.ToTimeSpan(Stream->time_base);
-            }
         }
 
         /// <summary>
@@ -334,7 +298,7 @@
         /// the start time and end time of 
         /// </summary>
         /// <param name="packet">The packet.</param>
-        public virtual void SendPacket(AVPacket* packet)
+        internal void SendPacket(AVPacket* packet)
         {
             // TODO: check if packet is in play range
             // ffplay.c reference: pkt_in_play_range
@@ -345,7 +309,18 @@
                 LastPacketRenderTime = packet->pts.ToTimeSpan(Stream->time_base);
 
             ReceivedPacketCount += 1;
-            PacketsAvailable.Set();
+        }
+
+        /// <summary>
+        /// Decodes the next packet in the packet queue.
+        /// </summary>
+        /// <returns></returns>
+        internal int DecodeNextPacket()
+        {
+            if (PacketBufferCount <= 0) return 0;
+            var decodedFrames = DecodeNextPacketInternal();
+            DecodedFrameCount += (ulong)decodedFrames;
+            return decodedFrames;
         }
 
         /// <summary>
@@ -389,7 +364,7 @@
                         {
                             // Send the frame to processing
                             receivedFrameCount += 1;
-                            ProcessFrame(packet, outputFrame);
+                            ProcessFrame(outputFrame);
                         }
                     }
                     finally
@@ -424,7 +399,7 @@
                     {
                         // Send the frame to processing
                         receivedFrameCount += 1;
-                        ProcessFrame(packet, &outputFrame);
+                        ProcessFrame(&outputFrame);
                     }
 
                     // Once processed, we don't need it anymore. Release it.
@@ -447,7 +422,7 @@
                         {
                             // Send the subtitle to processing
                             receivedFrameCount += 1;
-                            ProcessFrame(packet, &outputFrame);
+                            ProcessFrame(&outputFrame);
                         }
 
                         // free the empty packet
@@ -478,15 +453,13 @@
         /// Processes the audio or video frame.
         /// </summary>
         /// <param name="packet">The packet.</param>
-        /// <param name="frame">The frame.</param>
-        protected abstract void ProcessFrame(AVPacket* packet, AVFrame* frame);
+        protected virtual void ProcessFrame(AVFrame* frame) { }
 
         /// <summary>
         /// Processes the subtitle frame.
         /// </summary>
         /// <param name="packet">The packet.</param>
-        /// <param name="frame">The frame.</param>
-        protected abstract void ProcessFrame(AVPacket* packet, AVSubtitle* frame);
+        protected virtual void ProcessFrame(AVSubtitle* frame) { }
 
         #endregion
 
@@ -506,15 +479,6 @@
                     {
                         fixed (AVCodecContext** codecContext = &CodecContext)
                             ffmpeg.avcodec_free_context(codecContext);
-
-                        // cancel the doecder task
-                        // TODO: to be tested
-                        try { DecodingTaskControl.Cancel(false); }
-                        catch { }
-                        finally
-                        {
-                            var wasCleanExit = DecodingTask.Wait(10);
-                        }
 
                         // free all the pending and sent packets
                         ClearPacketQueues();

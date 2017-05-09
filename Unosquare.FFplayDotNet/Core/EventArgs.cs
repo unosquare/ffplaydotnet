@@ -178,4 +178,9 @@
         public int PixelHeight { get; }
     }
 
+    public class MediaEndOfStreamEventArgs : EventArgs
+    {
+        public MediaEndOfStreamEventArgs(object sender) : base() { }
+    }
+
 }

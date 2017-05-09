@@ -111,9 +111,8 @@
         /// Processes the frame data by performing a framebuffer allocation, scaling the image
         /// and raising an event containing the bitmap.
         /// </summary>
-        /// <param name="packet">The packet.</param>
         /// <param name="frame">The frame.</param>
-        protected override unsafe void ProcessFrame(AVPacket* packet, AVFrame* frame)
+        protected override unsafe void ProcessFrame(AVFrame* frame)
         {
             // for vide frames, we always get the best effort timestamp as dts and pts might
             // contain different times.
@@ -160,10 +159,9 @@
         /// <summary>
         /// Processes the subtitle frame.
         /// </summary>
-        /// <param name="packet">The packet.</param>
         /// <param name="frame">The frame.</param>
         /// <exception cref="System.NotSupportedException"></exception>
-        protected override unsafe void ProcessFrame(AVPacket* packet, AVSubtitle* frame)
+        protected override unsafe void ProcessFrame(AVSubtitle* frame)
         {
             throw new NotSupportedException($"{nameof(VideoComponent)} does not support subtitle frame processing.");
         }

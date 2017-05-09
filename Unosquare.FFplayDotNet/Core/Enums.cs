@@ -5,10 +5,6 @@
     /// </summary>
     public enum MediaType
     {
-        /// <summary>
-        /// Represents a null media type
-        /// </summary>
-        None = -1,
 
         /// <summary>
         /// The video media type (0)

@@ -17,7 +17,6 @@
     /// <seealso cref="System.IDisposable" />
     public unsafe class MediaContainer : IDisposable
     {
-        // TODO: Seeking and resetting attached picture
 
         #region Constants
 
@@ -30,6 +29,11 @@
         #endregion
 
         #region Private Fields
+
+        /// <summary>
+        /// To detect redundat Dispose calls
+        /// </summary>
+        private bool IsDisposing = false;
 
         /// <summary>
         /// Holds a reference to an input context.
@@ -54,16 +58,6 @@
         /// </summary>
         private bool m_RequiresPictureAttachments = true;
 
-        /// <summary>
-        /// To detect redundat Dispose calls
-        /// </summary>
-        private bool IsDisposing = false;
-
-        private readonly MediaActionQueue ActionQueue = new MediaActionQueue();
-
-        private Task ActionWorker;
-        private CancellationTokenSource ActionWorkerControl = new CancellationTokenSource();
-
         #endregion
 
         #region Events
@@ -82,6 +76,7 @@
         /// Occurs when subtitle data is available.
         /// </summary>
         public event EventHandler<SubtitleDataAvailableEventArgs> OnSubtitleDataAvailable;
+
 
         /// <summary>
         /// Gets a value indicating whether the event is bound
@@ -302,7 +297,7 @@
 
         #endregion
 
-        #region Constructor
+        #region Constructor and Initialization
 
         /// <summary>
         /// Initializes a new instance of the <see cref="MediaContainer"/> class.
@@ -403,9 +398,6 @@
                 // Picture attachments are only required after the first read or after a seek.
                 RequiresPictureAttachments = true;
 
-                // Go ahead and start the queue worker!
-                StartActionWorker();
-
             }
             catch (Exception ex)
             {
@@ -414,97 +406,6 @@
                 throw;
             }
         }
-
-        #endregion
-
-        private void StartActionWorker()
-        {
-            ActionWorker = Task.Run(() =>
-            {
-                while (ActionWorkerControl.IsCancellationRequested == false)
-                {
-                    var next = ActionQueue.Dequeue();
-
-                    try
-                    {
-                        if (next.Action == MediaAction.Default)
-                        {
-                            if (ActionQueue.Count == 0)
-                                Thread.Sleep(1);
-                        }
-                        else if (next.Action == MediaAction.DecodeFrames)
-                        {
-                            var packetCount = (int)next.Arguments;
-                            while (Components.PacketBufferCount > packetCount)
-                                Thread.Sleep(1);
-                        }
-                        else if (next.Action == MediaAction.ReadPackets)
-                        {
-                            var argumentType = next.Arguments.GetType();
-                            if (argumentType == typeof(int))
-                            {
-                                var packetCount = (int)next.Arguments;
-                                for (var i = 0; i < packetCount; i++)
-                                {
-                                    if (IsAtEndOfStream) break;
-                                    StreamReadNextPacket();
-                                }
-                            }
-                            else if (argumentType == typeof(TimeSpan))
-                            {
-                                var time = (TimeSpan)next.Arguments;
-                                var cycles = 0;
-                                var cycleLimit = (int)(25 * time.TotalSeconds);
-
-                                while (Components.PacketBufferDuration < time)
-                                {
-                                    if (IsAtEndOfStream) break;
-                                    if (cycles >= cycleLimit) break;
-
-                                    StreamReadNextPacket();
-                                    cycles++;
-                                }
-                            }
-
-                        }
-                    }
-                    finally
-                    {
-                        next.IsFinished.Set();
-                    }
-
-                }
-            }, ActionWorkerControl.Token);
-        }
-
-        #region Public API
-
-        public WaitHandle Read()
-        {
-            return ActionQueue.Push(MediaAction.ReadPackets, 1).IsFinished.WaitHandle;
-        }
-
-        public WaitHandle Read(int numPackets)
-        {
-            return ActionQueue.Push(MediaAction.ReadPackets, numPackets).IsFinished.WaitHandle;
-        }
-
-        public WaitHandle Read(TimeSpan time)
-        {
-            return ActionQueue.Push(MediaAction.ReadPackets, time).IsFinished.WaitHandle;
-        }
-
-        public WaitHandle DecodeFrames()
-        {
-            return ActionQueue.Push(MediaAction.DecodeFrames, 0).IsFinished.WaitHandle;
-        }
-
-        public WaitHandle DecodeFrames(int leaveNumPackets)
-        {
-            return ActionQueue.Push(MediaAction.DecodeFrames, leaveNumPackets).IsFinished.WaitHandle;
-        }
-
-        #endregion
 
         /// <summary>
         /// Creates the stream components by first finding the best available streams.
@@ -598,6 +499,13 @@
 
         }
 
+        #endregion
+
+        /// <summary>
+        /// Reads the next available packet, sending the packet to the corresponding
+        /// internal media component. It also detects end of Stream situations.
+        /// </summary>
+        /// <exception cref="MediaContainerException"></exception>
         public void StreamReadNextPacket()
         {
             // Ensure read is not suspended
@@ -683,6 +591,10 @@
 
         private void StreamSeek(TimeSpan targetTime)
         {
+            // TODO: Seeking and resetting attached picture
+            // This method is WIP and missing some stufff
+            // like seeking by byes and others.
+
             if (IsStreamSeekable == false)
             {
                 $"Unable to seek. Underlying stream does not support seeking.".Warn(typeof(MediaContainer));

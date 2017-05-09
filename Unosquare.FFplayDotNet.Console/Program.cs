@@ -10,7 +10,6 @@
     using System.Windows;
     using System.Windows.Media;
     using System.Windows.Media.Imaging;
-    using System.Windows.Threading;
     using Unosquare.FFplayDotNet.Core;
     using Unosquare.Swan;
 
@@ -75,11 +74,12 @@
 
         static void Main(string[] args)
         {
-            
+
             // BigBuckBunnyLocal, 20 seconds, 1.036 secs.
             // TODO: 
-            // May 5th: 1.255 secs to decode 20 seconds 
-            // May 8th: 1.466 secs to decode 20 seconds
+            // May 5: 1.255 secs to decode 20 seconds 
+            // May 8: 1.466 secs to decode 20 seconds
+            // May 9: 0.688 secs to decode 20 seconds
             var inputFile = TestInputs.BigBuckBunnyLocal;
             var decodeDurationLimit = 20d;
             var saveWaveFile = true;
@@ -184,21 +184,26 @@
                     ($"Buffer     | DUR: {player.Components.PacketBufferDuration.TotalSeconds,10:0.000}"
                         + $" | LEN: {player.Components.PacketBufferLength / 1024d,9:0.00}K"
                         + $" | CNT: {player.Components.PacketBufferCount,12}").Warn(typeof(Program));
-                    
-                    while (player.Components.PacketBufferCount > 0)
-                        Thread.Sleep(1);
 
-                    var currentPosition = player.Components.Video.LastFrameRenderTime.TotalSeconds - player.Components.Video.StartTime.TotalSeconds;
-                    if (currentPosition >= decodeDurationLimit)
+                    while (player.Components.PacketBufferCount > 0)
                     {
-                        $"Decoder limit duration reached at {currentPosition,10:0.000} secs. Limit was: {decodeDurationLimit,10:0.000} seconds".Info(typeof(Program));
-                        break;
+                        player.Components.DecodeNextPacket();
+
+                        var currentPosition = player.Components.Video.LastFrameRenderTime.TotalSeconds 
+                        - player.Components.Video.StartTime.TotalSeconds;
+
+                        if (currentPosition >= decodeDurationLimit)
+                        {
+                            ($"Decoder limit duration reached at {currentPosition,10:0.000} secs. " + 
+                            $"Limit was: {decodeDurationLimit,10:0.000} seconds").Info(typeof(Program));
+                            return;
+                        }
                     }
 
                     if (player.IsAtEndOfStream)
                     {
                         "End of file reached.".Warn(typeof(Program));
-                        break;
+                        return;
                     }
                 }
             });

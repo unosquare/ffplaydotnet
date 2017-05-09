@@ -83,9 +83,8 @@ namespace Unosquare.FFplayDotNet
         /// Processes the audio frame by resampling it and raising an even if there are any
         /// event subscribers.
         /// </summary>
-        /// <param name="packet">The packet.</param>
         /// <param name="frame">The frame.</param>
-        protected override unsafe void ProcessFrame(AVPacket* packet, AVFrame* frame)
+        protected override unsafe void ProcessFrame(AVFrame* frame)
         {
             // Compute the timespans
             var renderTime = ffmpeg.av_frame_get_best_effort_timestamp(frame).ToTimeSpan(Stream->time_base);
@@ -135,10 +134,9 @@ namespace Unosquare.FFplayDotNet
         /// <summary>
         /// Processes the subtitle frame. This will throw if called.
         /// </summary>
-        /// <param name="packet">The packet.</param>
         /// <param name="frame">The frame.</param>
         /// <exception cref="System.NotSupportedException"></exception>
-        protected override unsafe void ProcessFrame(AVPacket* packet, AVSubtitle* frame)
+        protected override unsafe void ProcessFrame(AVSubtitle* frame)
         {
             throw new NotSupportedException($"{nameof(AudioComponent)} does not support subtitle frame processing.");
         }

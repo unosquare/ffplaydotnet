@@ -266,6 +266,19 @@
                 item.Value.ClearPacketQueues();
         }
 
+        /// <summary>
+        /// Decodes the next available packet in the packet queue for all components.
+        /// </summary>
+        /// <returns></returns>
+        public int DecodeNextPacket()
+        {
+            var result = 0;
+            foreach (var component in Items)
+                result += component.Value.DecodeNextPacket();
+
+            return result;
+        }
+
         #endregion
 
         #region IDisposable Support

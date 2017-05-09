@@ -90,9 +90,9 @@
                 return TimeSpan.MinValue;
 
             if (timeBase.den == 0)
-                return TimeSpan.FromSeconds(pts / ffmpeg.AV_TIME_BASE);
+                return TimeSpan.FromTicks((long)(TimeSpan.TicksPerMillisecond * 1000 * pts / ffmpeg.AV_TIME_BASE)); //) .FromSeconds(pts / ffmpeg.AV_TIME_BASE);
 
-            return TimeSpan.FromSeconds(pts * timeBase.num / timeBase.den);
+            return TimeSpan.FromTicks((long)(TimeSpan.TicksPerMillisecond * 1000 * pts * timeBase.num / timeBase.den)); //pts * timeBase.num / timeBase.den);
         }
 
         /// <summary>
@@ -117,7 +117,7 @@
             if (double.IsNaN(pts) || pts == ffmpeg.AV_NOPTS)
                 return TimeSpan.MinValue;
 
-            return TimeSpan.FromSeconds(pts / timeBase);
+            return TimeSpan.FromTicks((long)(TimeSpan.TicksPerMillisecond * 1000 * pts / timeBase)); //pts / timeBase);
         }
 
         /// <summary>

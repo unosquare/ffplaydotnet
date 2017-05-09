@@ -82,9 +82,9 @@
             // May 9: 0.688 secs to decode 20 seconds
             var inputFile = TestInputs.BigBuckBunnyLocal;
             var decodeDurationLimit = 20d;
+            var isBenchmarking = true;
             var saveWaveFile = true;
             var saveSnapshots = true;
-            var isBenchmarking = true;
 
             #region Setup
 
@@ -103,7 +103,7 @@
             {
                 totalBytes += (ulong)e.BufferLength;
                 totalDurationSeconds += e.Duration.TotalSeconds;
-                $"{e.MediaType,-10} | PTS: {e.RenderTime.TotalSeconds,10:0.000} | DUR: {e.Duration.TotalSeconds,10:0.000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB | LRT: {player.Components.Video.LastFrameRenderTime.TotalSeconds,10:0.000}".Info(typeof(Program));
+                $"{e.MediaType,-10} | PTS: {e.RenderTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB | LRT: {player.Components.Video.LastFrameRenderTime.TotalSeconds,10:0.000}".Info(typeof(Program));
 
                 if (isBenchmarking) return;
 
@@ -235,8 +235,8 @@
                             }
                             else if (currentPosition >= decodeDurationLimit)
                             {
-                                ($"Decoder limit duration reached at {currentPosition,10:0.000} secs. " +
-                                $"Limit was: {decodeDurationLimit,10:0.000} seconds").Info(typeof(Program));
+                                ($"Decoder limit duration reached at {currentPosition,8:0.00000} secs. " +
+                                $"Limit was: {decodeDurationLimit,8:0.00000} seconds").Info(typeof(Program));
                                 break;
                             }
                         }

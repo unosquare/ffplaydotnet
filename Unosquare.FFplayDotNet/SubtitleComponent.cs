@@ -18,16 +18,6 @@
         }
 
         /// <summary>
-        /// Processes the frame. If called, this will throw.
-        /// </summary>
-        /// <param name="frame">The frame.</param>
-        /// <exception cref="System.NotSupportedException">SubtitleComponent</exception>
-        protected override unsafe void ProcessFrame(AVFrame* frame)
-        {
-            throw new NotSupportedException($"{nameof(SubtitleComponent)} does not support processing of audio or video frames.");
-        }
-
-        /// <summary>
         /// Processes the subtitle frame. Only text subtitles are supported.
         /// </summary>
         /// <param name="frame">The frame.</param>

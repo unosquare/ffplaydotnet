@@ -131,16 +131,6 @@ namespace Unosquare.FFplayDotNet
 
         }
 
-        /// <summary>
-        /// Processes the subtitle frame. This will throw if called.
-        /// </summary>
-        /// <param name="frame">The frame.</param>
-        /// <exception cref="System.NotSupportedException"></exception>
-        protected override unsafe void ProcessFrame(AVSubtitle* frame)
-        {
-            throw new NotSupportedException($"{nameof(AudioComponent)} does not support subtitle frame processing.");
-        }
-
         #endregion
 
         #region IDisposable Support

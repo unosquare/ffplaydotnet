@@ -312,10 +312,10 @@
         }
 
         /// <summary>
-        /// Decodes the next packet in the packet queue.
+        /// Decodes the next packet in the packet queue in this media component.
         /// </summary>
         /// <returns></returns>
-        internal int DecodeNextPacket()
+        public int DecodeNextPacket()
         {
             if (PacketBufferCount <= 0) return 0;
             var decodedFrames = DecodeNextPacketInternal();

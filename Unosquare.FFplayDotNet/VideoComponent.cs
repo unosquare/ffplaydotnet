@@ -157,16 +157,6 @@
         }
 
         /// <summary>
-        /// Processes the subtitle frame.
-        /// </summary>
-        /// <param name="frame">The frame.</param>
-        /// <exception cref="System.NotSupportedException"></exception>
-        protected override unsafe void ProcessFrame(AVSubtitle* frame)
-        {
-            throw new NotSupportedException($"{nameof(VideoComponent)} does not support subtitle frame processing.");
-        }
-
-        /// <summary>
         /// Allocates a buffer if needed in unmanaged memory. If we already have a buffer of the specified
         /// length, then the existing buffer is not freed and recreated. Regardless, this method will always return
         /// a pointer to the start of the buffer.

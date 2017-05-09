@@ -1,6 +1,6 @@
 ﻿namespace FFmpeg.AutoGen
 {
-    using Unosquare.FFplayDotNet;
+    using Unosquare.FFplayDotNet.Core;
 
     /// <summary>
     /// An AVDictionaryEntry wrapper
@@ -22,25 +22,13 @@
         /// <summary>
         /// Gets the key.
         /// </summary>
-        public string Key
-        {
-            get
-            {
-                return Pointer != null ?
+        public string Key => Pointer != null ?
                     Utils.PtrToString(Pointer->key) : null;
-            }
-        }
 
         /// <summary>
         /// Gets the value.
         /// </summary>
-        public string Value
-        {
-            get
-            {
-                return Pointer != null ?
+        public string Value => Pointer != null ?
                     Utils.PtrToString(Pointer->value) : null;
-            }
-        }
     }
 }

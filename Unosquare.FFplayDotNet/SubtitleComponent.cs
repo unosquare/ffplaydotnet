@@ -3,6 +3,7 @@
     using FFmpeg.AutoGen;
     using System;
     using System.Collections.Generic;
+    using Unosquare.FFplayDotNet.Core;
 
     /// <summary>
     /// Performs subtitle text decoding and extraction logic.

@@ -3,6 +3,7 @@
     using FFmpeg.AutoGen;
     using System;
     using System.Runtime.InteropServices;
+    using Unosquare.FFplayDotNet.Core;
 
     /// <summary>
     /// Performs video picture decoding, scaling and extraction logic.

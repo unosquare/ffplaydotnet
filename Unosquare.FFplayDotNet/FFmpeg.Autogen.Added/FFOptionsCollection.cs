@@ -1,27 +1,26 @@
-﻿namespace Unosquare.FFplayDotNet
+﻿namespace FFmpeg.AutoGen
 {
-    using FFmpeg.AutoGen;
     using System.Collections.Generic;
 
-    public class OptionsCollection
+    public class FFOptionsCollection
     {
         private class CodecOptionItem
         {
-            public CodecOptionItem(MediaStreamSpecifier spec, string key, string value)
+            public CodecOptionItem(FFStreamSpecifier spec, string key, string value)
             {
                 StreamSpecifier = spec;
                 Key = key;
                 Value = value;
             }
 
-            public MediaStreamSpecifier StreamSpecifier { get; set; }
+            public FFStreamSpecifier StreamSpecifier { get; set; }
             public string Key { get; set; }
             public string Value { get; set; }
         }
 
         private readonly List<CodecOptionItem> Options = new List<CodecOptionItem>();
 
-        public OptionsCollection()
+        public FFOptionsCollection()
         {
             // Placeholder
         }
@@ -29,19 +28,19 @@
 
         public void Add(string key, string value, char streamType)
         {
-            var option = new CodecOptionItem(new MediaStreamSpecifier(streamType), key, value);
+            var option = new CodecOptionItem(new FFStreamSpecifier(streamType), key, value);
             Options.Add(option);
         }
 
         public void Add(string key, string value, int streamIndex)
         {
-            var option = new CodecOptionItem(new MediaStreamSpecifier(streamIndex), key, value);
+            var option = new CodecOptionItem(new FFStreamSpecifier(streamIndex), key, value);
             Options.Add(option);
         }
 
         public void Add(string key, string value, char streamType, int streamIndex)
         {
-            var option = new CodecOptionItem(new MediaStreamSpecifier(streamType, streamIndex), key, value);
+            var option = new CodecOptionItem(new FFStreamSpecifier(streamType, streamIndex), key, value);
             Options.Add(option);
         }
 

@@ -11,6 +11,7 @@
     using System.Windows.Media;
     using System.Windows.Media.Imaging;
     using System.Windows.Threading;
+    using Unosquare.FFplayDotNet.Core;
     using Unosquare.Swan;
 
     static class TestInputs

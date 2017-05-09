@@ -5,6 +5,7 @@
     using System.Globalization;
     using System.Threading;
     using System.Threading.Tasks;
+    using Unosquare.FFplayDotNet.Core;
     using Unosquare.Swan;
 
     /// <summary>

@@ -1,18 +1,18 @@
-﻿namespace Unosquare.FFplayDotNet
+﻿namespace FFmpeg.AutoGen
 {
     using System;
     using System.Globalization;
 
-    public class MediaStreamSpecifier
+    public class FFStreamSpecifier
     {
 
-        public MediaStreamSpecifier()
+        public FFStreamSpecifier()
         {
             StreamType = string.Empty;
             StreamId = -1;
         }
 
-        public MediaStreamSpecifier(int streamId)
+        public FFStreamSpecifier(int streamId)
         {
             if (streamId < 0)
                 throw new ArgumentException($"{nameof(streamId)} must be greater than or equal to 0");
@@ -21,7 +21,7 @@
             StreamId = streamId;
         }
 
-        public MediaStreamSpecifier(char streamType)
+        public FFStreamSpecifier(char streamType)
         {
             if (streamType != 'a' && streamType != 'v' && streamType != 's')
                 throw new ArgumentException($"{nameof(streamType)} must be either a, v, or s");
@@ -30,7 +30,7 @@
             StreamId = -1;
         }
 
-        public MediaStreamSpecifier(char streamType, int streamId)
+        public FFStreamSpecifier(char streamType, int streamId)
         {
             if (streamType != 'a' && streamType != 'v' && streamType != 's')
                 throw new ArgumentException($"{nameof(streamType)} must be either a, v, or s");

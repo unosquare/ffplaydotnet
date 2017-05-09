@@ -1,4 +1,4 @@
-﻿namespace Unosquare.FFplayDotNet
+﻿namespace Unosquare.FFplayDotNet.Core
 {
     /// <summary>
     /// Enumerates the different Media Types

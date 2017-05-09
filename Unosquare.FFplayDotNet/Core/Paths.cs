@@ -1,4 +1,4 @@
-﻿namespace Unosquare.FFplayDotNet
+﻿namespace Unosquare.FFplayDotNet.Core
 {
     /// <summary>
     /// Provides access to the paths where FFmpeg binaries are extracted to

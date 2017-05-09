@@ -172,46 +172,92 @@
 
             #endregion
 
-            var bench = new Stopwatch();
-            bench.Start();
-            var readTask = Task.Run(() =>
+            var chronometer = new Stopwatch();
+            chronometer.Start();
             {
-                while (true)
+                var readCancel = false;
+                var decodingDone = new ManualResetEventSlim(false);
+                var decodingFinished = new ManualResetEventSlim(false);
+
+                // Continuously read packets
+                var readerTask = Task.Run(() =>
                 {
-                    while (player.Components.PacketBufferCount <= 40)
-                        player.StreamReadNextPacket();
-                    
-                    ($"Buffer     | DUR: {player.Components.PacketBufferDuration.TotalSeconds,10:0.000}"
-                        + $" | LEN: {player.Components.PacketBufferLength / 1024d,9:0.00}K"
-                        + $" | CNT: {player.Components.PacketBufferCount,12}").Warn(typeof(Program));
-
-                    while (player.Components.PacketBufferCount > 0)
+                    while (readCancel == false)
                     {
-                        player.Components.DecodeNextPacket();
-
-                        var currentPosition = player.Components.Video.LastFrameRenderTime.TotalSeconds 
-                        - player.Components.Video.StartTime.TotalSeconds;
-
-                        if (currentPosition >= decodeDurationLimit)
+                        try
                         {
-                            ($"Decoder limit duration reached at {currentPosition,10:0.000} secs. " + 
-                            $"Limit was: {decodeDurationLimit,10:0.000} seconds").Info(typeof(Program));
-                            return;
+                            if (player.IsAtEndOfStream == false && readCancel == false)
+                            {
+                                // check if the packet buuffer is too low
+                                if (player.Components.PacketBufferCount <= 24)
+                                {
+                                    // buffer at least 60 packets
+                                    while (player.Components.PacketBufferCount < 48)
+                                        player.StreamReadNextPacket();
+
+                                    ($"Buffer     | DUR: {player.Components.PacketBufferDuration.TotalSeconds,10:0.000}"
+                                        + $" | LEN: {player.Components.PacketBufferLength / 1024d,9:0.00}K"
+                                        + $" | CNT: {player.Components.PacketBufferCount,12}").Warn(typeof(Program));
+                                }
+
+                            }
+
+                        }
+                        finally
+                        {
+                            decodingDone.Wait();
                         }
                     }
 
-                    if (player.IsAtEndOfStream)
+                    $"Reader task finished".Warn(typeof(Program));
+
+                }).ConfigureAwait(false);
+
+                // Continuously decode packets
+                var decoderTask = Task.Run(() =>
+                {
+                    while (true)
                     {
-                        "End of file reached.".Warn(typeof(Program));
-                        return;
+                        decodingDone.Reset();
+
+                        try
+                        {
+                            player.Components.DecodeNextPacket();
+
+                            var currentPosition =
+                                player.Components.Video.LastFrameRenderTime.TotalSeconds
+                                 - player.Components.Video.StartTime.TotalSeconds;
+
+                            if (player.IsAtEndOfStream)
+                            {
+                                "End of file reached.".Warn(typeof(Program));
+                                break;
+                            }
+                            else if (currentPosition >= decodeDurationLimit)
+                            {
+                                ($"Decoder limit duration reached at {currentPosition,10:0.000} secs. " +
+                                $"Limit was: {decodeDurationLimit,10:0.000} seconds").Info(typeof(Program));
+                                break;
+                            }
+                        }
+                        finally
+                        {
+                            decodingDone.Set();
+                        }
                     }
-                }
-            });
 
-            readTask.Wait();
-            bench.Stop();
+                    readCancel = true;
+                    decodingDone.Set();
+                    $"Decoder task finished".Warn(typeof(Program));
+                    decodingFinished.Set();
+                    
+                }).ConfigureAwait(false);
 
-            var elapsed = bench.ElapsedMilliseconds / 1000d;
+                decodingFinished.Wait();
+            }
+            chronometer.Stop();
+
+            var elapsed = chronometer.ElapsedMilliseconds / 1000d;
             var decodeSpeed = player.Components.Video.DecodedFrameCount / elapsed;
 
             ($"Media Info\r\n" +
@@ -226,8 +272,8 @@
                 $"    Packets     : {player.Components.ReceivedPacketCount,10}\r\n" +
                 $"    Raw Data    : {totalBytes / (double)(1024 * 1024),10:0.00} MB\r\n" +
                 $"    Decoded     : {totalDurationSeconds,10:0.000} secs\r\n" +
-                $"    Decode Speed: {decodeSpeed,10:0.000}\r\n" +
-                $"    Frames      : {player.Components.Video.DecodedFrameCount,10:0.000}\r\n" +
+                $"    Decode FPS  : {decodeSpeed,10:0.000}\r\n" +
+                $"    Frames      : {player.Components.Video.DecodedFrameCount,10}\r\n" +
                 $"    Speed Ratio : {decodeSpeed / player.Components.Video.CurrentFrameRate,10:0.000}\r\n" +
                 $"    Benchmark T : {elapsed,10:0.000} secs"
                 ).Info(typeof(Program));

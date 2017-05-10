@@ -153,7 +153,7 @@
 
         /// <summary>
         /// Gets a pointer to the first byte of the data buffer.
-        /// The format is 24bit in BGR
+        /// The format is 24bit BGR
         /// </summary>
         public IntPtr Buffer { get; }
 

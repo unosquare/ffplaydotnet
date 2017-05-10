@@ -38,7 +38,7 @@ namespace Unosquare.FFplayDotNet
         /// <summary>
         /// Used to determine if we have to reset the scaler parameters
         /// </summary>
-        private AudioComponentSpec LastSourceSpec = null;
+        private AudioParams LastSourceSpec = null;
 
         #endregion
 
@@ -100,11 +100,11 @@ namespace Unosquare.FFplayDotNet
 
             // Create the source and target ausio specs. We might need to scale from
             // the source to the target
-            var sourceSpec = AudioComponentSpec.CreateSource(frame);
-            var targetSpec = AudioComponentSpec.CreateTarget(frame);
+            var sourceSpec = AudioParams.CreateSource(frame);
+            var targetSpec = AudioParams.CreateTarget(frame);
 
             // Initialize or update the audio scaler if required
-            if (Scaler == null || LastSourceSpec == null || AudioComponentSpec.AreCompatible(LastSourceSpec, sourceSpec) == false)
+            if (Scaler == null || LastSourceSpec == null || AudioParams.AreCompatible(LastSourceSpec, sourceSpec) == false)
             {
                 Scaler = ffmpeg.swr_alloc_set_opts(Scaler, targetSpec.ChannelLayout, targetSpec.Format, targetSpec.SampleRate,
                     sourceSpec.ChannelLayout, sourceSpec.Format, sourceSpec.SampleRate, 0, null);

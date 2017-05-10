@@ -46,7 +46,7 @@
         public static int ScalerFlags { get; internal set; } = ffmpeg.SWS_X; //ffmpeg.SWS_BICUBIC;
 
         /// <summary>
-        /// The output pixel format BGR24 of the scaler.
+        /// The output pixel format of the scaler: 24-bit BGR
         /// </summary>
         public const AVPixelFormat OutputPixelFormat = AVPixelFormat.AV_PIX_FMT_BGR24;
 

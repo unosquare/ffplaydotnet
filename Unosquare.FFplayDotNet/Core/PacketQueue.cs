@@ -1,4 +1,4 @@
-﻿namespace Unosquare.FFplayDotNet
+﻿namespace Unosquare.FFplayDotNet.Core
 {
     using FFmpeg.AutoGen;
     using System;
@@ -10,7 +10,7 @@
     /// Enqueued, unmanaged packets are disposed automatically by this queue.
     /// Dequeued packets are the responsibility of the calling code.
     /// </summary>
-    internal unsafe class MediaPacketQueue : IDisposable
+    internal unsafe class PacketQueue : IDisposable
     {
         #region Private Declarations
 

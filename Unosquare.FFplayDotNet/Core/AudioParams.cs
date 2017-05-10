@@ -1,4 +1,4 @@
-﻿namespace Unosquare.FFplayDotNet
+﻿namespace Unosquare.FFplayDotNet.Core
 {
     using FFmpeg.AutoGen;
     using System;
@@ -7,25 +7,25 @@
     /// Contains audio format properties essential
     /// to audio resampling
     /// </summary>
-    public sealed unsafe class AudioComponentSpec
+    public sealed unsafe class AudioParams
     {
         #region Constant Definitions
 
         /// <summary>
         /// The standard output audio spec
         /// </summary>
-        static public readonly AudioComponentSpec Output;
+        static public readonly AudioParams Output;
 
         #endregion
 
         #region Constructors
 
         /// <summary>
-        /// Initializes the <see cref="AudioComponentSpec"/> class.
+        /// Initializes the <see cref="AudioParams"/> class.
         /// </summary>
-        static AudioComponentSpec()
+        static AudioParams()
         {
-            Output = new AudioComponentSpec();
+            Output = new AudioParams();
             Output.ChannelCount = 2;
             Output.SampleRate = 48000;
             Output.Format = AVSampleFormat.AV_SAMPLE_FMT_S16;
@@ -36,15 +36,15 @@
         }
 
         /// <summary>
-        /// Prevents a default instance of the <see cref="AudioComponentSpec"/> class from being created.
+        /// Prevents a default instance of the <see cref="AudioParams"/> class from being created.
         /// </summary>
-        private AudioComponentSpec() { }
+        private AudioParams() { }
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="AudioComponentSpec"/> class.
+        /// Initializes a new instance of the <see cref="AudioParams"/> class.
         /// </summary>
         /// <param name="frame">The frame.</param>
-        private AudioComponentSpec(AVFrame* frame)
+        private AudioParams(AVFrame* frame)
         {
             ChannelCount = ffmpeg.av_frame_get_channels(frame);
             ChannelLayout = ffmpeg.av_frame_get_channel_layout(frame);
@@ -98,9 +98,9 @@
         /// </summary>
         /// <param name="frame">The frame.</param>
         /// <returns></returns>
-        static internal AudioComponentSpec CreateSource(AVFrame* frame)
+        static internal AudioParams CreateSource(AVFrame* frame)
         {
-            return new AudioComponentSpec(frame);
+            return new AudioParams(frame);
         }
 
         /// <summary>
@@ -109,9 +109,9 @@
         /// </summary>
         /// <param name="frame">The frame.</param>
         /// <returns></returns>
-        static internal AudioComponentSpec CreateTarget(AVFrame* frame)
+        static internal AudioParams CreateTarget(AVFrame* frame)
         {
-            var spec = new AudioComponentSpec
+            var spec = new AudioParams
             {
                 ChannelCount = Output.ChannelCount,
                 Format = Output.Format,
@@ -132,7 +132,7 @@
         /// <param name="a">a.</param>
         /// <param name="b">The b.</param>
         /// <returns></returns>
-        static public bool AreCompatible(AudioComponentSpec a, AudioComponentSpec b)
+        static internal bool AreCompatible(AudioParams a, AudioParams b)
         {
             if (a.Format != b.Format) return false;
             if (a.ChannelCount != b.ChannelCount) return false;

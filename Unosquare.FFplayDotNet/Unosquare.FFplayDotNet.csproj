@@ -52,7 +52,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="AudioComponent.cs" />
-    <Compile Include="AudioComponentSpec.cs" />
+    <Compile Include="Core\AudioParams.cs" />
     <Compile Include="Core\Enums.cs" />
     <Compile Include="Core\EventArgs.cs" />
     <Compile Include="Core\Exceptions.cs" />
@@ -60,7 +60,7 @@
     <Compile Include="MediaComponentSet.cs" />
     <Compile Include="MediaContainer.cs" />
     <Compile Include="MediaContainerOptions.cs" />
-    <Compile Include="MediaPacketQueue.cs" />
+    <Compile Include="Core\PacketQueue.cs" />
     <Compile Include="FFmpeg.Autogen.Added\FFOptionsCollection.cs" />
     <Compile Include="FFmpeg.Autogen.Added\FFmpeg.Autogen.cs" />
     <Compile Include="FFmpeg.Autogen\ConstCharPtrMarshaler.cs" />

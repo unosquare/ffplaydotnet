@@ -51,13 +51,13 @@
         /// <summary>
         /// Contains the packets pending to be sent to the decoder
         /// </summary>
-        private readonly MediaPacketQueue Packets = new MediaPacketQueue();
+        private readonly PacketQueue Packets = new PacketQueue();
 
         /// <summary>
         /// The packets that have been sent to the decoder. We keep track of them in order to dispose them
         /// once a frame has been decoded.
         /// </summary>
-        private readonly MediaPacketQueue SentPackets = new MediaPacketQueue();
+        private readonly PacketQueue SentPackets = new PacketQueue();
 
         #endregion
 

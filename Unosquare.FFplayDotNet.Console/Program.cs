@@ -296,7 +296,7 @@
             using (var file = File.OpenWrite(audioFile))
             {
                 var bytesPerSample = 2;
-                var spec = AudioComponentSpec.Output;
+                var spec = AudioParams.Output;
                 using (var writer = new BinaryWriter(file))
                 {
                     writer.Write("RIFF".ToCharArray()); // Group Id

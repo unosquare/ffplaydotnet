@@ -79,20 +79,16 @@ namespace Unosquare.FFplayDotNet
             return SamplesBuffer;
         }
 
-        /// <summary>
-        /// Processes the audio frame by resampling it and raising an even if there are any
-        /// event subscribers.
-        /// </summary>
-        /// <param name="frame">The frame.</param>
-        protected override unsafe void ProcessFrame(AVFrame* frame)
+        protected override unsafe Frame CreateFrame(AVFrame* frame)
         {
-            // Compute the timespans
-            var startTime = ffmpeg.av_frame_get_best_effort_timestamp(frame).ToTimeSpan(Stream->time_base);
-            var duration = ffmpeg.av_frame_get_pkt_duration(frame).ToTimeSpan(Stream->time_base);
+            var frameHolder = new AudioFrame(frame, Stream->time_base);
+            return frameHolder;
+        }
 
-            // Set the state
-            LastProcessedTimeUTC = DateTime.UtcNow;
-            LastFrameTime = startTime;
+        protected override void DecompressFrame(Frame genericFrame)
+        {
+            var frameHolder = genericFrame as AudioFrame;
+            var frame = frameHolder.Pointer;
 
             // Check if there is a handler to feed the conversion to.
             if (Container.HandlesOnAudioDataAvailable == false)
@@ -119,7 +115,8 @@ namespace Unosquare.FFplayDotNet
 
             // Execute the conversion (audio scaling). It will return the number of samples that were output
             var outputSamplesPerChannel =
-                ffmpeg.swr_convert(Scaler, &outputBufferPtr, targetSpec.SamplesPerChannel, frame->extended_data, frame->nb_samples);
+                ffmpeg.swr_convert(Scaler, &outputBufferPtr, targetSpec.SamplesPerChannel, 
+                    frame->extended_data, frame->nb_samples);
 
             // Compute the buffer length
             var outputBufferLength =
@@ -127,8 +124,7 @@ namespace Unosquare.FFplayDotNet
 
             // Send data to event subscribers
             Container.RaiseOnAudioDataAvailabe(outputBuffer, outputBufferLength,
-                targetSpec.SampleRate, outputSamplesPerChannel, targetSpec.ChannelCount, startTime, duration);
-
+                targetSpec.SampleRate, outputSamplesPerChannel, targetSpec.ChannelCount, frameHolder.StartTime, frameHolder.Duration);
         }
 
         #endregion

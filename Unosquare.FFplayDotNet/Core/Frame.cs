@@ -25,17 +25,17 @@
         /// <summary>
         /// Gets the time at which this data should be presented (PTS)
         /// </summary>
-        public abstract TimeSpan StartTime { get; protected set; }
+        public TimeSpan StartTime { get; protected set; }
 
         /// <summary>
         /// Gets the end time (render time + duration)
         /// </summary>
-        public virtual TimeSpan EndTime { get { return StartTime + Duration; } }
+        public TimeSpan EndTime { get; protected set; }
 
         /// <summary>
         /// Gets the amount of time this data has to be presented
         /// </summary>
-        public abstract TimeSpan Duration { get; protected set; }
+        public TimeSpan Duration { get; protected set; }
 
         #region IDisposable Support
 
@@ -67,19 +67,24 @@
             : base(MediaType.Video, frame, timeBase)
         {
             m_Pointer = (AVFrame*)ObjectPointer;
+
+            // for vide frames, we always get the best effort timestamp as dts and pts might
+            // contain different times.
+            frame->pts = ffmpeg.av_frame_get_best_effort_timestamp(frame);
+            StartTime = frame->pts.ToTimeSpan(timeBase);
+            Duration = ffmpeg.av_frame_get_pkt_duration(frame).ToTimeSpan(timeBase);
+            EndTime = StartTime + Duration;
         }
 
         public AVFrame* Pointer { get { return m_Pointer; } }
-
-        public override TimeSpan StartTime { get; protected set; }
-
-        public override TimeSpan Duration { get; protected set; }
 
         protected override void Release()
         {
             if (m_Pointer == null) return;
             fixed (AVFrame** pointer = &m_Pointer)
                 ffmpeg.av_frame_free(pointer);
+
+            m_Pointer = null;
         }
     }
 
@@ -91,19 +96,22 @@
             : base(MediaType.Audio, frame, timeBase)
         {
             m_Pointer = (AVFrame*)ObjectPointer;
+
+            // Compute the timespans
+            StartTime = ffmpeg.av_frame_get_best_effort_timestamp(frame).ToTimeSpan(timeBase);
+            Duration = ffmpeg.av_frame_get_pkt_duration(frame).ToTimeSpan(timeBase);
+            EndTime = StartTime + Duration;
         }
 
         public AVFrame* Pointer { get { return m_Pointer; } }
-
-        public override TimeSpan StartTime { get; protected set; }
-
-        public override TimeSpan Duration { get; protected set; }
 
         protected override void Release()
         {
             if (m_Pointer == null) return;
             fixed (AVFrame** pointer = &m_Pointer)
                 ffmpeg.av_frame_free(pointer);
+
+            m_Pointer = null;
         }
     }
 
@@ -115,18 +123,21 @@
             : base(MediaType.Audio, frame, timeBase)
         {
             m_Pointer = (AVSubtitle*)ObjectPointer;
+
+            // Extract timing information
+            var timeOffset = frame->pts.ToTimeSpan();
+            StartTime = timeOffset + ((long)frame->start_display_time).ToTimeSpan(timeBase);
+            EndTime = timeOffset + ((long)frame->end_display_time).ToTimeSpan(timeBase);
+            Duration = EndTime - StartTime;
         }
 
         public AVSubtitle* Pointer { get { return m_Pointer; } }
-
-        public override TimeSpan StartTime { get; protected set; }
-
-        public override TimeSpan Duration { get; protected set; }
 
         protected override void Release()
         {
             if (m_Pointer == null) return;
             ffmpeg.avsubtitle_free(m_Pointer);
+            m_Pointer = null;
         }
     }
 }

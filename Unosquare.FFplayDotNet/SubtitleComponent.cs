@@ -17,21 +17,15 @@
             // placeholder. Nothing else to change here.
         }
 
-        /// <summary>
-        /// Processes the subtitle frame. Only text subtitles are supported.
-        /// </summary>
-        /// <param name="frame">The frame.</param>
-        protected override unsafe void ProcessFrame(AVSubtitle* frame)
+        protected override unsafe Frame CreateFrame(AVSubtitle* frame)
         {
-            // Extract timing information
-            var timeOffset = frame->pts.ToTimeSpan();
-            var startTime = timeOffset + ((long)frame->start_display_time).ToTimeSpan(Stream->time_base);
-            var endTime = timeOffset + ((long)frame->end_display_time).ToTimeSpan(Stream->time_base);
-            var duration = endTime - startTime;
+            var frameHolder = new SubtitleFrame(frame, Stream->time_base);
+            return frameHolder;
+        }
 
-            // Set the state
-            LastProcessedTimeUTC = DateTime.UtcNow;
-            LastFrameTime = timeOffset;
+        protected override void DecompressFrame(Frame genericFrame)
+        {
+            var frame = genericFrame as SubtitleFrame;
 
             // Check if there is a handler to feed the conversion to.
             if (Container.HandlesOnSubtitleDataAvailable == false)
@@ -40,16 +34,16 @@
             // Extract text strings
             var subtitleText = new List<string>();
 
-            for (var i = 0; i < frame->num_rects; i++)
+            for (var i = 0; i < frame.Pointer->num_rects; i++)
             {
-                var rect = frame->rects[i];
+                var rect = frame.Pointer->rects[i];
                 if (rect->text != null)
                     subtitleText.Add(Utils.PtrToStringUTF8(rect->text));
 
             }
 
             // Provide the data in an event
-            Container.RaiseOnSubtitleDataAvailabe(subtitleText.ToArray(), startTime, endTime, duration);
+            Container.RaiseOnSubtitleDataAvailabe(subtitleText.ToArray(), frame.StartTime, frame.EndTime, frame.Duration);
         }
     }
 

@@ -63,7 +63,9 @@
         /// Contains the frames that have been decoded for this media component.
         /// These frames have to be dequeued.
         /// </summary>
-        //private readonly FrameQueue Frames = new FrameQueue();
+        private readonly FrameQueue Frames = new FrameQueue();
+
+        private readonly object DecompressLock = new object();
 
         #endregion
 
@@ -108,11 +110,6 @@
         public ulong DecodedFrameCount { get; private set; }
 
         /// <summary>
-        /// Gets the time in UTC at which the last frame was processed.
-        /// </summary>
-        public DateTime LastProcessedTimeUTC { get; protected set; }
-
-        /// <summary>
         /// Gets the render (start) time of the last processed frame.
         /// </summary>
         public TimeSpan LastFrameTime { get; protected set; }
@@ -146,10 +143,14 @@
         }
 
         /// <summary>
-        /// Gets the number of packets in the queue. These packets
-        /// are continuously fed into the decoder.
+        /// Gets the number of packets in the queue.
         /// </summary>
         public int PacketBufferCount { get { return Packets.Count; } }
+
+        /// <summary>
+        /// Gets the number of frames in the queue.
+        /// </summary>
+        public int FrameBufferCount { get { return Frames.Count; } }
 
         #endregion
 
@@ -328,6 +329,25 @@
             return decodedFrames;
         }
 
+        public int DecompressNextFrame()
+        {
+            // only one decompress call at a time
+            lock (DecompressLock)
+            {
+                if (Frames.Count <= 0)
+                    return 0;
+
+                var frame = Frames.Dequeue();
+                if (frame == null) return 0;
+                DecompressFrame(frame);
+                frame.Dispose();
+                frame = null;
+
+                return 1;
+            }
+
+        }
+
         /// <summary>
         /// Receives 0 or more frames from the next available packet in the Queue.
         /// This sends the first available packet to dequeue to the decoder
@@ -369,15 +389,18 @@
                         {
                             // Send the frame to processing
                             receivedFrameCount += 1;
-                            ProcessFrame(outputFrame);
+                            var managedFrame = CreateFrame(outputFrame);
+                            if (managedFrame == null)
+                                throw new MediaContainerException($"{MediaType} Component does not implement {nameof(CreateFrame)}");
+                            Frames.Push(managedFrame);
+                            LastFrameTime = managedFrame.StartTime;
                         }
                     }
-                    finally
+                    catch
                     {
-
-                        // Release the frame as the decoded data has been processed 
-                        // regardless if there was any output.
+                        // Release the frame as the decoded data could not be processed
                         ffmpeg.av_frame_free(&outputFrame);
+                        throw;
                     }
                 }
             }
@@ -402,14 +425,24 @@
                     // Note that there could be more frames (subtitles) in the packet
                     if (gotFrame != 0)
                     {
-                        // Send the frame to processing
-                        receivedFrameCount += 1;
-                        ProcessFrame(&outputFrame);
+                        try
+                        {
+                            // Send the frame to processing
+                            receivedFrameCount += 1;
+                            var managedFrame = CreateFrame(&outputFrame);
+                            if (managedFrame == null)
+                                throw new MediaContainerException($"{MediaType} Component does not implement {nameof(CreateFrame)}");
+                            Frames.Push(managedFrame);
+                            LastFrameTime = managedFrame.StartTime;
+                        }
+                        catch
+                        {
+                            // Once processed, we don't need it anymore. Release it.
+                            ffmpeg.avsubtitle_free(&outputFrame);
+                            throw;
+                        }
+
                     }
-
-                    // Once processed, we don't need it anymore. Release it.
-                    ffmpeg.avsubtitle_free(&outputFrame);
-
                     // Let's check if we have more decoded frames from the same single packet
                     // Packets may contain more than 1 frame and the decoder is drained
                     // by passing an empty packet (data = null, size = 0)
@@ -422,19 +455,33 @@
                         emptyPacket->size = 0;
 
                         // Receive the frames in a loop
-                        receiveFrameResult = ffmpeg.avcodec_decode_subtitle2(CodecContext, &outputFrame, &gotFrame, emptyPacket);
-                        if (gotFrame != 0 && receiveFrameResult > 0)
+                        try
                         {
-                            // Send the subtitle to processing
-                            receivedFrameCount += 1;
-                            ProcessFrame(&outputFrame);
+                            receiveFrameResult = ffmpeg.avcodec_decode_subtitle2(CodecContext, &outputFrame, &gotFrame, emptyPacket);
+                            if (gotFrame != 0 && receiveFrameResult > 0)
+                            {
+                                // Send the subtitle to processing
+                                receivedFrameCount += 1;
+
+                                var managedFrame = CreateFrame(&outputFrame);
+                                if (managedFrame == null)
+                                    throw new MediaContainerException($"{MediaType} Component does not implement {nameof(CreateFrame)}");
+                                Frames.Push(managedFrame);
+                                LastFrameTime = managedFrame.StartTime;
+                            }
+
                         }
-
-                        // free the empty packet
-                        ffmpeg.av_packet_free(&emptyPacket);
-
-                        // once the subtitle is processed. Release it from memory
-                        ffmpeg.avsubtitle_free(&outputFrame);
+                        catch
+                        {
+                            // once the subtitle is processed. Release it from memory
+                            ffmpeg.avsubtitle_free(&outputFrame);
+                            throw;
+                        }
+                        finally
+                        {
+                            // free the empty packet
+                            ffmpeg.av_packet_free(&emptyPacket);
+                        }
                     }
                 }
             }
@@ -454,17 +501,11 @@
             return receivedFrameCount;
         }
 
-        /// <summary>
-        /// Processes the audio or video frame.
-        /// </summary>
-        /// <param name="packet">The packet.</param>
-        protected virtual void ProcessFrame(AVFrame* frame) { }
+        protected abstract void DecompressFrame(Frame genericFrame);
 
-        /// <summary>
-        /// Processes the subtitle frame.
-        /// </summary>
-        /// <param name="packet">The packet.</param>
-        protected virtual void ProcessFrame(AVSubtitle* frame) { }
+        protected virtual Frame CreateFrame(AVFrame* frame) { return null; }
+
+        protected virtual Frame CreateFrame(AVSubtitle* frame) { return null; }
 
         #endregion
 

@@ -10,6 +10,7 @@
     using System.Windows;
     using System.Windows.Media;
     using System.Windows.Media.Imaging;
+    using System.Windows.Threading;
     using Unosquare.FFplayDotNet.Core;
     using Unosquare.Swan;
 
@@ -80,20 +81,22 @@
             // May 5: 1.255 secs to decode 20 seconds 
             // May 8: 1.466 secs to decode 20 seconds
             // May 9: 0.688 secs to decode 20 seconds
-            var inputFile = TestInputs.BigBuckBunnyLocal;
-            var decodeDurationLimit = 20d;
-            var isBenchmarking = true;
-            var saveWaveFile = true;
+            var inputFile = TestInputs.NetworkShareStream2;
+            var decodeDurationLimit = 60 * 5d;
+            var isBenchmarking = false;
+            var saveWaveFile = false;
             var saveSnapshots = true;
+            Dispatcher decompressDispatcher = null;
 
             #region Setup
 
             var player = new MediaContainer(inputFile);
             PrepareOutputDirectory(saveWaveFile, saveSnapshots);
             var audioData = new List<byte>();
-            WriteableBitmap bitmap = null;
             var totalDurationSeconds = 0d;
             ulong totalBytes = 0;
+            WriteableBitmap bitmap = null;
+            var stopDecompressing = false;
 
             #endregion
 
@@ -106,61 +109,72 @@
                 $"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB | LRT: {player.Components.Video.LastFrameTime.TotalSeconds,10:0.000}".Info(typeof(Program));
 
                 if (isBenchmarking) return;
+                if (decompressDispatcher == null) return;
 
-                if (bitmap == null) bitmap = new WriteableBitmap(e.PixelWidth, e.PixelHeight, 96, 96, PixelFormats.Bgr24, null);
-
-                bitmap.Lock();
-
-                if (bitmap.BackBufferStride != e.BufferStride)
+                decompressDispatcher.Invoke(() =>
                 {
-                    var sourceBase = e.Buffer;
-                    var targetBase = bitmap.BackBuffer;
+                    if (bitmap == null)
+                        bitmap = new WriteableBitmap(e.PixelWidth, e.PixelHeight, 96, 96, PixelFormats.Bgr24, null);
 
-                    for (var y = 0; y < bitmap.PixelHeight; y++)
+                    bitmap.Dispatcher.Invoke(() =>
                     {
-                        var sourceAddress = sourceBase + (e.BufferStride * y);
-                        var targetAddress = targetBase + (bitmap.BackBufferStride * y);
-                        Utils.CopyMemory(targetAddress, sourceAddress, (uint)e.BufferStride);
-                    }
-                }
-                else
-                {
-                    Utils.CopyMemory(bitmap.BackBuffer, e.Buffer, (uint)e.BufferLength);
-                }
+                        bitmap.Lock();
 
-                bitmap.AddDirtyRect(new Int32Rect(0, 0, e.PixelWidth, e.PixelHeight));
-                bitmap.Unlock();
+                        if (bitmap.BackBufferStride != e.BufferStride)
+                        {
+                            var sourceBase = e.Buffer;
+                            var targetBase = bitmap.BackBuffer;
 
-                if (saveSnapshots == false) return;
+                            for (var y = 0; y < bitmap.PixelHeight; y++)
+                            {
+                                var sourceAddress = sourceBase + (e.BufferStride * y);
+                                var targetAddress = targetBase + (bitmap.BackBufferStride * y);
+                                Utils.CopyMemory(targetAddress, sourceAddress, (uint)e.BufferStride);
+                            }
+                        }
+                        else
+                        {
+                            Utils.CopyMemory(bitmap.BackBuffer, e.Buffer, (uint)e.BufferLength);
+                        }
 
-                var fileSequence = Math.Round(e.StartTime.TotalSeconds, 0);
-                var outputFile = Path.Combine(OutputPath, $"{fileSequence:0000}.png");
+                        bitmap.AddDirtyRect(new Int32Rect(0, 0, e.PixelWidth, e.PixelHeight));
+                        bitmap.Unlock();
 
-                if (File.Exists(outputFile)) return;
+                        if (saveSnapshots == false) return;
 
-                var bitmapFrame = BitmapFrame.Create(bitmap);
-                using (var stream = File.OpenWrite(outputFile))
-                {
-                    var bitmapEncoder = new PngBitmapEncoder();
-                    bitmapEncoder.Frames.Clear();
-                    bitmapEncoder.Frames.Add(bitmapFrame);
-                    bitmapEncoder.Save(stream);
-                }
+                        var fileSequence = Math.Round(e.StartTime.TotalSeconds, 0);
+                        var outputFile = Path.Combine(OutputPath, $"{fileSequence:0000}.png");
 
+                        if (File.Exists(outputFile)) return;
+
+                        var bitmapFrame = BitmapFrame.Create(bitmap);
+                        using (var stream = File.OpenWrite(outputFile))
+                        {
+                            var bitmapEncoder = new PngBitmapEncoder();
+                            bitmapEncoder.Frames.Clear();
+                            bitmapEncoder.Frames.Add(bitmapFrame);
+                            bitmapEncoder.Save(stream);
+                        }
+                    });
+                });
             };
 
             player.OnAudioDataAvailable += (s, e) =>
             {
                 $"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB | LRT: {player.Components.Video.LastFrameTime.TotalSeconds,10:0.000}".Info(typeof(Program));
-
                 totalBytes += (ulong)e.BufferLength;
 
                 if (isBenchmarking) return;
+                if (decompressDispatcher == null) return;
+
                 if (saveWaveFile)
                 {
-                    var outputBytes = new byte[e.BufferLength];
-                    Marshal.Copy(e.Buffer, outputBytes, 0, outputBytes.Length);
-                    audioData.AddRange(outputBytes);
+                    decompressDispatcher.Invoke(() =>
+                    {
+                        var outputBytes = new byte[e.BufferLength];
+                        Marshal.Copy(e.Buffer, outputBytes, 0, outputBytes.Length);
+                        audioData.AddRange(outputBytes);
+                    });
                 }
 
 
@@ -179,6 +193,21 @@
                 var readCancel = false;
                 var decodingDone = new ManualResetEventSlim(false);
                 var decodingFinished = new ManualResetEventSlim(false);
+
+                //var decompressTask = Task.Run(() => {
+
+                //    decompressDispatcher = Dispatcher.CurrentDispatcher;
+                //    while (stopDecompressing == false)
+                //    {
+
+                //        while (player.Components.DecompressNextFrame() == 0)
+                //            Thread.Sleep(1);
+                //    }
+
+                //    while (player.Components.FrameBufferCount > 0)
+                //        player.Components.DecompressNextFrame();
+
+                //}).ConfigureAwait(false);
 
                 // Continuously read packets
                 var readerTask = Task.Run(() =>
@@ -216,6 +245,9 @@
                 // Continuously decode packets
                 var decoderTask = Task.Run(() =>
                 {
+                    if (decompressDispatcher == null)
+                        decompressDispatcher = Dispatcher.CurrentDispatcher;
+
                     while (true)
                     {
                         decodingDone.Reset();
@@ -223,6 +255,8 @@
                         try
                         {
                             var decodedFrames = player.Components.DecodeNextPacket();
+                            player.Components.DecompressNextFrame();
+
                             if (decodedFrames == 0)
                             {
                                 // Alll decoding is done. Time to read
@@ -267,8 +301,12 @@
                 }).ConfigureAwait(false);
 
                 decodingFinished.Wait();
+                chronometer.Stop();
+
+                //stopDecompressing = true;
+                //decompressTask.GetAwaiter().GetResult();
             }
-            chronometer.Stop();
+
 
             var elapsed = chronometer.ElapsedMilliseconds / 1000d;
             var decodeSpeed = player.Components.Video.DecodedFrameCount / elapsed;

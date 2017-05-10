@@ -58,6 +58,8 @@
     <Compile Include="Core\Exceptions.cs" />
     <Compile Include="Core\Frame.cs" />
     <Compile Include="Core\FrameQueue.cs" />
+    <Compile Include="Core\MediaBuffer.cs" />
+    <Compile Include="Core\MediaSlot.cs" />
     <Compile Include="MediaComponent.cs" />
     <Compile Include="MediaComponentSet.cs" />
     <Compile Include="MediaContainer.cs" />

@@ -149,6 +149,18 @@
         }
 
         /// <summary>
+        /// Gets the number of frames available for decompression.
+        /// </summary>
+        public int FrameBufferCount
+        {
+            get
+            {
+                lock (SyncRoot)
+                    return Items.Sum(s => s.Value.FrameBufferCount);
+            }
+        }
+
+        /// <summary>
         /// Gets a value indicating whether this instance has a video component.
         /// </summary>
         public bool HasVideo { get { return Video != null; } }
@@ -275,6 +287,15 @@
             var result = 0;
             foreach (var component in Items)
                 result += component.Value.DecodeNextPacket();
+
+            return result;
+        }
+
+        public int DecompressNextFrame()
+        {
+            var result = 0;
+            foreach (var component in Items)
+                result += component.Value.DecompressNextFrame();
 
             return result;
         }

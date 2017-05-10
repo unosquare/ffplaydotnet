@@ -1,11 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-
-namespace Unosquare.FFplayDotNet.Core
+﻿namespace Unosquare.FFplayDotNet.Core
 {
+    using System;
+    using System.Collections.Generic;
+
     public class FrameQueue
     {
         #region Private Declarations

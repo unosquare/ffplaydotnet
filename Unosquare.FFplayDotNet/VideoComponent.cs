@@ -107,25 +107,16 @@
 
         }
 
-        /// <summary>
-        /// Processes the frame data by performing a framebuffer allocation, scaling the image
-        /// and raising an event containing the bitmap.
-        /// </summary>
-        /// <param name="frame">The frame.</param>
-        protected override unsafe void ProcessFrame(AVFrame* frame)
+        protected override unsafe Frame CreateFrame(AVFrame* frame)
         {
-            // for vide frames, we always get the best effort timestamp as dts and pts might
-            // contain different times.
-            frame->pts = ffmpeg.av_frame_get_best_effort_timestamp(frame);
-            var startTime = frame->pts.ToTimeSpan(Stream->time_base);
-            var duration = ffmpeg.av_frame_get_pkt_duration(frame).ToTimeSpan(Stream->time_base);
-
-            // Set the state
-            LastProcessedTimeUTC = DateTime.UtcNow;
-            LastFrameTime = startTime;
-
-            // Update the current framerate
+            var frameHolder = new VideoFrame(frame, Stream->time_base);
             CurrentFrameRate = ffmpeg.av_guess_frame_rate(Container.InputContext, Stream, frame).ToDouble();
+            return frameHolder;
+        }
+
+        protected override void DecompressFrame(Frame genericFrame)
+        {
+            var frame = genericFrame as VideoFrame;
 
             // If we don't have a callback, we don't need any further processing
             if (Container.HandlesOnVideoDataAvailable == false)
@@ -133,28 +124,29 @@
 
             // Retrieve a suitable scaler or create it on the fly
             Scaler = ffmpeg.sws_getCachedContext(Scaler,
-                    frame->width, frame->height, GetPixelFormat(frame), frame->width, frame->height,
+                    frame.Pointer->width, frame.Pointer->height, GetPixelFormat(frame.Pointer), 
+                    frame.Pointer->width, frame.Pointer->height,
                     OutputPixelFormat, ScalerFlags, null, null, null);
 
             // Perform scaling and save the data to our unmanaged buffer pointer for callbacks
             {
-                PictureBufferStride = ffmpeg.av_image_get_linesize(OutputPixelFormat, frame->width, 0);
+                PictureBufferStride = ffmpeg.av_image_get_linesize(OutputPixelFormat, frame.Pointer->width, 0);
                 var targetStride = new int[] { PictureBufferStride };
-                var targetLength = ffmpeg.av_image_get_buffer_size(OutputPixelFormat, frame->width, frame->height, 1);
+                var targetLength = ffmpeg.av_image_get_buffer_size(OutputPixelFormat, frame.Pointer->width, frame.Pointer->height, 1);
                 var unmanagedBuffer = AllocateBuffer(targetLength);
                 var targetScan = new byte_ptrArray8();
                 targetScan[0] = (byte*)unmanagedBuffer;
-                var outputHeight = ffmpeg.sws_scale(Scaler, frame->data, frame->linesize, 0, frame->height, targetScan, targetStride);
+                var outputHeight = ffmpeg.sws_scale(Scaler, frame.Pointer->data, frame.Pointer->linesize, 0, frame.Pointer->height, targetScan, targetStride);
             }
-            
+
             // TODO: add coded picture number and siplay picture number
 
             // Raise the data available event with all the decompressed frame data
             Container.RaiseOnVideoDataAvailabe(
                 PictureBuffer, PictureBufferLength, PictureBufferStride,
-                frame->width, frame->height,
-                startTime,
-                duration);
+                frame.Pointer->width, frame.Pointer->height,
+                frame.StartTime,
+                frame.Duration);
 
         }
 

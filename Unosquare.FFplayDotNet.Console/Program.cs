@@ -80,7 +80,7 @@
             // May 5: 1.255 secs to decode 20 seconds 
             // May 8: 1.466 secs to decode 20 seconds
             // May 9: 0.688 secs to decode 20 seconds
-            var inputFile = TestInputs.RtspStream;
+            var inputFile = TestInputs.BigBuckBunnyLocal;
             var decodeDurationLimit = 20d;
             var isBenchmarking = true;
             var saveWaveFile = true;
@@ -163,7 +163,7 @@
                     audioData.AddRange(outputBytes);
                 }
 
-                
+
             };
 
             player.OnSubtitleDataAvailable += (s, e) =>
@@ -229,7 +229,8 @@
                                 decodingDone.Set();
 
                                 // no more frames can be decoded now. Let's wait for more packets to arrive.
-                                Thread.Sleep(1); 
+                                if (player.IsRealtimeStream)
+                                    Thread.Sleep(1);
                             }
                             else
                             {
@@ -262,7 +263,7 @@
                     decodingDone.Set();
                     $"Decoder task finished".Warn(typeof(Program));
                     decodingFinished.Set();
-                    
+
                 }).ConfigureAwait(false);
 
                 decodingFinished.Wait();

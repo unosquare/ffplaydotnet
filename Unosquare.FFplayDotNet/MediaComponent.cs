@@ -63,7 +63,7 @@
         /// Contains the frames that have been decoded for this media component.
         /// These frames have to be dequeued.
         /// </summary>
-        private readonly FrameQueue Frames = new FrameQueue();
+        //private readonly FrameQueue Frames = new FrameQueue();
 
         #endregion
 

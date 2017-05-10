@@ -14,7 +14,7 @@
     {
         #region Private Declarations
 
-        private bool IsDisposing = false; // To detect redundant calls
+        private bool IsDisposed = false; // To detect redundant calls
         private readonly List<IntPtr> PacketPointers = new List<IntPtr>();
         private readonly object SyncRoot = new object();
 
@@ -148,9 +148,9 @@
         /// <param name="alsoManaged"><c>true</c> to release both managed and unmanaged resources; <c>false</c> to release only unmanaged resources.</param>
         protected virtual void Dispose(bool alsoManaged)
         {
-            if (!IsDisposing)
+            if (!IsDisposed)
             {
-                IsDisposing = true;
+                IsDisposed = true;
                 if (alsoManaged)
                     Clear();
             }

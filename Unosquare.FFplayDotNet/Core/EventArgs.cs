@@ -9,22 +9,22 @@
     public abstract class MediaDataAvailableEventArgs : EventArgs
     {
         /// <summary>
-        /// Initializes a new instance of the <see cref="MediaDataAvailableEventArgs"/> class.
+        /// Initializes a new instance of the <see cref="MediaDataAvailableEventArgs" /> class.
         /// </summary>
         /// <param name="mediaType">Type of the media.</param>
-        /// <param name="renderTime">The render time.</param>
+        /// <param name="startTime">The render time.</param>
         /// <param name="duration">The duration.</param>
-        protected MediaDataAvailableEventArgs(MediaType mediaType, TimeSpan renderTime, TimeSpan duration)
+        protected MediaDataAvailableEventArgs(MediaType mediaType, TimeSpan startTime, TimeSpan duration)
         {
             MediaType = mediaType;
-            RenderTime = renderTime;
+            StartTime = startTime;
             Duration = duration;
         }
 
         /// <summary>
         /// Gets the time at which this data should be presented (PTS)
         /// </summary>
-        public TimeSpan RenderTime { get; }
+        public TimeSpan StartTime { get; }
 
         /// <summary>
         /// Gets the amount of time this data has to be presented
@@ -47,11 +47,11 @@
         /// Initializes a new instance of the <see cref="SubtitleDataAvailableEventArgs"/> class.
         /// </summary>
         /// <param name="textLines">The text lines.</param>
-        /// <param name="renderTime">The render time.</param>
+        /// <param name="startTime">The render time.</param>
         /// <param name="endTime">The end time.</param>
         /// <param name="duration">The duration.</param>
-        internal SubtitleDataAvailableEventArgs(string[] textLines, TimeSpan renderTime, TimeSpan endTime, TimeSpan duration)
-            : base(MediaType.Subtitle, renderTime, duration)
+        internal SubtitleDataAvailableEventArgs(string[] textLines, TimeSpan startTime, TimeSpan endTime, TimeSpan duration)
+            : base(MediaType.Subtitle, startTime, duration)
         {
             TextLines = textLines ?? new string[] { };
             EndTime = endTime;
@@ -83,11 +83,11 @@
         /// <param name="sampleRate">The sample rate.</param>
         /// <param name="samplesPerChannel">The samples per channel.</param>
         /// <param name="channels">The channels.</param>
-        /// <param name="renderTime">The render time.</param>
+        /// <param name="startTime">The render time.</param>
         /// <param name="duration">The duration.</param>
         internal AudioDataAvailableEventArgs(IntPtr buffer, int bufferLength, int sampleRate, int samplesPerChannel, int channels,
-            TimeSpan renderTime, TimeSpan duration)
-            : base(MediaType.Audio, renderTime, duration)
+            TimeSpan startTime, TimeSpan duration)
+            : base(MediaType.Audio, startTime, duration)
         {
             Buffer = buffer;
             BufferLength = bufferLength;
@@ -138,11 +138,11 @@
         /// <param name="bufferStride">The buffer stride.</param>
         /// <param name="width">The width.</param>
         /// <param name="height">The height.</param>
-        /// <param name="renderTime">The render time.</param>
+        /// <param name="startTime">The render time.</param>
         /// <param name="duration">The duration.</param>
         internal VideoDataAvailableEventArgs(IntPtr buffer, int bufferLength, int bufferStride, int width, int height,
-            TimeSpan renderTime, TimeSpan duration)
-            : base(MediaType.Video, renderTime, duration)
+            TimeSpan startTime, TimeSpan duration)
+            : base(MediaType.Video, startTime, duration)
         {
             Buffer = buffer;
             BufferLength = bufferLength;

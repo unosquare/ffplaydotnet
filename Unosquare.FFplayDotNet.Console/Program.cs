@@ -82,7 +82,7 @@
             // May 9: 0.688 secs to decode 20 seconds
             var inputFile = TestInputs.RtspStream;
             var decodeDurationLimit = 20d;
-            var isBenchmarking = false;
+            var isBenchmarking = true;
             var saveWaveFile = true;
             var saveSnapshots = true;
 
@@ -103,7 +103,7 @@
             {
                 totalBytes += (ulong)e.BufferLength;
                 totalDurationSeconds += e.Duration.TotalSeconds;
-                $"{e.MediaType,-10} | PTS: {e.RenderTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB | LRT: {player.Components.Video.LastFrameRenderTime.TotalSeconds,10:0.000}".Info(typeof(Program));
+                $"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB | LRT: {player.Components.Video.LastFrameTime.TotalSeconds,10:0.000}".Info(typeof(Program));
 
                 if (isBenchmarking) return;
 
@@ -133,7 +133,7 @@
 
                 if (saveSnapshots == false) return;
 
-                var fileSequence = Math.Round(e.RenderTime.TotalSeconds, 0);
+                var fileSequence = Math.Round(e.StartTime.TotalSeconds, 0);
                 var outputFile = Path.Combine(OutputPath, $"{fileSequence:0000}.png");
 
                 if (File.Exists(outputFile)) return;
@@ -151,7 +151,7 @@
 
             player.OnAudioDataAvailable += (s, e) =>
             {
-                $"{e.MediaType,-10} | PTS: {e.RenderTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB | LRT: {player.Components.Video.LastFrameRenderTime.TotalSeconds,10:0.000}".Info(typeof(Program));
+                $"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB | LRT: {player.Components.Video.LastFrameTime.TotalSeconds,10:0.000}".Info(typeof(Program));
 
                 totalBytes += (ulong)e.BufferLength;
 
@@ -168,7 +168,7 @@
 
             player.OnSubtitleDataAvailable += (s, e) =>
             {
-                $"{e.MediaType,-10} | PTS: {e.RenderTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {"N/A",10:0}   | LRT: {player.Components.Video.LastFrameRenderTime.TotalSeconds,10:0.000}".Info(typeof(Program));
+                $"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {"N/A",10:0}   | LRT: {player.Components.Video.LastFrameTime.TotalSeconds,10:0.000}".Info(typeof(Program));
             };
 
             #endregion
@@ -200,7 +200,6 @@
                                         + $" | LEN: {player.Components.PacketBufferLength / 1024d,9:0.00}K"
                                         + $" | CNT: {player.Components.PacketBufferCount,12}").Warn(typeof(Program));
                                 }
-
                             }
 
                         }
@@ -223,23 +222,35 @@
 
                         try
                         {
-                            player.Components.DecodeNextPacket();
-
-                            var currentPosition =
-                                player.Components.Video.LastFrameRenderTime.TotalSeconds
-                                 - player.Components.Video.StartTime.TotalSeconds;
-
-                            if (player.IsAtEndOfStream)
+                            var decodedFrames = player.Components.DecodeNextPacket();
+                            if (decodedFrames == 0)
                             {
-                                "End of file reached.".Warn(typeof(Program));
-                                break;
+                                // Alll decoding is done. Time to read
+                                decodingDone.Set();
+
+                                // no more frames can be decoded now. Let's wait for more packets to arrive.
+                                Thread.Sleep(1); 
                             }
-                            else if (currentPosition >= decodeDurationLimit)
+                            else
                             {
-                                ($"Decoder limit duration reached at {currentPosition,8:0.00000} secs. " +
-                                $"Limit was: {decodeDurationLimit,8:0.00000} seconds").Info(typeof(Program));
-                                break;
+                                var currentPosition =
+                                    player.Components.Video.LastFrameTime.TotalSeconds
+                                     - player.Components.Video.StartTime.TotalSeconds;
+
+                                if (player.IsAtEndOfStream)
+                                {
+                                    "End of file reached.".Warn(typeof(Program));
+                                    break;
+                                }
+                                else if (currentPosition >= decodeDurationLimit)
+                                {
+                                    ($"Decoder limit duration reached at {currentPosition,8:0.00000} secs. " +
+                                    $"Limit was: {decodeDurationLimit,8:0.00000} seconds").Info(typeof(Program));
+                                    break;
+                                }
                             }
+
+
                         }
                         finally
                         {

@@ -24,7 +24,7 @@
         /// <summary>
         /// To detect redundant Dispose calls
         /// </summary>
-        private bool IsDisposing = false;
+        private bool IsDisposed = false;
 
         /// <summary>
         /// The internal Components
@@ -289,7 +289,7 @@
         /// <param name="alsoManaged"><c>true</c> to release both managed and unmanaged resources; <c>false</c> to release only unmanaged resources.</param>
         protected virtual void Dispose(bool alsoManaged)
         {
-            if (!IsDisposing)
+            if (!IsDisposed)
             {
                 if (alsoManaged)
                 {
@@ -304,7 +304,7 @@
                 // free unmanaged resources (unmanaged objects) and override a finalizer below.
                 // set large fields to null.
 
-                IsDisposing = true;
+                IsDisposed = true;
             }
         }
 

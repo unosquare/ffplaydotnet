@@ -211,7 +211,7 @@
         /// <summary>
         /// To detect redundant Dispose calls
         /// </summary>
-        private bool IsDisposing = false;
+        private bool IsDisposed = false;
 
         /// <summary>
         /// Releases unmanaged and - optionally - managed resources.
@@ -219,14 +219,14 @@
         /// <param name="alsoManaged"><c>true</c> to release both managed and unmanaged resources; <c>false</c> to release only unmanaged resources.</param>
         protected virtual void Dispose(bool alsoManaged)
         {
-            if (!IsDisposing)
+            if (!IsDisposed)
             {
                 if (alsoManaged)
                 {
                     ffmpeg.av_dict_free(Reference);
                 }
 
-                IsDisposing = true;
+                IsDisposed = true;
             }
         }
 

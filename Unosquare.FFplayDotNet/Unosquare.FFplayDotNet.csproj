@@ -56,6 +56,8 @@
     <Compile Include="Core\Enums.cs" />
     <Compile Include="Core\EventArgs.cs" />
     <Compile Include="Core\Exceptions.cs" />
+    <Compile Include="Core\Frame.cs" />
+    <Compile Include="Core\FrameQueue.cs" />
     <Compile Include="MediaComponent.cs" />
     <Compile Include="MediaComponentSet.cs" />
     <Compile Include="MediaContainer.cs" />

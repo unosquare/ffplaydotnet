@@ -24,14 +24,14 @@
         protected override unsafe void ProcessFrame(AVSubtitle* frame)
         {
             // Extract timing information
-            var renderTime = frame->pts.ToTimeSpan();
-            var startTime = renderTime + ((long)frame->start_display_time).ToTimeSpan(Stream->time_base);
-            var endTime = renderTime + ((long)frame->end_display_time).ToTimeSpan(Stream->time_base);
+            var timeOffset = frame->pts.ToTimeSpan();
+            var startTime = timeOffset + ((long)frame->start_display_time).ToTimeSpan(Stream->time_base);
+            var endTime = timeOffset + ((long)frame->end_display_time).ToTimeSpan(Stream->time_base);
             var duration = endTime - startTime;
 
             // Set the state
             LastProcessedTimeUTC = DateTime.UtcNow;
-            LastFrameRenderTime = renderTime;
+            LastFrameTime = timeOffset;
 
             // Check if there is a handler to feed the conversion to.
             if (Container.HandlesOnSubtitleDataAvailable == false)

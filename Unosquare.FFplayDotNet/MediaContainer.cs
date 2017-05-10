@@ -32,7 +32,7 @@
         /// <summary>
         /// To detect redundat Dispose calls
         /// </summary>
-        private bool IsDisposing = false;
+        private bool IsDisposed = false;
 
         /// <summary>
         /// Holds a reference to an input context.
@@ -100,17 +100,17 @@
         /// <param name="bufferStride">The buffer stride.</param>
         /// <param name="pixelWidth">Width of the pixel.</param>
         /// <param name="pixelHeight">Height of the pixel.</param>
-        /// <param name="renderTime">The render time.</param>
+        /// <param name="startTime">The render time.</param>
         /// <param name="duration">The duration.</param>
         internal void RaiseOnVideoDataAvailabe(IntPtr buffer, int bufferLength, int bufferStride,
-            int pixelWidth, int pixelHeight, TimeSpan renderTime, TimeSpan duration)
+            int pixelWidth, int pixelHeight, TimeSpan startTime, TimeSpan duration)
         {
             if (HandlesOnVideoDataAvailable == false) return;
 
             //CurrentDispatcher.Invoke(() =>
             //{
             OnVideoDataAvailable(this, new VideoDataAvailableEventArgs(buffer, bufferLength, bufferStride,
-                pixelWidth, pixelHeight, renderTime, duration));
+                pixelWidth, pixelHeight, startTime, duration));
             //}, DispatcherPriority.DataBind);
 
         }
@@ -123,16 +123,16 @@
         /// <param name="sampleRate">The sample rate.</param>
         /// <param name="samplesPerChannel">The samples per channel.</param>
         /// <param name="channels">The channels.</param>
-        /// <param name="renderTime">The render time.</param>
+        /// <param name="startTime">The render time.</param>
         /// <param name="duration">The duration.</param>
         internal void RaiseOnAudioDataAvailabe(IntPtr buffer, int bufferLength,
-            int sampleRate, int samplesPerChannel, int channels, TimeSpan renderTime, TimeSpan duration)
+            int sampleRate, int samplesPerChannel, int channels, TimeSpan startTime, TimeSpan duration)
         {
             if (HandlesOnAudioDataAvailable == false) return;
             //CurrentDispatcher.Invoke(() =>
             //{
             OnAudioDataAvailable(this, new AudioDataAvailableEventArgs(buffer, bufferLength, sampleRate,
-                samplesPerChannel, channels, renderTime, duration));
+                samplesPerChannel, channels, startTime, duration));
             //}, DispatcherPriority.DataBind);
         }
 
@@ -140,15 +140,15 @@
         /// Raises the on subtitle data availabe.
         /// </summary>
         /// <param name="textLines">The text lines.</param>
-        /// <param name="renderTime">The render time.</param>
+        /// <param name="startTime">The render time.</param>
         /// <param name="endTime">The end time.</param>
         /// <param name="duration">The duration.</param>
-        internal void RaiseOnSubtitleDataAvailabe(string[] textLines, TimeSpan renderTime, TimeSpan endTime, TimeSpan duration)
+        internal void RaiseOnSubtitleDataAvailabe(string[] textLines, TimeSpan startTime, TimeSpan endTime, TimeSpan duration)
         {
             if (HandlesOnSubtitleDataAvailable == false) return;
             //CurrentDispatcher.Invoke(() =>
             //{
-            OnSubtitleDataAvailable(this, new SubtitleDataAvailableEventArgs(textLines, renderTime, endTime, duration));
+            OnSubtitleDataAvailable(this, new SubtitleDataAvailableEventArgs(textLines, startTime, endTime, duration));
             //}, DispatcherPriority.DataBind);
         }
 
@@ -616,7 +616,7 @@
             if (component == null) return;
 
             // Check if we really need to seek.
-            if (component.LastFrameRenderTime == targetTime)
+            if (component.LastFrameTime == targetTime)
                 return;
 
             streamIndex = component.StreamIndex;
@@ -638,19 +638,19 @@
                     // Perform reads until the next component frame is obtained
                     // as we need to check where in the component stream we have landed after the seek.
                     $"SEEK INIT".Trace(typeof(MediaContainer));
-                    var beforeFrameRenderTime = component.LastFrameRenderTime;
-                    while (beforeFrameRenderTime == component.LastFrameRenderTime)
+                    var beforeFrameTime = component.LastFrameTime;
+                    while (beforeFrameTime == component.LastFrameTime)
                         StreamReadNextPacket();
 
-                    $"SEEK START | Current {component.LastFrameRenderTime.TotalSeconds,10:0.000} | Target {targetTime.TotalSeconds,10:0.000}".Trace(typeof(MediaContainer));
-                    while (component.LastFrameRenderTime < targetTime)
+                    $"SEEK START | Current {component.LastFrameTime.TotalSeconds,10:0.000} | Target {targetTime.TotalSeconds,10:0.000}".Trace(typeof(MediaContainer));
+                    while (component.LastFrameTime < targetTime)
                     {
                         StreamReadNextPacket();
                         if (IsAtEndOfStream)
                             break;
                     }
 
-                    $"SEEK END   | Current {component.LastFrameRenderTime.TotalSeconds,10:0.000} | Target {targetTime.TotalSeconds,10:0.000}".Trace(typeof(MediaContainer));
+                    $"SEEK END   | Current {component.LastFrameTime.TotalSeconds,10:0.000} | Target {targetTime.TotalSeconds,10:0.000}".Trace(typeof(MediaContainer));
                 }
             }
             else
@@ -663,7 +663,7 @@
 
         protected virtual void Dispose(bool alsoManaged)
         {
-            if (!IsDisposing)
+            if (!IsDisposed)
             {
                 if (alsoManaged)
                 {
@@ -678,7 +678,7 @@
                     }
                 }
 
-                IsDisposing = true;
+                IsDisposed = true;
             }
         }
 

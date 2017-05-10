@@ -87,12 +87,12 @@ namespace Unosquare.FFplayDotNet
         protected override unsafe void ProcessFrame(AVFrame* frame)
         {
             // Compute the timespans
-            var renderTime = ffmpeg.av_frame_get_best_effort_timestamp(frame).ToTimeSpan(Stream->time_base);
+            var startTime = ffmpeg.av_frame_get_best_effort_timestamp(frame).ToTimeSpan(Stream->time_base);
             var duration = ffmpeg.av_frame_get_pkt_duration(frame).ToTimeSpan(Stream->time_base);
 
             // Set the state
             LastProcessedTimeUTC = DateTime.UtcNow;
-            LastFrameRenderTime = renderTime;
+            LastFrameTime = startTime;
 
             // Check if there is a handler to feed the conversion to.
             if (Container.HandlesOnAudioDataAvailable == false)
@@ -127,7 +127,7 @@ namespace Unosquare.FFplayDotNet
 
             // Send data to event subscribers
             Container.RaiseOnAudioDataAvailabe(outputBuffer, outputBufferLength,
-                targetSpec.SampleRate, outputSamplesPerChannel, targetSpec.ChannelCount, renderTime, duration);
+                targetSpec.SampleRate, outputSamplesPerChannel, targetSpec.ChannelCount, startTime, duration);
 
         }
 

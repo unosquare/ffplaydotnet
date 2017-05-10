@@ -36,7 +36,7 @@
         /// <summary>
         /// Detects redundant, unmanaged calls to the Dispose method.
         /// </summary>
-        private bool IsDisposing = false;
+        private bool IsDisposed = false;
 
         /// <summary>
         /// Holds a reference to the Codec Context.
@@ -58,6 +58,12 @@
         /// once a frame has been decoded.
         /// </summary>
         private readonly PacketQueue SentPackets = new PacketQueue();
+
+        /// <summary>
+        /// Contains the frames that have been decoded for this media component.
+        /// These frames have to be dequeued.
+        /// </summary>
+        private readonly FrameQueue Frames = new FrameQueue();
 
         #endregion
 
@@ -107,14 +113,14 @@
         public DateTime LastProcessedTimeUTC { get; protected set; }
 
         /// <summary>
-        /// Gets the render time if the last processed frame.
+        /// Gets the render (start) time of the last processed frame.
         /// </summary>
-        public TimeSpan LastFrameRenderTime { get; protected set; }
+        public TimeSpan LastFrameTime { get; protected set; }
 
         /// <summary>
         /// Gets the render time or the last packet that was received by this media component.
         /// </summary>
-        public TimeSpan LastPacketRenderTime { get; protected set; }
+        public TimeSpan LastPacketTime { get; protected set; }
 
         /// <summary>
         /// Gets the number of packets that have been received
@@ -305,7 +311,7 @@
 
             Packets.Push(packet);
             if (IsEmptyPacket(packet) == false)
-                LastPacketRenderTime = packet->pts.ToTimeSpan(Stream->time_base);
+                LastPacketTime = packet->pts.ToTimeSpan(Stream->time_base);
 
             ReceivedPacketCount += 1;
         }
@@ -470,7 +476,7 @@
         /// <param name="alsoManaged"><c>true</c> to release both managed and unmanaged resources; <c>false</c> to release only unmanaged resources.</param>
         protected virtual void Dispose(bool alsoManaged)
         {
-            if (!IsDisposing)
+            if (!IsDisposed)
             {
                 if (alsoManaged)
                 {
@@ -487,7 +493,7 @@
                     CodecContext = null;
                 }
 
-                IsDisposing = true;
+                IsDisposed = true;
             }
         }
 

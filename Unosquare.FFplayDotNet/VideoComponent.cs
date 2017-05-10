@@ -117,12 +117,12 @@
             // for vide frames, we always get the best effort timestamp as dts and pts might
             // contain different times.
             frame->pts = ffmpeg.av_frame_get_best_effort_timestamp(frame);
-            var renderTime = frame->pts.ToTimeSpan(Stream->time_base);
+            var startTime = frame->pts.ToTimeSpan(Stream->time_base);
             var duration = ffmpeg.av_frame_get_pkt_duration(frame).ToTimeSpan(Stream->time_base);
 
             // Set the state
             LastProcessedTimeUTC = DateTime.UtcNow;
-            LastFrameRenderTime = renderTime;
+            LastFrameTime = startTime;
 
             // Update the current framerate
             CurrentFrameRate = ffmpeg.av_guess_frame_rate(Container.InputContext, Stream, frame).ToDouble();
@@ -153,7 +153,7 @@
             Container.RaiseOnVideoDataAvailabe(
                 PictureBuffer, PictureBufferLength, PictureBufferStride,
                 frame->width, frame->height,
-                renderTime,
+                startTime,
                 duration);
 
         }

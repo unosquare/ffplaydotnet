@@ -331,6 +331,10 @@
 
         public int DecompressNextFrame()
         {
+            // TODO: this needs to retun a MediaSlot object
+            // as opposed to raising events because events
+            // and threading do not play very well together.
+
             // only one decompress call at a time
             lock (DecompressLock)
             {

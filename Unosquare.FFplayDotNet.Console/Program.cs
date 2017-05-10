@@ -85,9 +85,9 @@
             // May 5: 1.255 secs to decode 20 seconds 
             // May 8: 1.466 secs to decode 20 seconds
             // May 9: 0.688 secs to decode 20 seconds
-            var inputFile = TestInputs.HlsStream3;
-            var decodeDurationLimit = 20;
-            var isBenchmarking = false;
+            var inputFile = TestInputs.BigBuckBunnyLocal;
+            var decodeDurationLimit = 80;
+            var isBenchmarking = true;
             var saveWaveFile = true;
             var saveSnapshots = true;
             Dispatcher decompressDispatcher = null;

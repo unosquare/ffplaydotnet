@@ -502,10 +502,13 @@
 
         /// <summary>
         /// Reads the next available packet, sending the packet to the corresponding
-        /// internal media component. It also detects end of Stream situations.
+        /// internal media component. It also sets IsAtEndOfStream property.
+        /// Return true if the packet was accepted by any of the media components.
+        /// Returns false if the packet was not accepted by any of the media components
+        /// or if reading failed (i.e. End of stream or read error)
         /// </summary>
         /// <exception cref="MediaContainerException"></exception>
-        public void StreamReadNextPacket()
+        public bool StreamReadNextPacket()
         {
             // Ensure read is not suspended
             StreamReadResume();
@@ -545,20 +548,20 @@
                 ffmpeg.av_packet_free(&readPacket);
 
                 // Detect an end of file situation (makes the readers enter draining mode)
-                if ((readResult == ffmpeg.AVERROR_EOF || ffmpeg.avio_feof(InputContext->pb) != 0) && IsAtEndOfStream == false)
+                if ((readResult == ffmpeg.AVERROR_EOF || ffmpeg.avio_feof(InputContext->pb) != 0))
                 {
-                    // Forece the decoders to enter draining mode (with empry packets)
-                    Components.SendEmptyPackets();
+                    // Force the decoders to enter draining mode (with empry packets)
+                    if (IsAtEndOfStream == false)
+                        Components.SendEmptyPackets();
+
                     IsAtEndOfStream = true;
-                    return;
+                    return false;
                 }
                 else
                 {
-                    IsAtEndOfStream = false;
+                    if (InputContext->pb != null && InputContext->pb->error != 0)
+                        throw new MediaContainerException($"Input has produced an error. Error Code {readResult}, {ffmpeg.ErrorMessage(readResult)}");
                 }
-
-                if (IsAtEndOfStream == false && InputContext->pb != null && InputContext->pb->error != 0)
-                    throw new MediaContainerException($"Input has produced an error. Error Code {InputContext->pb->error}");
             }
             else
             {
@@ -571,7 +574,11 @@
                 var wasPacketAccepted = Components.SendPacket(readPacket);
                 if (wasPacketAccepted == false)
                     ffmpeg.av_packet_free(&readPacket);
+
+                return wasPacketAccepted;
             }
+
+            return false;
         }
 
         private void StreamReadSuspend()

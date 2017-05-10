@@ -56,6 +56,10 @@
 
         public static string HlsStream = @"http://qthttp.apple.com.edgesuite.net/1010qwoeiuryfg/sl.m3u8";
 
+        public static string HlsStream2 = @"https://devimages.apple.com.edgekey.net/streaming/examples/bipbop_16x9/bipbop_16x9_variant.m3u8";
+
+        public static string HlsStream3 = @"https://devimages.apple.com.edgekey.net/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8";
+
         /// <summary>
         /// The RTSP stream from http://g33ktricks.blogspot.mx/p/the-rtsp-real-time-streaming-protocol.html
         /// </summary>
@@ -81,10 +85,10 @@
             // May 5: 1.255 secs to decode 20 seconds 
             // May 8: 1.466 secs to decode 20 seconds
             // May 9: 0.688 secs to decode 20 seconds
-            var inputFile = TestInputs.NetworkShareStream2;
-            var decodeDurationLimit = 60 * 5d;
+            var inputFile = TestInputs.HlsStream3;
+            var decodeDurationLimit = 20;
             var isBenchmarking = false;
-            var saveWaveFile = false;
+            var saveWaveFile = true;
             var saveSnapshots = true;
             Dispatcher decompressDispatcher = null;
 

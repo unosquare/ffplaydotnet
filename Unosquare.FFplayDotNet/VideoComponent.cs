@@ -63,7 +63,7 @@
             : base(container, streamIndex)
         {
             BaseFrameRate = Stream->r_frame_rate.ToDouble();
-            CurrentFrameRate = BaseFrameRate;
+            CurrentFrameRate = Stream->avg_frame_rate.ToDouble();
         }
 
         #endregion
@@ -146,6 +146,8 @@
                 targetScan[0] = (byte*)unmanagedBuffer;
                 var outputHeight = ffmpeg.sws_scale(Scaler, frame->data, frame->linesize, 0, frame->height, targetScan, targetStride);
             }
+            
+            // TODO: add coded picture number and siplay picture number
 
             // Raise the data available event with all the decompressed frame data
             Container.RaiseOnVideoDataAvailabe(

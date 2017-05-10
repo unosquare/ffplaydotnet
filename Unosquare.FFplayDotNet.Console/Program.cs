@@ -80,9 +80,9 @@
             // May 5: 1.255 secs to decode 20 seconds 
             // May 8: 1.466 secs to decode 20 seconds
             // May 9: 0.688 secs to decode 20 seconds
-            var inputFile = TestInputs.BigBuckBunnyLocal;
+            var inputFile = TestInputs.RtspStream;
             var decodeDurationLimit = 20d;
-            var isBenchmarking = true;
+            var isBenchmarking = false;
             var saveWaveFile = true;
             var saveSnapshots = true;
 
@@ -151,6 +151,7 @@
 
             player.OnAudioDataAvailable += (s, e) =>
             {
+                $"{e.MediaType,-10} | PTS: {e.RenderTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB | LRT: {player.Components.Video.LastFrameRenderTime.TotalSeconds,10:0.000}".Info(typeof(Program));
 
                 totalBytes += (ulong)e.BufferLength;
 
@@ -162,12 +163,12 @@
                     audioData.AddRange(outputBytes);
                 }
 
-                $"{e.MediaType,-10} | PTS: {e.RenderTime.TotalSeconds,10:0.000} | DUR: {e.Duration.TotalSeconds,10:0.000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB | LRT: {player.Components.Audio.LastFrameRenderTime.TotalSeconds,10:0.000}".Info(typeof(Program));
+                
             };
 
             player.OnSubtitleDataAvailable += (s, e) =>
             {
-                $"{e.MediaType,-10} | PTS: {e.RenderTime.TotalSeconds,10:0.000} | DUR: {e.Duration.TotalSeconds,10:0.000} | BUF: {string.Join("", e.TextLines).Length * 2,10}B".Info(typeof(Program));
+                $"{e.MediaType,-10} | PTS: {e.RenderTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {"N/A",10:0}   | LRT: {player.Components.Video.LastFrameRenderTime.TotalSeconds,10:0.000}".Info(typeof(Program));
             };
 
             #endregion

@@ -252,7 +252,6 @@
 
         #region Methods
 
-
         /// <summary>
         /// Determines whether the specified packet is a Null Packet (data = null, size = 0)
         /// These null packets are used to read multiple frames from a single packet.

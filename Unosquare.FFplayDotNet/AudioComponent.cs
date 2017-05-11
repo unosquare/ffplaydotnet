@@ -24,18 +24,6 @@ namespace Unosquare.FFplayDotNet
         private SwrContext* Scaler = null;
 
         /// <summary>
-        /// The audio samples buffer that has been allocated in unmanaged memory
-        /// </summary>
-        private IntPtr SamplesBuffer = IntPtr.Zero;
-
-        /// <summary>
-        /// The samples buffer length. This might differ from the decompressed,
-        /// resampled data length that is obtained in the event. This represents a maximum
-        /// allocated length.
-        /// </summary>
-        private int SamplesBufferLength;
-
-        /// <summary>
         /// Used to determine if we have to reset the scaler parameters
         /// </summary>
         private AudioParams LastSourceSpec = null;
@@ -59,45 +47,24 @@ namespace Unosquare.FFplayDotNet
 
         #region Methods
 
-        /// <summary>
-        /// Allocates a buffer in inmanaged memory only if necessry.
-        /// Returns the pointer to the allocated buffer regardless of it being new or existing.
-        /// </summary>
-        /// <param name="length">The length.</param>
-        /// <returns></returns>
-        private IntPtr AllocateBuffer(int length)
-        {
-            if (SamplesBufferLength < length)
-            {
-                if (SamplesBuffer != IntPtr.Zero)
-                    Marshal.FreeHGlobal(SamplesBuffer);
-
-                SamplesBufferLength = length;
-                SamplesBuffer = Marshal.AllocHGlobal(SamplesBufferLength);
-            }
-
-            return SamplesBuffer;
-        }
-
         protected override unsafe Frame CreateFrame(AVFrame* frame)
         {
             var frameHolder = new AudioFrame(frame, Stream->time_base);
             return frameHolder;
         }
 
-        protected override void DequeueFrame(Frame genericFrame, MediaFrameSlot output)
+        internal override void Materialize(Frame input, FrameContainer output)
         {
-            var frameHolder = genericFrame as AudioFrame;
-            var frame = frameHolder.Pointer;
+            var source = input as AudioFrame;
+            var target = output as AudioFrameContainer;
 
-            // Check if there is a handler to feed the conversion to.
-            if (Container.HandlesOnAudioDataAvailable == false)
-                return;
+            if (source == null || target == null)
+                throw new ArgumentNullException($"{nameof(input)} and {nameof(output)} are either null or not of a compatible media type '{MediaType}'");
 
             // Create the source and target ausio specs. We might need to scale from
             // the source to the target
-            var sourceSpec = AudioParams.CreateSource(frame);
-            var targetSpec = AudioParams.CreateTarget(frame);
+            var sourceSpec = AudioParams.CreateSource(source.Pointer);
+            var targetSpec = AudioParams.CreateTarget(source.Pointer);
 
             // Initialize or update the audio scaler if required
             if (Scaler == null || LastSourceSpec == null || AudioParams.AreCompatible(LastSourceSpec, sourceSpec) == false)
@@ -110,21 +77,35 @@ namespace Unosquare.FFplayDotNet
             }
 
             // Allocate the unmanaged output buffer
-            var outputBuffer = AllocateBuffer(targetSpec.BufferLength);
-            var outputBufferPtr = (byte*)outputBuffer;
+            if (target.AudioBufferLength < targetSpec.BufferLength)
+            {
+                if (target.AudioBuffer != IntPtr.Zero)
+                    Marshal.FreeHGlobal(target.AudioBuffer);
+
+                target.AudioBufferLength = targetSpec.BufferLength;
+                target.AudioBuffer = Marshal.AllocHGlobal(targetSpec.BufferLength);
+            }
+
+            var outputBufferPtr = (byte*)target.AudioBuffer;
 
             // Execute the conversion (audio scaling). It will return the number of samples that were output
             var outputSamplesPerChannel =
-                ffmpeg.swr_convert(Scaler, &outputBufferPtr, targetSpec.SamplesPerChannel, 
-                    frame->extended_data, frame->nb_samples);
+                ffmpeg.swr_convert(Scaler, &outputBufferPtr, targetSpec.SamplesPerChannel,
+                    source.Pointer->extended_data, source.Pointer->nb_samples);
 
             // Compute the buffer length
             var outputBufferLength =
                 ffmpeg.av_samples_get_buffer_size(null, targetSpec.ChannelCount, outputSamplesPerChannel, targetSpec.Format, 1);
 
-            // Send data to event subscribers
-            Container.RaiseOnAudioDataAvailabe(outputBuffer, outputBufferLength,
-                targetSpec.SampleRate, outputSamplesPerChannel, targetSpec.ChannelCount, frameHolder.StartTime, frameHolder.Duration);
+            // set the target properties
+            target.BufferLength = outputBufferLength;
+            target.ChannelCount = targetSpec.ChannelCount;
+            target.Duration = source.Duration;
+            target.EndTime = source.EndTime;
+            target.SampleRate = targetSpec.SampleRate;
+            target.SamplesPerChannel = outputSamplesPerChannel;
+            target.StartTime = source.StartTime;
+
         }
 
         #endregion
@@ -142,9 +123,6 @@ namespace Unosquare.FFplayDotNet
             if (Scaler != null)
                 fixed (SwrContext** scaler = &Scaler)
                     ffmpeg.swr_free(scaler);
-
-            if (SamplesBuffer != IntPtr.Zero)
-                Marshal.FreeHGlobal(SamplesBuffer);
         }
 
         #endregion

@@ -4,6 +4,7 @@
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.IO;
+    using System.Runtime.CompilerServices;
     using System.Runtime.InteropServices;
     using System.Threading;
     using System.Threading.Tasks;
@@ -14,346 +15,281 @@
     using Unosquare.FFplayDotNet.Core;
     using Unosquare.Swan;
 
-    static class TestInputs
-    {
-        private static string InputBasePath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "videos");
-
-        #region Local Files
-
-        /// <summary>
-        /// The matroska test. It contains various subtitle an audio tracks
-        /// Files can be obtained here: https://sourceforge.net/projects/matroska/files/test_files/matroska_test_w1_1.zip/download
-        /// </summary>
-        public static string MatroskaLocalFile = $"{InputBasePath}\\matroska.mkv";
-
-        /// <summary>
-        /// The transport stream file
-        /// From: https://github.com/unosquare/ffmediaelement/issues/16#issuecomment-299183167
-        /// </summary>
-        public static string TransportLocalFile = $"{InputBasePath}\\transport.ts";
-
-        /// <summary>
-        /// Downloaded From: https://www.dropbox.com/sh/vggf640iniwxwyu/AABSeLJfAZeApEoJAY3N34Y2a?dl=0
-        /// </summary>
-        public static string BigBuckBunnyLocal = $"{InputBasePath}\\bigbuckbunny.mp4";
-
-        public static string YoutubeLocalFile = $"{InputBasePath}\\youtube.mp4";
-
-        /// <summary>
-        /// The mpg file form issue https://github.com/unosquare/ffmediaelement/issues/22
-        /// </summary>
-        public static string MpegPart2LocalFile = $"{InputBasePath}\\mpegpart2.mpg";
-
-        public static string PngTestLocalFile = $"{InputBasePath}\\pngtest.png";
-
-        #endregion
-
-        #region Network Files
-
-        public static string UdpStream = @"udp://@225.1.1.181:5181/";
-
-        public static string UdpStream2 = @"udp://@225.1.1.3:5003/";
-
-        public static string HlsStream = @"http://qthttp.apple.com.edgesuite.net/1010qwoeiuryfg/sl.m3u8";
-
-        public static string HlsStream2 = @"https://devimages.apple.com.edgekey.net/streaming/examples/bipbop_16x9/bipbop_16x9_variant.m3u8";
-
-        public static string HlsStream3 = @"https://devimages.apple.com.edgekey.net/streaming/examples/bipbop_4x3/bipbop_4x3_variant.m3u8";
-
-        /// <summary>
-        /// The RTSP stream from http://g33ktricks.blogspot.mx/p/the-rtsp-real-time-streaming-protocol.html
-        /// </summary>
-        public static string RtspStream = "rtsp://184.72.239.149/vod/mp4:BigBuckBunny_175k.mov";
-
-        public static string NetworkShareStream = @"\\STARBIRD\Dropbox\MEXICO 20120415 TOLUCA 0-3 CRUZ AZUL.mp4";
-
-        public static string NetworkShareStream2 = @"\\STARBIRD\Public\Movies\Ender's Game (2013).mp4";
-
-        #endregion
-    }
-
     class Program
     {
+        #region Private Declarations
+
         private static string OutputPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "output");
 
+        private static MediaContainer Player;
 
-        /// <summary>
-        /// Mains the specified arguments.
-        /// </summary>
-        /// <param name="args">The arguments.</param>
+        private static List<byte> AudioData = new List<byte>();
+        private static double TotalDurationSeconds = 0d;
+        private static ulong TotalBytes = 0;
+        private static WriteableBitmap TargetBitmap = null;
+        private static double Elapsed = 0d;
+        private static double DecodeSpeed = 0d;
+
+        private static Dictionary<MediaType, FrameContainer> Outputs = new Dictionary<MediaType, FrameContainer>
+        {
+            { MediaType.Video,  new VideoFrameContainer() },
+            { MediaType.Audio,  new AudioFrameContainer() },
+            { MediaType.Subtitle,  new SubtitleFrameContainer() },
+
+        };
+
+        private static Dispatcher DecompressDispatcher = null;
+
+        private static string InputFile = TestInputs.BigBuckBunnyLocal;
+        private static double DecodeDurationLimit = 80;
+        private static bool IsBenchmarking = true;
+        private static bool SaveWaveFile = true;
+        private static bool SaveSnapshots = true;
+
+        private static bool readCancel = false;
+        private static ManualResetEventSlim DecodingDone = new ManualResetEventSlim(false);
+        private static ManualResetEventSlim DecodingFinished = new ManualResetEventSlim(false);
+
+        #endregion
+
         static void Main(string[] args)
         {
 
-            // BigBuckBunnyLocal, 20 seconds, 1.036 secs.
-            // TODO: 
-            // May 5: 1.255 secs to decode 20 seconds 
-            // May 8: 1.466 secs to decode 20 seconds
-            // May 9: 0.688 secs to decode 20 seconds
-            var inputFile = TestInputs.BigBuckBunnyLocal;
-            var decodeDurationLimit = 80;
-            var isBenchmarking = true;
-            var saveWaveFile = true;
-            var saveSnapshots = true;
-            Dispatcher decompressDispatcher = null;
-
             #region Setup
 
-            var player = new MediaContainer(inputFile);
-            PrepareOutputDirectory(saveWaveFile, saveSnapshots);
-            var audioData = new List<byte>();
-            var totalDurationSeconds = 0d;
-            ulong totalBytes = 0;
-            WriteableBitmap bitmap = null;
-            var stopDecompressing = false;
-            var output = new VideoFrameSlot();
+            InputFile = TestInputs.BigBuckBunnyLocal;
+            DecodeDurationLimit = 20;
+            IsBenchmarking = false;
+            SaveWaveFile = true;
+            SaveSnapshots = true;
 
-            #endregion
-
-            #region Frame Handlers
-
-            var videoFrame = IntPtr.Zero;
-
-            player.OnVideoDataAvailable += (s, e) =>
-            {
-                totalBytes += (ulong)e.BufferLength;
-                totalDurationSeconds += e.Duration.TotalSeconds;
-                $"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB | LRT: {player.Components.Video.LastFrameTime.TotalSeconds,10:0.000}".Info(typeof(Program));
-
-                if (isBenchmarking)
-                {
-                    //if (videoFrame == IntPtr.Zero) videoFrame = Marshal.AllocHGlobal(e.BufferLength);
-                    //Utils.CopyMemory(videoFrame, e.Buffer, (uint)e.BufferLength);
-                }
-
-                if (isBenchmarking) return;
-                if (decompressDispatcher == null) return;
-
-                decompressDispatcher.Invoke(() =>
-                {
-                    if (bitmap == null)
-                        bitmap = new WriteableBitmap(e.PixelWidth, e.PixelHeight, 96, 96, PixelFormats.Bgr24, null);
-
-                    bitmap.Dispatcher.Invoke(() =>
-                    {
-                        bitmap.Lock();
-
-                        if (bitmap.BackBufferStride != e.BufferStride)
-                        {
-                            var sourceBase = e.Buffer;
-                            var targetBase = bitmap.BackBuffer;
-
-                            for (var y = 0; y < bitmap.PixelHeight; y++)
-                            {
-                                var sourceAddress = sourceBase + (e.BufferStride * y);
-                                var targetAddress = targetBase + (bitmap.BackBufferStride * y);
-                                Utils.CopyMemory(targetAddress, sourceAddress, (uint)e.BufferStride);
-                            }
-                        }
-                        else
-                        {
-                            Utils.CopyMemory(bitmap.BackBuffer, e.Buffer, (uint)e.BufferLength);
-                        }
-
-                        bitmap.AddDirtyRect(new Int32Rect(0, 0, e.PixelWidth, e.PixelHeight));
-                        bitmap.Unlock();
-
-                        if (saveSnapshots == false) return;
-
-                        var fileSequence = Math.Round(e.StartTime.TotalSeconds, 0);
-                        var outputFile = Path.Combine(OutputPath, $"{fileSequence:0000}.png");
-
-                        if (File.Exists(outputFile)) return;
-
-                        var bitmapFrame = BitmapFrame.Create(bitmap);
-                        using (var stream = File.OpenWrite(outputFile))
-                        {
-                            var bitmapEncoder = new PngBitmapEncoder();
-                            bitmapEncoder.Frames.Clear();
-                            bitmapEncoder.Frames.Add(bitmapFrame);
-                            bitmapEncoder.Save(stream);
-                        }
-                    });
-                });
-            };
-
-            player.OnAudioDataAvailable += (s, e) =>
-            {
-                //$"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB | LRT: {player.Components.Video.LastFrameTime.TotalSeconds,10:0.000}".Info(typeof(Program));
-                totalBytes += (ulong)e.BufferLength;
-
-                if (isBenchmarking) return;
-                if (decompressDispatcher == null) return;
-
-                if (saveWaveFile)
-                {
-                    decompressDispatcher.Invoke(() =>
-                    {
-                        var outputBytes = new byte[e.BufferLength];
-                        Marshal.Copy(e.Buffer, outputBytes, 0, outputBytes.Length);
-                        audioData.AddRange(outputBytes);
-                    });
-                }
-
-
-            };
-
-            player.OnSubtitleDataAvailable += (s, e) =>
-            {
-                //$"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {"N/A",10:0}   | LRT: {player.Components.Video.LastFrameTime.TotalSeconds,10:0.000}".Info(typeof(Program));
-            };
+            Player = new MediaContainer(InputFile);
+            PrepareOutputDirectory(SaveWaveFile, SaveSnapshots);
 
             #endregion
 
             var chronometer = new Stopwatch();
             chronometer.Start();
             {
-                var readCancel = false;
-                var decodingDone = new ManualResetEventSlim(false);
-                var decodingFinished = new ManualResetEventSlim(false);
-
-                //var decompressTask = Task.Run(() => {
-
-                //    decompressDispatcher = Dispatcher.CurrentDispatcher;
-                //    while (stopDecompressing == false)
-                //    {
-
-                //        while (player.Components.DecompressNextFrame() == 0)
-                //            Thread.Sleep(1);
-                //    }
-
-                //    while (player.Components.FrameBufferCount > 0)
-                //        player.Components.DecompressNextFrame();
-
-                //}).ConfigureAwait(false);
-
                 // Continuously read packets
-                var readerTask = Task.Run(() =>
-                {
-                    while (readCancel == false)
-                    {
-                        try
-                        {
-                            if (player.IsAtEndOfStream == false && readCancel == false)
-                            {
-                                // check if the packet buuffer is too low
-                                if (player.Components.PacketBufferCount <= 24)
-                                {
-                                    // buffer at least 60 packets
-                                    while (player.Components.PacketBufferCount < 48 && readCancel == false)
-                                        player.StreamReadNextPacket();
-
-                                    ($"Buffer     | DUR: {player.Components.PacketBufferDuration.TotalSeconds,10:0.000}"
-                                        + $" | LEN: {player.Components.PacketBufferLength / 1024d,9:0.00}K"
-                                        + $" | CNT: {player.Components.PacketBufferCount,12}").Warn(typeof(Program));
-                                }
-                            }
-
-                        }
-                        finally
-                        {
-                            decodingDone.Wait();
-                        }
-                    }
-
-                    $"Reader task finished".Warn(typeof(Program));
-
-                }).ConfigureAwait(false);
+                var readerTask = RunReaderTask();
 
                 // Continuously decode packets
-                var decoderTask = Task.Run(() =>
-                {
-                    if (decompressDispatcher == null)
-                        decompressDispatcher = Dispatcher.CurrentDispatcher;
+                var decoderTask = RunDecoderTask();
 
-                    while (true)
-                    {
-                        decodingDone.Reset();
-
-                        try
-                        {
-                            var decodedFrames = player.Components.DecodeNextPacket();
-                            player.Components.DequeueFrame(output);
-
-                            if (decodedFrames == 0)
-                            {
-                                // Alll decoding is done. Time to read
-                                decodingDone.Set();
-
-                                // no more frames can be decoded now. Let's wait for more packets to arrive.
-                                if (player.IsRealtimeStream)
-                                    Thread.Sleep(1);
-                            }
-                            else
-                            {
-                                var currentPosition =
-                                    player.Components.Video.LastFrameTime.TotalSeconds
-                                     - player.Components.Video.StartTime.TotalSeconds;
-
-                                if (player.IsAtEndOfStream)
-                                {
-                                    "End of file reached.".Warn(typeof(Program));
-                                    break;
-                                }
-                                else if (currentPosition >= decodeDurationLimit)
-                                {
-                                    ($"Decoder limit duration reached at {currentPosition,8:0.00000} secs. " +
-                                    $"Limit was: {decodeDurationLimit,8:0.00000} seconds").Info(typeof(Program));
-                                    break;
-                                }
-                            }
-
-
-                        }
-                        finally
-                        {
-                            decodingDone.Set();
-                        }
-                    }
-
-                    readCancel = true;
-                    decodingDone.Set();
-                    $"Decoder task finished".Warn(typeof(Program));
-                    decodingFinished.Set();
-
-                }).ConfigureAwait(false);
-
-                decodingFinished.Wait();
+                DecodingFinished.Wait();
                 chronometer.Stop();
-
-                //stopDecompressing = true;
-                //decompressTask.GetAwaiter().GetResult();
             }
 
+            Elapsed = chronometer.ElapsedMilliseconds / 1000d;
+            DecodeSpeed = Player.Components.Video.DecodedFrameCount / Elapsed;
+            PrintResults();
 
-            var elapsed = chronometer.ElapsedMilliseconds / 1000d;
-            var decodeSpeed = player.Components.Video.DecodedFrameCount / elapsed;
-
-            ($"Media Info\r\n" +
-                $"    URL         : {player.MediaUrl}\r\n" +
-                $"    Bitrate     : {player.MediaBitrate,10} bps\r\n" +
-                $"    FPS         : {player.Components.Video.CurrentFrameRate,10:0.000}\r\n" +
-                $"    Start Time  : {player.MediaStartTime.TotalSeconds,10:0.000}\r\n" +
-                $"    Duration    : {player.MediaDuration.TotalSeconds,10:0.000} secs\r\n" +
-                $"    Seekable    : {player.IsStreamSeekable,10}\r\n" +
-                $"    Can Suspend : {player.CanReadSuspend,10}\r\n" +
-                $"    Is Realtime : {player.IsRealtimeStream,10}\r\n" +
-                $"    Packets     : {player.Components.ReceivedPacketCount,10}\r\n" +
-                $"    Raw Data    : {totalBytes / (double)(1024 * 1024),10:0.00} MB\r\n" +
-                $"    Decoded     : {totalDurationSeconds,10:0.000} secs\r\n" +
-                $"    Decode FPS  : {decodeSpeed,10:0.000}\r\n" +
-                $"    Frames      : {player.Components.Video.DecodedFrameCount,10}\r\n" +
-                $"    Speed Ratio : {decodeSpeed / player.Components.Video.CurrentFrameRate,10:0.000}\r\n" +
-                $"    Benchmark T : {elapsed,10:0.000} secs"
-                ).Info(typeof(Program));
-
-            if (saveWaveFile && !isBenchmarking)
+            if (SaveWaveFile && !IsBenchmarking)
             {
                 var audioFile = Path.Combine(OutputPath, "audio.wav");
-                SaveWavFile(audioData, audioFile);
+                SaveWavFile(AudioData, audioFile);
                 $"Saved wave file to '{audioFile}'".Warn(typeof(Program));
             }
 
             Terminal.ReadKey(true, true);
+        }
+
+        private static ConfiguredTaskAwaitable RunReaderTask()
+        {
+            return Task.Run(() =>
+            {
+                while (readCancel == false)
+                {
+                    try
+                    {
+                        if (Player.IsAtEndOfStream == false && readCancel == false)
+                        {
+                            // check if the packet buuffer is too low
+                            if (Player.Components.PacketBufferCount <= 24)
+                            {
+                                // buffer at least 60 packets
+                                while (Player.Components.PacketBufferCount < 48 && readCancel == false)
+                                    Player.ReadNextPacket();
+
+                                ($"Buffer     | DUR: {Player.Components.PacketBufferDuration.TotalSeconds,10:0.000}"
+                                    + $" | LEN: {Player.Components.PacketBufferLength / 1024d,9:0.00}K"
+                                    + $" | CNT: {Player.Components.PacketBufferCount,12}").Warn(typeof(Program));
+                            }
+                        }
+
+                    }
+                    finally
+                    {
+                        DecodingDone.Wait();
+                    }
+                }
+
+                $"Reader task finished".Warn(typeof(Program));
+
+            }).ConfigureAwait(false);
+        }
+
+        private static ConfiguredTaskAwaitable RunDecoderTask()
+        {
+            return Task.Run(() =>
+            {
+                if (DecompressDispatcher == null)
+                    DecompressDispatcher = Dispatcher.CurrentDispatcher;
+
+                while (true)
+                {
+                    DecodingDone.Reset();
+
+                    try
+                    {
+                        var decodedFrames = Player.DecodeNextPacket();
+                        foreach (var frame in decodedFrames)
+                        {
+                            Player.Materialize(frame, Outputs[frame.MediaType], true);
+                            HandleFrame(Outputs[frame.MediaType]);
+                        }
+
+                        if (decodedFrames.Count == 0)
+                        {
+                            // Alll decoding is done. Time to read
+                            DecodingDone.Set();
+
+                            // no more frames can be decoded now. Let's wait for more packets to arrive.
+                            if (Player.IsRealtimeStream)
+                                Thread.Sleep(1);
+                        }
+                        else
+                        {
+                            var currentPosition =
+                                Player.Components.Video.LastFrameTime.TotalSeconds
+                                 - Player.Components.Video.StartTime.TotalSeconds;
+
+                            if (Player.IsAtEndOfStream)
+                            {
+                                "End of file reached.".Warn(typeof(Program));
+                                break;
+                            }
+                            else if (currentPosition >= DecodeDurationLimit)
+                            {
+                                ($"Decoder limit duration reached at {currentPosition,8:0.00000} secs. " +
+                                $"Limit was: {DecodeDurationLimit,8:0.00000} seconds").Info(typeof(Program));
+                                break;
+                            }
+                        }
+
+
+                    }
+                    finally
+                    {
+                        DecodingDone.Set();
+                    }
+                }
+
+                readCancel = true;
+                DecodingDone.Set();
+                $"Decoder task finished".Warn(typeof(Program));
+                DecodingFinished.Set();
+
+            }).ConfigureAwait(false);
+        }
+
+        private static void HandleFrame(FrameContainer e)
+        {
+            switch (e.MediaType)
+            {
+                case MediaType.Video:
+                    HandleVideoFrame(e as VideoFrameContainer);
+                    return;
+                case MediaType.Audio:
+                    HandleAudioFrame(e as AudioFrameContainer);
+                    return;
+                case MediaType.Subtitle:
+                    HandleSubtitleFrame(e as SubtitleFrameContainer);
+                    return;
+            }
+
+
+        }
+
+        private static void HandleAudioFrame(AudioFrameContainer e)
+        {
+            TotalBytes += (ulong)e.BufferLength;
+
+            if (IsBenchmarking) return;
+            if (DecompressDispatcher == null) return;
+
+            if (SaveWaveFile)
+            {
+                DecompressDispatcher.Invoke(() =>
+                {
+                    var outputBytes = new byte[e.BufferLength];
+                    Marshal.Copy(e.Buffer, outputBytes, 0, outputBytes.Length);
+                    AudioData.AddRange(outputBytes);
+                });
+            }
+        }
+
+        private static void HandleSubtitleFrame(SubtitleFrameContainer e)
+        {
+
+        }
+
+        private static void HandleVideoFrame(VideoFrameContainer e)
+        {
+            TotalBytes += (ulong)e.BufferLength;
+            TotalDurationSeconds += e.Duration.TotalSeconds;
+            $"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB | LRT: {Player.Components.Video.LastFrameTime.TotalSeconds,10:0.000}".Info(typeof(Program));
+
+            if (IsBenchmarking) return;
+            if (DecompressDispatcher == null) return;
+
+            DecompressDispatcher.Invoke(() =>
+            {
+                if (TargetBitmap == null)
+                    TargetBitmap = new WriteableBitmap(e.PixelWidth, e.PixelHeight, 96, 96, PixelFormats.Bgr24, null);
+
+                TargetBitmap.Dispatcher.Invoke(() =>
+                {
+                    TargetBitmap.Lock();
+
+                    if (TargetBitmap.BackBufferStride != e.BufferStride)
+                    {
+                        var sourceBase = e.Buffer;
+                        var targetBase = TargetBitmap.BackBuffer;
+
+                        for (var y = 0; y < TargetBitmap.PixelHeight; y++)
+                        {
+                            var sourceAddress = sourceBase + (e.BufferStride * y);
+                            var targetAddress = targetBase + (TargetBitmap.BackBufferStride * y);
+                            Utils.CopyMemory(targetAddress, sourceAddress, (uint)e.BufferStride);
+                        }
+                    }
+                    else
+                    {
+                        Utils.CopyMemory(TargetBitmap.BackBuffer, e.Buffer, (uint)e.BufferLength);
+                    }
+
+                    TargetBitmap.AddDirtyRect(new Int32Rect(0, 0, e.PixelWidth, e.PixelHeight));
+                    TargetBitmap.Unlock();
+
+                    if (SaveSnapshots == false) return;
+
+                    var fileSequence = Math.Round(e.StartTime.TotalSeconds, 0);
+                    var outputFile = Path.Combine(OutputPath, $"{fileSequence:0000}.png");
+
+                    if (File.Exists(outputFile)) return;
+
+                    var bitmapFrame = BitmapFrame.Create(TargetBitmap);
+                    using (var stream = File.OpenWrite(outputFile))
+                    {
+                        var bitmapEncoder = new PngBitmapEncoder();
+                        bitmapEncoder.Frames.Clear();
+                        bitmapEncoder.Frames.Add(bitmapFrame);
+                        bitmapEncoder.Save(stream);
+                    }
+                });
+            });
         }
 
         private static void SaveWavFile(List<byte> audioData, string audioFile)
@@ -406,6 +342,26 @@
             }
         }
 
+        static private void PrintResults()
+        {
+            ($"Media Info\r\n" +
+                $"    URL         : {Player.MediaUrl}\r\n" +
+                $"    Bitrate     : {Player.MediaBitrate,10} bps\r\n" +
+                $"    FPS         : {Player.Components.Video.CurrentFrameRate,10:0.000}\r\n" +
+                $"    Start Time  : {Player.MediaStartTime.TotalSeconds,10:0.000}\r\n" +
+                $"    Duration    : {Player.MediaDuration.TotalSeconds,10:0.000} secs\r\n" +
+                $"    Seekable    : {Player.IsStreamSeekable,10}\r\n" +
+                $"    Can Suspend : {Player.CanReadSuspend,10}\r\n" +
+                $"    Is Realtime : {Player.IsRealtimeStream,10}\r\n" +
+                $"    Packets     : {Player.Components.ReceivedPacketCount,10}\r\n" +
+                $"    Raw Data    : {TotalBytes / (double)(1024 * 1024),10:0.00} MB\r\n" +
+                $"    Decoded     : {TotalDurationSeconds,10:0.000} secs\r\n" +
+                $"    Decode FPS  : {DecodeSpeed,10:0.000}\r\n" +
+                $"    Frames      : {Player.Components.Video.DecodedFrameCount,10}\r\n" +
+                $"    Speed Ratio : {DecodeSpeed / Player.Components.Video.CurrentFrameRate,10:0.000}\r\n" +
+                $"    Benchmark T : {Elapsed,10:0.000} secs"
+                ).Info(typeof(Program));
+        }
 
     }
 }

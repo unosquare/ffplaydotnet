@@ -149,18 +149,6 @@
         }
 
         /// <summary>
-        /// Gets the number of frames available for decompression.
-        /// </summary>
-        public int FrameBufferCount
-        {
-            get
-            {
-                lock (SyncRoot)
-                    return Items.Sum(s => s.Value.FrameBufferCount);
-            }
-        }
-
-        /// <summary>
         /// Gets a value indicating whether this instance has a video component.
         /// </summary>
         public bool HasVideo { get { return Video != null; } }
@@ -242,13 +230,15 @@
             if (packet == null)
                 return false;
 
-
-            foreach (var item in Items)
+            lock (SyncRoot)
             {
-                if (item.Value.StreamIndex == packet->stream_index)
+                foreach (var item in Items)
                 {
-                    item.Value.SendPacket(packet);
-                    return true;
+                    if (item.Value.StreamIndex == packet->stream_index)
+                    {
+                        item.Value.SendPacket(packet);
+                        return true;
+                    }
                 }
             }
 
@@ -262,8 +252,9 @@
         /// </summary>
         internal void SendEmptyPackets()
         {
-            foreach (var item in Items)
-                item.Value.SendEmptyPacket();
+            lock (SyncRoot)
+                foreach (var item in Items)
+                    item.Value.SendEmptyPacket();
         }
 
         /// <summary>
@@ -274,33 +265,27 @@
         /// </summary>
         internal void ClearPacketQueues()
         {
-            foreach (var item in Items)
-                item.Value.ClearPacketQueues();
+            lock (SyncRoot)
+                foreach (var item in Items)
+                    item.Value.ClearPacketQueues();
         }
 
         /// <summary>
         /// Decodes the next available packet in the packet queue for all components.
+        /// Returns the frames that were decoded.
         /// </summary>
-        /// <returns></returns>
-        public int DecodeNextPacket()
+        internal List<Frame> DecodeNextPacket()
         {
-            var result = 0;
-            foreach (var component in Items)
-                result += component.Value.DecodeNextPacket();
+            lock (SyncRoot)
+            {
+                var result = new List<Frame>(64);
+                foreach (var component in Items)
+                    result.AddRange(component.Value.DecodeNextPacket());
 
-            return result;
+                return result;
+            }
         }
 
-
-        // TODO: Change output to MediaBufferSet
-        public int DequeueFrame(MediaFrameSlot output)
-        {
-            var result = 0;
-            foreach (var component in Items)
-                result += component.Value.DequeueFrame(output);
-
-            return result;
-        }
 
         #endregion
 

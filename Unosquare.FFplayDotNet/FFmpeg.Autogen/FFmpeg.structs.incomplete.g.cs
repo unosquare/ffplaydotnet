@@ -51,7 +51,7 @@ namespace FFmpeg.AutoGen
     {
     }
     
-    public unsafe struct AVBSFList
+    public unsafe struct List
     {
     }
     

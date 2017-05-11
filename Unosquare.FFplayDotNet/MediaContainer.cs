@@ -2,6 +2,7 @@
 {
     using FFmpeg.AutoGen;
     using System;
+    using System.Collections.Generic;
     using System.Diagnostics;
     using System.Linq;
     using System.Threading;
@@ -56,101 +57,6 @@
         /// of the stream and after seeking.
         /// </summary>
         private bool m_RequiresPictureAttachments = true;
-
-        #endregion
-
-        #region Events
-
-        /// <summary>
-        /// Occurs when video data is available.
-        /// </summary>
-        public event EventHandler<VideoDataAvailableEventArgs> OnVideoDataAvailable;
-
-        /// <summary>
-        /// Occurs when audio data is available.
-        /// </summary>
-        public event EventHandler<AudioDataAvailableEventArgs> OnAudioDataAvailable;
-
-        /// <summary>
-        /// Occurs when subtitle data is available.
-        /// </summary>
-        public event EventHandler<SubtitleDataAvailableEventArgs> OnSubtitleDataAvailable;
-
-
-        /// <summary>
-        /// Gets a value indicating whether the event is bound
-        /// </summary>
-        internal bool HandlesOnVideoDataAvailable { get { return OnVideoDataAvailable != null; } }
-
-        /// <summary>
-        /// Gets a value indicating whether the event is bound
-        /// </summary>
-        internal bool HandlesOnAudioDataAvailable { get { return OnAudioDataAvailable != null; } }
-
-        /// <summary>
-        /// Gets a value indicating whether the event is bound
-        /// </summary>
-        internal bool HandlesOnSubtitleDataAvailable { get { return OnSubtitleDataAvailable != null; } }
-
-        /// <summary>
-        /// Raises the on video data availabe.
-        /// </summary>
-        /// <param name="buffer">The buffer.</param>
-        /// <param name="bufferLength">Length of the buffer.</param>
-        /// <param name="bufferStride">The buffer stride.</param>
-        /// <param name="pixelWidth">Width of the pixel.</param>
-        /// <param name="pixelHeight">Height of the pixel.</param>
-        /// <param name="startTime">The render time.</param>
-        /// <param name="duration">The duration.</param>
-        internal void RaiseOnVideoDataAvailabe(IntPtr buffer, int bufferLength, int bufferStride,
-            int pixelWidth, int pixelHeight, TimeSpan startTime, TimeSpan duration)
-        {
-            if (HandlesOnVideoDataAvailable == false) return;
-
-            //CurrentDispatcher.Invoke(() =>
-            //{
-            OnVideoDataAvailable(this, new VideoDataAvailableEventArgs(buffer, bufferLength, bufferStride,
-                pixelWidth, pixelHeight, startTime, duration));
-            //}, DispatcherPriority.DataBind);
-
-        }
-
-        /// <summary>
-        /// Raises the on audio data availabe.
-        /// </summary>
-        /// <param name="buffer">The buffer.</param>
-        /// <param name="bufferLength">Length of the buffer.</param>
-        /// <param name="sampleRate">The sample rate.</param>
-        /// <param name="samplesPerChannel">The samples per channel.</param>
-        /// <param name="channels">The channels.</param>
-        /// <param name="startTime">The render time.</param>
-        /// <param name="duration">The duration.</param>
-        internal void RaiseOnAudioDataAvailabe(IntPtr buffer, int bufferLength,
-            int sampleRate, int samplesPerChannel, int channels, TimeSpan startTime, TimeSpan duration)
-        {
-            if (HandlesOnAudioDataAvailable == false) return;
-            //CurrentDispatcher.Invoke(() =>
-            //{
-            OnAudioDataAvailable(this, new AudioDataAvailableEventArgs(buffer, bufferLength, sampleRate,
-                samplesPerChannel, channels, startTime, duration));
-            //}, DispatcherPriority.DataBind);
-        }
-
-        /// <summary>
-        /// Raises the on subtitle data availabe.
-        /// </summary>
-        /// <param name="textLines">The text lines.</param>
-        /// <param name="startTime">The render time.</param>
-        /// <param name="endTime">The end time.</param>
-        /// <param name="duration">The duration.</param>
-        internal void RaiseOnSubtitleDataAvailabe(string[] textLines, TimeSpan startTime, TimeSpan endTime, TimeSpan duration)
-        {
-            if (HandlesOnSubtitleDataAvailable == false) return;
-            //CurrentDispatcher.Invoke(() =>
-            //{
-            OnSubtitleDataAvailable(this, new SubtitleDataAvailableEventArgs(textLines, startTime, endTime, duration));
-            //}, DispatcherPriority.DataBind);
-        }
 
         #endregion
 
@@ -500,6 +406,8 @@
 
         #endregion
 
+        #region Public API
+
         /// <summary>
         /// Reads the next available packet, sending the packet to the corresponding
         /// internal media component. It also sets IsAtEndOfStream property.
@@ -508,7 +416,7 @@
         /// or if reading failed (i.e. End of stream or read error)
         /// </summary>
         /// <exception cref="MediaContainerException"></exception>
-        public bool StreamReadNextPacket()
+        public bool ReadNextPacket()
         {
             // Ensure read is not suspended
             StreamReadResume();
@@ -572,6 +480,8 @@
             if (readPacket != null)
             {
                 var wasPacketAccepted = Components.SendPacket(readPacket);
+
+                // Discard the packet -- it was not accepted by any component
                 if (wasPacketAccepted == false)
                     ffmpeg.av_packet_free(&readPacket);
 
@@ -580,6 +490,46 @@
 
             return false;
         }
+
+        /// <summary>
+        /// Decodes the next available packet in the packet queue for all components.
+        /// Returns the list of decoded frames.
+        /// </summary>
+        public List<Frame> DecodeNextPacket()
+        {
+            return Components.DecodeNextPacket();
+        }
+
+        public void Materialize(Frame input, FrameContainer output, bool releaseInput)
+        {
+            if (input == null) throw new ArgumentNullException($"{nameof(input)} cannot be null.");
+            if (output == null) throw new ArgumentNullException($"{nameof(output)} cannot be null.");
+            
+            try
+            {
+                switch (input.MediaType)
+                {
+                    case MediaType.Video:
+                        if (Components.HasVideo) Components.Video.Materialize(input, output);
+                        return;
+                    case MediaType.Audio:
+                        if (Components.HasAudio) Components.Audio.Materialize(input, output);
+                        return;
+                    case MediaType.Subtitle:
+                        if (Components.HasSubtitles) Components.Subtitles.Materialize(input, output);
+                        return;
+                }
+            }
+            finally
+            {
+                if (releaseInput)
+                    input.Dispose();
+            }
+
+        }
+
+        #endregion
+
 
         private void StreamReadSuspend()
         {
@@ -647,12 +597,12 @@
                     $"SEEK INIT".Trace(typeof(MediaContainer));
                     var beforeFrameTime = component.LastFrameTime;
                     while (beforeFrameTime == component.LastFrameTime)
-                        StreamReadNextPacket();
+                        ReadNextPacket();
 
                     $"SEEK START | Current {component.LastFrameTime.TotalSeconds,10:0.000} | Target {targetTime.TotalSeconds,10:0.000}".Trace(typeof(MediaContainer));
                     while (component.LastFrameTime < targetTime)
                     {
-                        StreamReadNextPacket();
+                        ReadNextPacket();
                         if (IsAtEndOfStream)
                             break;
                     }

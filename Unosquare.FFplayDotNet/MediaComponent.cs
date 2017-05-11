@@ -2,6 +2,7 @@
 {
     using FFmpeg.AutoGen;
     using System;
+    using System.Collections.Generic;
     using System.Globalization;
     using System.Threading;
     using System.Threading.Tasks;
@@ -60,12 +61,9 @@
         private readonly PacketQueue SentPackets = new PacketQueue();
 
         /// <summary>
-        /// Contains the frames that have been decoded for this media component.
-        /// These frames have to be dequeued.
+        /// The synchronization root locker
         /// </summary>
-        private readonly FrameQueue Frames = new FrameQueue();
-
-        private readonly object DecompressLock = new object();
+        private readonly object SyncRoot = new object();
 
         #endregion
 
@@ -115,11 +113,6 @@
         public TimeSpan LastFrameTime { get; protected set; }
 
         /// <summary>
-        /// Gets the render time or the last packet that was received by this media component.
-        /// </summary>
-        public TimeSpan LastPacketTime { get; protected set; }
-
-        /// <summary>
         /// Gets the number of packets that have been received
         /// by this media component.
         /// </summary>
@@ -129,28 +122,17 @@
         /// Gets the current length in bytes of the 
         /// packet buffer.
         /// </summary>
-        public int PacketBufferLength { get { return Packets.BufferLength; } }
+        public int PacketBufferLength { get { lock (SyncRoot) return Packets.BufferLength; } }
 
         /// <summary>
         /// Gets the current duration of the packet buffer.
         /// </summary>
-        public TimeSpan PacketBufferDuration
-        {
-            get
-            {
-                return Packets.Duration.ToTimeSpan(Stream->time_base);
-            }
-        }
+        public TimeSpan PacketBufferDuration { get { lock (SyncRoot) return Packets.Duration.ToTimeSpan(Stream->time_base); } }
 
         /// <summary>
         /// Gets the number of packets in the queue.
         /// </summary>
-        public int PacketBufferCount { get { return Packets.Count; } }
-
-        /// <summary>
-        /// Gets the number of frames in the queue.
-        /// </summary>
-        public int FrameBufferCount { get { return Frames.Count; } }
+        public int PacketBufferCount { get { lock (SyncRoot) return Packets.Count; } }
 
         #endregion
 
@@ -263,7 +245,7 @@
         /// Determines whether the specified packet is a Null Packet (data = null, size = 0)
         /// These null packets are used to read multiple frames from a single packet.
         /// </summary>
-        protected bool IsEmptyPacket(AVPacket* packet)
+        protected static bool IsEmptyPacket(AVPacket* packet)
         {
             if (packet == null) return false;
             return (packet->data == null && packet->size == 0);
@@ -275,14 +257,18 @@
         /// </summary>
         internal void ClearPacketQueues()
         {
-            // Release packets that are already in the queue.
-            SentPackets.Clear();
-            Packets.Clear();
+            lock (SyncRoot)
+            {
+                // Release packets that are already in the queue.
+                SentPackets.Clear();
+                Packets.Clear();
 
-            // Discard any data that was buffered in codec's internal memory.
-            // reset the buffer
-            if (CodecContext != null)
-                ffmpeg.avcodec_flush_buffers(CodecContext);
+                // Discard any data that was buffered in codec's internal memory.
+                // reset the buffer
+                if (CodecContext != null)
+                    ffmpeg.avcodec_flush_buffers(CodecContext);
+            }
+
         }
 
         /// <summary>
@@ -291,10 +277,14 @@
         /// </summary>
         internal void SendEmptyPacket()
         {
-            var emptyPacket = ffmpeg.av_packet_alloc();
-            emptyPacket->data = null;
-            emptyPacket->size = 0;
-            SendPacket(emptyPacket);
+            lock (SyncRoot)
+            {
+                var emptyPacket = ffmpeg.av_packet_alloc();
+                emptyPacket->data = null;
+                emptyPacket->size = 0;
+                SendPacket(emptyPacket);
+            }
+
         }
 
         /// <summary>
@@ -310,46 +300,26 @@
             // ffplay.c reference: pkt_in_play_range
             if (packet == null) return;
 
-            Packets.Push(packet);
-            if (IsEmptyPacket(packet) == false)
-                LastPacketTime = packet->pts.ToTimeSpan(Stream->time_base);
-
-            ReceivedPacketCount += 1;
+            lock (SyncRoot)
+            {
+                Packets.Push(packet);
+                ReceivedPacketCount += 1;
+            }
         }
 
         /// <summary>
         /// Decodes the next packet in the packet queue in this media component.
+        /// Returns the decoded frames
         /// </summary>
-        /// <returns></returns>
-        public int DecodeNextPacket()
+        public List<Frame> DecodeNextPacket()
         {
-            if (PacketBufferCount <= 0) return 0;
-            var decodedFrames = DecodeNextPacketInternal();
-            DecodedFrameCount += (ulong)decodedFrames;
-            return decodedFrames;
-        }
-
-        public int DequeueFrame(MediaFrameSlot output)
-        {
-            // TODO: this needs to retun a MediaSlot object
-            // as opposed to raising events because events
-            // and threading do not play very well together.
-
-            // only one decompress call at a time
-            lock (DecompressLock)
+            lock (SyncRoot)
             {
-                if (Frames.Count <= 0)
-                    return 0;
-
-                var frame = Frames.Dequeue();
-                if (frame == null) return 0;
-                DequeueFrame(frame, output);
-                frame.Dispose();
-                frame = null;
-
-                return 1;
+                if (PacketBufferCount <= 0) return new List<Frame>(0);
+                var decodedFrames = DecodeNextPacketInternal();
+                DecodedFrameCount += (ulong)decodedFrames.Count;
+                return decodedFrames;
             }
-
         }
 
         /// <summary>
@@ -359,15 +329,16 @@
         /// ProcessFrame method.
         /// </summary>
         /// <returns></returns>
-        private int DecodeNextPacketInternal()
+        private List<Frame> DecodeNextPacketInternal()
         {
+            var result = new List<Frame>();
+
             // Ensure there is at least one packet in the queue
-            if (PacketBufferCount <= 0) return 0;
+            if (PacketBufferCount <= 0) return result;
 
             // Setup some initial state variables
             var packet = Packets.Peek();
             var receiveFrameResult = 0;
-            var receivedFrameCount = 0;
 
             if (MediaType == MediaType.Audio || MediaType == MediaType.Video)
             {
@@ -392,11 +363,10 @@
                         if (receiveFrameResult == 0)
                         {
                             // Send the frame to processing
-                            receivedFrameCount += 1;
                             var managedFrame = CreateFrame(outputFrame);
                             if (managedFrame == null)
                                 throw new MediaContainerException($"{MediaType} Component does not implement {nameof(CreateFrame)}");
-                            Frames.Push(managedFrame);
+                            result.Add(managedFrame);
                             LastFrameTime = managedFrame.StartTime;
                         }
                     }
@@ -432,11 +402,10 @@
                         try
                         {
                             // Send the frame to processing
-                            receivedFrameCount += 1;
                             var managedFrame = CreateFrame(&outputFrame);
                             if (managedFrame == null)
                                 throw new MediaContainerException($"{MediaType} Component does not implement {nameof(CreateFrame)}");
-                            Frames.Push(managedFrame);
+                            result.Add(managedFrame);
                             LastFrameTime = managedFrame.StartTime;
                         }
                         catch
@@ -465,12 +434,10 @@
                             if (gotFrame != 0 && receiveFrameResult > 0)
                             {
                                 // Send the subtitle to processing
-                                receivedFrameCount += 1;
-
                                 var managedFrame = CreateFrame(&outputFrame);
                                 if (managedFrame == null)
                                     throw new MediaContainerException($"{MediaType} Component does not implement {nameof(CreateFrame)}");
-                                Frames.Push(managedFrame);
+                                result.Add(managedFrame);
                                 LastFrameTime = managedFrame.StartTime;
                             }
 
@@ -495,17 +462,17 @@
             SentPackets.Push(Packets.Dequeue());
 
             // Release the sent packets if 1 or more frames were received in the packet
-            if (receivedFrameCount >= 1)
+            if (result.Count >= 1)
             {
                 // We clear the sent packet queue (releasing packet from unmanaged memory also)
                 // because we got at least 1 frame from the packet.
                 SentPackets.Clear();
             }
 
-            return receivedFrameCount;
+            return result;
         }
 
-        protected abstract void DequeueFrame(Frame genericFrame, MediaFrameSlot output);
+        internal abstract void Materialize(Frame input, FrameContainer output);
 
         protected virtual Frame CreateFrame(AVFrame* frame) { return null; }
 

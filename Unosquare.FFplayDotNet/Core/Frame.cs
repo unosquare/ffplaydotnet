@@ -5,21 +5,22 @@
 
     public unsafe abstract class Frame : IDisposable
     {
-        protected void* ObjectPointer;
-        private bool IsDisposed = false;
+        protected void* InternalPointer;
         protected AVRational TimeBase;
+        private bool IsDisposed = false;
 
-        protected Frame(MediaType mediaType, void* pointer, AVRational timeBase)
+        internal Frame(MediaType mediaType, void* pointer, AVRational timeBase)
         {
-            MediaType = MediaType;
-            ObjectPointer = pointer;
+            MediaType = mediaType;
+            InternalPointer = pointer;
             TimeBase = timeBase;
         }
 
         public MediaType MediaType { get; private set; }
 
-        public void* Opaque { get { return ObjectPointer; } }
-
+        /// <summary>
+        /// Releases internal frame 
+        /// </summary>
         protected abstract void Release();
 
         /// <summary>
@@ -66,7 +67,7 @@
         public VideoFrame(AVFrame* frame, AVRational timeBase)
             : base(MediaType.Video, frame, timeBase)
         {
-            m_Pointer = (AVFrame*)ObjectPointer;
+            m_Pointer = (AVFrame*)InternalPointer;
 
             // for vide frames, we always get the best effort timestamp as dts and pts might
             // contain different times.
@@ -95,7 +96,7 @@
         public AudioFrame(AVFrame* frame, AVRational timeBase)
             : base(MediaType.Audio, frame, timeBase)
         {
-            m_Pointer = (AVFrame*)ObjectPointer;
+            m_Pointer = (AVFrame*)InternalPointer;
 
             // Compute the timespans
             StartTime = ffmpeg.av_frame_get_best_effort_timestamp(frame).ToTimeSpan(timeBase);
@@ -120,9 +121,9 @@
         private AVSubtitle* m_Pointer = null;
 
         public SubtitleFrame(AVSubtitle* frame, AVRational timeBase)
-            : base(MediaType.Audio, frame, timeBase)
+            : base(MediaType.Subtitle, frame, timeBase)
         {
-            m_Pointer = (AVSubtitle*)ObjectPointer;
+            m_Pointer = (AVSubtitle*)InternalPointer;
 
             // Extract timing information
             var timeOffset = frame->pts.ToTimeSpan();

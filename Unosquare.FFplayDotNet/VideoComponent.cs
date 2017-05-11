@@ -97,40 +97,52 @@
             return frameHolder;
         }
 
-        protected override void DequeueFrame(Frame genericFrame, MediaFrameSlot output)
+        internal override void Materialize(Frame input, FrameContainer output)
         {
-            var frame = genericFrame as VideoFrame;
-            var slot = output as VideoFrameSlot;
+            var source = input as VideoFrame;
+            var target = output as VideoFrameContainer;
 
-            // If we don't have a callback, we don't need any further processing
-            if (Container.HandlesOnVideoDataAvailable == false)
-                return;
+            if (source == null || target == null)
+                throw new ArgumentNullException($"{nameof(input)} and {nameof(output)} are either null or not of a compatible media type '{MediaType}'");
 
             // Retrieve a suitable scaler or create it on the fly
             Scaler = ffmpeg.sws_getCachedContext(Scaler,
-                    frame.Pointer->width, frame.Pointer->height, GetPixelFormat(frame.Pointer), 
-                    frame.Pointer->width, frame.Pointer->height,
+                    source.Pointer->width, source.Pointer->height, GetPixelFormat(source.Pointer),
+                    source.Pointer->width, source.Pointer->height,
                     OutputPixelFormat, ScalerFlags, null, null, null);
 
-            // Perform scaling and save the data to our unmanaged buffer pointer for callbacks
-            
-                var targetBufferStride = ffmpeg.av_image_get_linesize(OutputPixelFormat, frame.Pointer->width, 0);
-                var targetStride = new int[] { targetBufferStride };
-                var targetLength = ffmpeg.av_image_get_buffer_size(OutputPixelFormat, frame.Pointer->width, frame.Pointer->height, 1);
-                var targetBuffer = slot.Allocate(targetLength);
-                var targetScan = new byte_ptrArray8();
-                targetScan[0] = (byte*)targetBuffer;
+            // Perform scaling and save the data to our unmanaged buffer pointer
+            var targetBufferStride = ffmpeg.av_image_get_linesize(OutputPixelFormat, source.Pointer->width, 0);
+            var targetStride = new int[] { targetBufferStride };
+            var targetLength = ffmpeg.av_image_get_buffer_size(OutputPixelFormat, source.Pointer->width, source.Pointer->height, 1);
 
-                var outputHeight = ffmpeg.sws_scale(Scaler, frame.Pointer->data, frame.Pointer->linesize, 0, frame.Pointer->height, targetScan, targetStride);
+            // Ensure proper allocation of the buffer
+            // If there is a size mismatch between the wanted buffer length and the existing one,
+            // then let's reallocate the buffer and set the new size (dispose of the existing one if any)
+            if (target.PictureBufferLength != targetLength)
+            {
+                if (target.PictureBuffer != IntPtr.Zero)
+                    Marshal.FreeHGlobal(target.PictureBuffer);
 
-                slot.Update(frame.StartTime, frame.EndTime, frame.Duration, targetStride[0], frame.Pointer->width, frame.Pointer->height, 
-                    frame.Pointer->coded_picture_number, frame.Pointer->display_picture_number);
-            
+                target.PictureBufferLength = targetLength;
+                target.PictureBuffer = Marshal.AllocHGlobal(target.PictureBufferLength);
+            }
 
+            var targetScan = new byte_ptrArray8();
+            targetScan[0] = (byte*)target.PictureBuffer;
 
-            // Raise the data available event with all the decompressed frame data
-            Container.RaiseOnVideoDataAvailabe(slot.Buffer, slot.BufferLength, slot.BufferStride, slot.PixelWidth, slot.PixelHeight, slot.StartTime, slot.Duration);
+            // The scaling is done here
+            var outputHeight = ffmpeg.sws_scale(Scaler, source.Pointer->data, source.Pointer->linesize, 0, source.Pointer->height, targetScan, targetStride);
 
+            // We set the target properties
+            target.BufferStride = targetStride[0];
+            target.CodedPictureNumber = source.Pointer->coded_picture_number;
+            target.DisplayPictureNumber = source.Pointer->display_picture_number;
+            target.Duration = source.Duration;
+            target.EndTime = source.EndTime;
+            target.PixelHeight = source.Pointer->height;
+            target.PixelWidth = source.Pointer->width;
+            target.StartTime = source.StartTime;
         }
 
         #endregion

@@ -89,31 +89,31 @@ namespace FFmpeg.AutoGen
         
         /// <summary>Allocate empty list of bitstream filters. The list must be later freed by av_bsf_list_free() or finalized by av_bsf_list_finalize().</summary>
         [DllImport("avcodec-57", EntryPoint = "av_bsf_list_alloc", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern AVBSFList* av_bsf_list_alloc();
+        public static extern List* av_bsf_list_alloc();
         
         /// <summary>Append bitstream filter to the list of bitstream filters.</summary>
         /// <param name="lst">List to append to</param>
         /// <param name="bsf">Filter context to be appended</param>
         [DllImport("avcodec-57", EntryPoint = "av_bsf_list_append", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern int av_bsf_list_append(AVBSFList* @lst, AVBSFContext* @bsf);
+        public static extern int av_bsf_list_append(List* @lst, AVBSFContext* @bsf);
         
         /// <summary>Construct new bitstream filter context given it&apos;s name and options and append it to the list of bitstream filters.</summary>
         /// <param name="lst">List to append to</param>
         /// <param name="bsf_name">Name of the bitstream filter</param>
         /// <param name="options">Options for the bitstream filter, can be set to NULL</param>
         [DllImport("avcodec-57", EntryPoint = "av_bsf_list_append2", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern int av_bsf_list_append2(AVBSFList* @lst, [MarshalAs(UnmanagedType.LPStr)] string @bsf_name, AVDictionary** @options);
+        public static extern int av_bsf_list_append2(List* @lst, [MarshalAs(UnmanagedType.LPStr)] string @bsf_name, AVDictionary** @options);
         
         /// <summary>Finalize list of bitstream filters.</summary>
         /// <param name="lst">Filter list structure to be transformed</param>
         /// <param name="bsf">Pointer to be set to newly created</param>
         [DllImport("avcodec-57", EntryPoint = "av_bsf_list_finalize", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern int av_bsf_list_finalize(AVBSFList** @lst, AVBSFContext** @bsf);
+        public static extern int av_bsf_list_finalize(List** @lst, AVBSFContext** @bsf);
         
         /// <summary>Free list of bitstream filters.</summary>
         /// <param name="lst">Pointer to pointer returned by av_bsf_list_alloc()</param>
         [DllImport("avcodec-57", EntryPoint = "av_bsf_list_free", CallingConvention = CallingConvention.Cdecl, CharSet = CharSet.Ansi)]
-        public static extern void av_bsf_list_free(AVBSFList** @lst);
+        public static extern void av_bsf_list_free(List** @lst);
         
         /// <summary>Parse string describing list of bitstream filters and create single Resulting allocated by av_bsf_alloc().</summary>
         /// <param name="str">String describing chain of bitstream filters in format `bsf1[=opt1=val1:opt2=val2][,bsf2]`</param>

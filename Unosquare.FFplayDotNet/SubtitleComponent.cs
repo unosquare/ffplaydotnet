@@ -23,27 +23,30 @@
             return frameHolder;
         }
 
-        protected override void DequeueFrame(Frame genericFrame, MediaFrameSlot output)
+        internal override void Materialize(Frame input, FrameContainer output)
         {
-            var frame = genericFrame as SubtitleFrame;
+            var source = input as SubtitleFrame;
+            var target = output as SubtitleFrameContainer;
 
-            // Check if there is a handler to feed the conversion to.
-            if (Container.HandlesOnSubtitleDataAvailable == false)
-                return;
+            if (source == null || target == null)
+                throw new ArgumentNullException($"{nameof(input)} and {nameof(output)} are either null or not of a compatible media type '{MediaType}'");
 
             // Extract text strings
-            var subtitleText = new List<string>();
+            var subtitleText = new List<string>(16);
 
-            for (var i = 0; i < frame.Pointer->num_rects; i++)
+            for (var i = 0; i < source.Pointer->num_rects; i++)
             {
-                var rect = frame.Pointer->rects[i];
+                var rect = source.Pointer->rects[i];
                 if (rect->text != null)
                     subtitleText.Add(Utils.PtrToStringUTF8(rect->text));
-
             }
 
-            // Provide the data in an event
-            Container.RaiseOnSubtitleDataAvailabe(subtitleText.ToArray(), frame.StartTime, frame.EndTime, frame.Duration);
+            // Set the target data
+            target.Duration = source.Duration;
+            target.EndTime = source.EndTime;
+            target.StartTime = source.StartTime;
+            target.Text.Clear();
+            target.Text.AddRange(subtitleText);
         }
     }
 

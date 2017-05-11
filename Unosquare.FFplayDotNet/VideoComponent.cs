@@ -18,23 +18,6 @@
         /// </summary>
         private SwsContext* Scaler = null;
 
-        /// <summary>
-        /// Holds a reference to the last allocated buffer
-        /// </summary>
-        private IntPtr PictureBuffer;
-
-        /// <summary>
-        /// The picture buffer length of the last allocated buffer
-        /// </summary>
-        private int PictureBufferLength;
-
-        /// <summary>
-        /// The picture buffer stride. 
-        /// Pixel Width * 24-bit color (3 byes) + alignment (typically 0 for modern hw).
-        /// </summary>
-        private int PictureBufferStride;
-
-
 
         #endregion
 
@@ -114,9 +97,10 @@
             return frameHolder;
         }
 
-        protected override void DecompressFrame(Frame genericFrame)
+        protected override void DequeueFrame(Frame genericFrame, MediaFrameSlot output)
         {
             var frame = genericFrame as VideoFrame;
+            var slot = output as VideoFrameSlot;
 
             // If we don't have a callback, we don't need any further processing
             if (Container.HandlesOnVideoDataAvailable == false)
@@ -129,48 +113,24 @@
                     OutputPixelFormat, ScalerFlags, null, null, null);
 
             // Perform scaling and save the data to our unmanaged buffer pointer for callbacks
-            {
-                PictureBufferStride = ffmpeg.av_image_get_linesize(OutputPixelFormat, frame.Pointer->width, 0);
-                var targetStride = new int[] { PictureBufferStride };
+            
+                var targetBufferStride = ffmpeg.av_image_get_linesize(OutputPixelFormat, frame.Pointer->width, 0);
+                var targetStride = new int[] { targetBufferStride };
                 var targetLength = ffmpeg.av_image_get_buffer_size(OutputPixelFormat, frame.Pointer->width, frame.Pointer->height, 1);
-                var unmanagedBuffer = AllocateBuffer(targetLength);
+                var targetBuffer = slot.Allocate(targetLength);
                 var targetScan = new byte_ptrArray8();
-                targetScan[0] = (byte*)unmanagedBuffer;
-                var outputHeight = ffmpeg.sws_scale(Scaler, frame.Pointer->data, frame.Pointer->linesize, 0, frame.Pointer->height, targetScan, targetStride);
-            }
+                targetScan[0] = (byte*)targetBuffer;
 
-            // TODO: add coded picture number and siplay picture number
+                var outputHeight = ffmpeg.sws_scale(Scaler, frame.Pointer->data, frame.Pointer->linesize, 0, frame.Pointer->height, targetScan, targetStride);
+
+                slot.Update(frame.StartTime, frame.EndTime, frame.Duration, targetStride[0], frame.Pointer->width, frame.Pointer->height, 
+                    frame.Pointer->coded_picture_number, frame.Pointer->display_picture_number);
+            
+
 
             // Raise the data available event with all the decompressed frame data
-            Container.RaiseOnVideoDataAvailabe(
-                PictureBuffer, PictureBufferLength, PictureBufferStride,
-                frame.Pointer->width, frame.Pointer->height,
-                frame.StartTime,
-                frame.Duration);
+            Container.RaiseOnVideoDataAvailabe(slot.Buffer, slot.BufferLength, slot.BufferStride, slot.PixelWidth, slot.PixelHeight, slot.StartTime, slot.Duration);
 
-        }
-
-        /// <summary>
-        /// Allocates a buffer if needed in unmanaged memory. If we already have a buffer of the specified
-        /// length, then the existing buffer is not freed and recreated. Regardless, this method will always return
-        /// a pointer to the start of the buffer.
-        /// </summary>
-        /// <param name="length">The length.</param>
-        /// <returns></returns>
-        private IntPtr AllocateBuffer(int length)
-        {
-            // If there is a size mismatch between the wanted buffer length and the existing one,
-            // then let's reallocate the buffer and set the new size (dispose of the existing one if any)
-            if (PictureBufferLength != length)
-            {
-                if (PictureBuffer != IntPtr.Zero)
-                    Marshal.FreeHGlobal(PictureBuffer);
-
-                PictureBufferLength = length;
-                PictureBuffer = Marshal.AllocHGlobal(PictureBufferLength);
-            }
-
-            return PictureBuffer;
         }
 
         #endregion
@@ -186,9 +146,6 @@
             base.Dispose(alsoManaged);
             if (Scaler != null)
                 ffmpeg.sws_freeContext(Scaler);
-
-            if (PictureBuffer != IntPtr.Zero)
-                Marshal.FreeHGlobal(PictureBuffer);
         }
 
         #endregion

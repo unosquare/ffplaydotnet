@@ -329,7 +329,7 @@
             return decodedFrames;
         }
 
-        public int DecompressNextFrame()
+        public int DequeueFrame(MediaFrameSlot output)
         {
             // TODO: this needs to retun a MediaSlot object
             // as opposed to raising events because events
@@ -343,7 +343,7 @@
 
                 var frame = Frames.Dequeue();
                 if (frame == null) return 0;
-                DecompressFrame(frame);
+                DequeueFrame(frame, output);
                 frame.Dispose();
                 frame = null;
 
@@ -505,7 +505,7 @@
             return receivedFrameCount;
         }
 
-        protected abstract void DecompressFrame(Frame genericFrame);
+        protected abstract void DequeueFrame(Frame genericFrame, MediaFrameSlot output);
 
         protected virtual Frame CreateFrame(AVFrame* frame) { return null; }
 

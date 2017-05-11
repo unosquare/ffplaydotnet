@@ -291,11 +291,13 @@
             return result;
         }
 
-        public int DecompressNextFrame()
+
+        // TODO: Change output to MediaBufferSet
+        public int DequeueFrame(MediaFrameSlot output)
         {
             var result = 0;
             foreach (var component in Items)
-                result += component.Value.DecompressNextFrame();
+                result += component.Value.DequeueFrame(output);
 
             return result;
         }

@@ -85,7 +85,7 @@ namespace Unosquare.FFplayDotNet
             return frameHolder;
         }
 
-        protected override void DecompressFrame(Frame genericFrame)
+        protected override void DequeueFrame(Frame genericFrame, MediaFrameSlot output)
         {
             var frameHolder = genericFrame as AudioFrame;
             var frame = frameHolder.Pointer;

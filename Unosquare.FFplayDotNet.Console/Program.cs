@@ -77,6 +77,10 @@
         private static string OutputPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "output");
 
 
+        /// <summary>
+        /// Mains the specified arguments.
+        /// </summary>
+        /// <param name="args">The arguments.</param>
         static void Main(string[] args)
         {
 
@@ -101,16 +105,25 @@
             ulong totalBytes = 0;
             WriteableBitmap bitmap = null;
             var stopDecompressing = false;
+            var output = new VideoFrameSlot();
 
             #endregion
 
             #region Frame Handlers
+
+            var videoFrame = IntPtr.Zero;
 
             player.OnVideoDataAvailable += (s, e) =>
             {
                 totalBytes += (ulong)e.BufferLength;
                 totalDurationSeconds += e.Duration.TotalSeconds;
                 $"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB | LRT: {player.Components.Video.LastFrameTime.TotalSeconds,10:0.000}".Info(typeof(Program));
+
+                if (isBenchmarking)
+                {
+                    //if (videoFrame == IntPtr.Zero) videoFrame = Marshal.AllocHGlobal(e.BufferLength);
+                    //Utils.CopyMemory(videoFrame, e.Buffer, (uint)e.BufferLength);
+                }
 
                 if (isBenchmarking) return;
                 if (decompressDispatcher == null) return;
@@ -165,7 +178,7 @@
 
             player.OnAudioDataAvailable += (s, e) =>
             {
-                $"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB | LRT: {player.Components.Video.LastFrameTime.TotalSeconds,10:0.000}".Info(typeof(Program));
+                //$"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB | LRT: {player.Components.Video.LastFrameTime.TotalSeconds,10:0.000}".Info(typeof(Program));
                 totalBytes += (ulong)e.BufferLength;
 
                 if (isBenchmarking) return;
@@ -186,7 +199,7 @@
 
             player.OnSubtitleDataAvailable += (s, e) =>
             {
-                $"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {"N/A",10:0}   | LRT: {player.Components.Video.LastFrameTime.TotalSeconds,10:0.000}".Info(typeof(Program));
+                //$"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {"N/A",10:0}   | LRT: {player.Components.Video.LastFrameTime.TotalSeconds,10:0.000}".Info(typeof(Program));
             };
 
             #endregion
@@ -226,7 +239,7 @@
                                 if (player.Components.PacketBufferCount <= 24)
                                 {
                                     // buffer at least 60 packets
-                                    while (player.Components.PacketBufferCount < 48)
+                                    while (player.Components.PacketBufferCount < 48 && readCancel == false)
                                         player.StreamReadNextPacket();
 
                                     ($"Buffer     | DUR: {player.Components.PacketBufferDuration.TotalSeconds,10:0.000}"
@@ -259,7 +272,7 @@
                         try
                         {
                             var decodedFrames = player.Components.DecodeNextPacket();
-                            player.Components.DecompressNextFrame();
+                            player.Components.DequeueFrame(output);
 
                             if (decodedFrames == 0)
                             {

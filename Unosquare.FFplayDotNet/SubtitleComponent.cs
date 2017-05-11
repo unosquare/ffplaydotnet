@@ -23,7 +23,7 @@
             return frameHolder;
         }
 
-        protected override void DecompressFrame(Frame genericFrame)
+        protected override void DequeueFrame(Frame genericFrame, MediaFrameSlot output)
         {
             var frame = genericFrame as SubtitleFrame;
 

@@ -2,6 +2,7 @@
 {
     using FFmpeg.AutoGen;
     using System;
+    using System.Collections.Generic;
 
     public unsafe abstract class Frame : IDisposable
     {
@@ -130,9 +131,22 @@
             StartTime = timeOffset + ((long)frame->start_display_time).ToTimeSpan(timeBase);
             EndTime = timeOffset + ((long)frame->end_display_time).ToTimeSpan(timeBase);
             Duration = EndTime - StartTime;
+
+            // Extract text strings
+            for (var i = 0; i < frame->num_rects; i++)
+            {
+                var rect = frame->rects[i];
+                if (rect->text != null)
+                    Text.Add(Utils.PtrToStringUTF8(rect->text));
+            }
+
+            // Immediately release as the struct was created in managed memory
+            Release();
         }
 
         public AVSubtitle* Pointer { get { return m_Pointer; } }
+
+        public List<string> Text { get; } = new List<string>(16);
 
         protected override void Release()
         {

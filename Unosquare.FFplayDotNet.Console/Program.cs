@@ -57,9 +57,9 @@
 
             #region Setup
 
-            InputFile = TestInputs.BigBuckBunnyLocal;
+            InputFile = TestInputs.YoutubeLocalFile;
             DecodeDurationLimit = 20;
-            IsBenchmarking = false;
+            IsBenchmarking = true;
             SaveWaveFile = true;
             SaveSnapshots = true;
 
@@ -232,7 +232,7 @@
 
         private static void HandleSubtitleFrame(SubtitleFrameContainer e)
         {
-
+            ("Subtitle: " + string.Join(" ", e.Text)).Warn(typeof(Program));
         }
 
         private static void HandleVideoFrame(VideoFrameContainer e)

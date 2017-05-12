@@ -125,8 +125,8 @@
         {
             get
             {
-                if (InputContext == null) return 0;
-                return ffmpeg.avio_tell(InputContext->pb);
+                if (InputContext == null || InputContext->pb == null) return 0;
+                return InputContext->pb->pos;
             }
         }
 
@@ -143,40 +143,41 @@
         public bool IsRealtimeStream { get; private set; }
 
         /// <summary>
-        /// Gets a value indicating whether a packet read delay witll be enforced.
-        /// RSTP formats or MMSH Urls will have this property set to true.
-        /// Reading packets will block for at most 10 milliseconds depending on the last read time.
-        /// This is a hack according to the source code in ffplay.c
-        /// </summary>
-        public bool RequiresReadDelay { get; private set; }
-
-        /// <summary>
         /// Gets the time the last packet was read from the input
         /// </summary>
         public DateTime LastReadTimeUtc { get; private set; } = DateTime.MinValue;
-
-        /// <summary>
-        /// For RTSP and other realtime streams reads can be suspended.
-        /// </summary>
-        public bool CanReadSuspend { get; private set; }
-
-        /// <summary>
-        /// For RTSP and other realtime streams reads can be suspended.
-        /// This property will return true if reads have been suspended.
-        /// </summary>
-        public bool IsReadSuspended { get; private set; }
 
         /// <summary>
         /// Provides direct access to the individual Media components of the input stream.
         /// </summary>
         public MediaComponentSet Components { get; private set; }
 
+
+        /// <summary>
+        /// For RTSP and other realtime streams reads can be suspended.
+        /// </summary>
+        internal bool CanReadSuspend { get; private set; }
+
+        /// <summary>
+        /// For RTSP and other realtime streams reads can be suspended.
+        /// This property will return true if reads have been suspended.
+        /// </summary>
+        internal bool IsReadSuspended { get; private set; }
+
+        /// <summary>
+        /// Gets a value indicating whether a packet read delay witll be enforced.
+        /// RSTP formats or MMSH Urls will have this property set to true.
+        /// Reading packets will block for at most 10 milliseconds depending on the last read time.
+        /// This is a hack according to the source code in ffplay.c
+        /// </summary>
+        internal bool RequiresReadDelay { get; private set; }
+
         /// <summary>
         /// Picture attachments are required when video streams support them
         /// and these attached packets must be read before reading the first frame
         /// of the stream and after seeking. This property is not part of the public API
         /// and is meant more for internal purposes
-        private bool RequiresPictureAttachments
+        internal bool RequiresPictureAttachments
         {
             get
             {
@@ -363,6 +364,7 @@
 
             foreach (var mediaTypeItem in allMediaTypes)
             {
+                if ((int)mediaTypeItem < 0) continue;
                 var mediaType = (MediaType)mediaTypeItem;
 
                 try
@@ -411,12 +413,12 @@
         /// <summary>
         /// Reads the next available packet, sending the packet to the corresponding
         /// internal media component. It also sets IsAtEndOfStream property.
-        /// Return true if the packet was accepted by any of the media components.
+        /// Returns true if the packet was accepted by any of the media components.
         /// Returns false if the packet was not accepted by any of the media components
         /// or if reading failed (i.e. End of stream or read error)
         /// </summary>
         /// <exception cref="MediaContainerException"></exception>
-        public bool ReadNextPacket()
+        public MediaType ReadNext()
         {
             // Ensure read is not suspended
             StreamReadResume();
@@ -463,7 +465,7 @@
                         Components.SendEmptyPackets();
 
                     IsAtEndOfStream = true;
-                    return false;
+                    return MediaType.None;
                 }
                 else
                 {
@@ -479,45 +481,105 @@
             // Check if we were able to feed the packet. If not, simply discard it
             if (readPacket != null)
             {
-                var wasPacketAccepted = Components.SendPacket(readPacket);
+                var componentType = Components.SendPacket(readPacket);
 
                 // Discard the packet -- it was not accepted by any component
-                if (wasPacketAccepted == false)
+                if (componentType == MediaType.None)
                     ffmpeg.av_packet_free(&readPacket);
 
-                return wasPacketAccepted;
+                return componentType;
             }
 
-            return false;
+            return MediaType.None;
         }
 
         /// <summary>
-        /// Decodes the next available packet in the packet queue for all components.
+        /// Decodes the next available packet in the packet queue for each of the components.
         /// Returns the list of decoded frames.
+        /// A Packet may contain 0 or more frames.
         /// </summary>
-        public List<FrameSource> DecodeNextPacket()
+        /// <param name="sortFrames">if set to <c>true</c> the resulting list of frames will be sorted by StartTime ascending</param>
+        /// <returns></returns>
+        public List<FrameSource> DecodeNext(bool sortFrames = false)
         {
-            return Components.DecodeNextPacket();
+            var result = new List<FrameSource>(64);
+            foreach (var component in Components.All)
+                result.AddRange(component.DecodeNextPacket());
+
+            if (sortFrames)
+                result.Sort();
+
+            return result;
         }
 
-        public void Materialize(FrameSource input, Frame output, bool releaseInput)
+        /// <summary>
+        /// Decodes the next available packet for the given frame source type.
+        /// </summary>
+        /// <typeparam name="T">Video Audio or Subtitle Frame Source</typeparam>
+        /// <returns></returns>
+        public List<T> DecodeNext<T>()
+            where T : FrameSource
+        {
+            if (Components.HasVideo && typeof(T) == typeof(VideoFrameSource))
+                return Components.Video.DecodeNextPacket().Cast<T>().ToList();
+
+            if (Components.HasAudio && typeof(T) == typeof(AudioFrameSource))
+                return Components.Audio.DecodeNextPacket().Cast<T>().ToList();
+
+            if (Components.HasSubtitles && typeof(T) == typeof(SubtitleFrameSource))
+                return Components.Subtitles.DecodeNextPacket().Cast<T>().ToList();
+
+            return new List<T>(0);
+        }
+
+        /// <summary>
+        /// Performs audio, video and subtitle conversions on the decoded input frame so data
+        /// can be used as a Frame. Pleasde note that if the output is passed as a reference. 
+        /// This works as follows: if the output reference is null it will be automatically instantiated 
+        /// and returned by this function. This enables to  either intantiate or reuse a Frame. 
+        /// This is important because buffer allocations are exepnsive operations and this allows you 
+        /// to perform the allocation once and continue reusing thae same buffer.
+        /// </summary>
+        /// <param name="input">The raw frame source.</param>
+        /// <param name="output">The target frame.</param>
+        /// <param name="releaseInput">if set to <c>true</c> releases the raw frame source from unmanaged memory.</param>
+        /// <returns></returns>
+        /// <exception cref="System.ArgumentNullException">input</exception>
+        /// <exception cref="System.ArgumentException">
+        /// input
+        /// or
+        /// input
+        /// </exception>
+        /// <exception cref="MediaContainerException">MediaType</exception>
+        public Frame MaterializeFrame(FrameSource input, ref Frame output, bool releaseInput = true)
         {
             if (input == null) throw new ArgumentNullException($"{nameof(input)} cannot be null.");
-            if (output == null) throw new ArgumentNullException($"{nameof(output)} cannot be null.");
 
             try
             {
                 switch (input.MediaType)
                 {
                     case MediaType.Video:
-                        if (Components.HasVideo) Components.Video.Materialize(input, output);
-                        return;
+                        if (input.IsStale) throw new ArgumentException(
+                            $"The {nameof(input)} {nameof(FrameSource)} has already been released (it's stale).");
+
+                        if (Components.HasVideo) Components.Video.MaterializeFrame(input, ref output);
+                        return output;
+
                     case MediaType.Audio:
-                        if (Components.HasAudio) Components.Audio.Materialize(input, output);
-                        return;
+                        if (input.IsStale) throw new ArgumentException(
+                            $"The {nameof(input)} {nameof(FrameSource)} has already been released (it's stale).");
+
+                        if (Components.HasAudio) Components.Audio.MaterializeFrame(input, ref output);
+                        return output;
+
                     case MediaType.Subtitle:
-                        if (Components.HasSubtitles) Components.Subtitles.Materialize(input, output);
-                        return;
+                        // We don't need to heck if subtitles are stale because they are immediately released
+                        // upon decoding. This is because there is no unmanaged allocator for AVSubtitle.
+
+                        if (Components.HasSubtitles) Components.Subtitles.MaterializeFrame(input, ref output);
+                        return output;
+
                     default:
                         throw new MediaContainerException($"Unable to materialize {nameof(MediaType)} {(int)input.MediaType}");
                 }
@@ -528,6 +590,21 @@
                     input.Dispose();
             }
 
+        }
+
+        /// <summary>
+        /// Materializes the frame.
+        /// </summary>
+        /// <typeparam name="T"></typeparam>
+        /// <param name="input">The input.</param>
+        /// <param name="output">The output.</param>
+        /// <param name="releaseInput">if set to <c>true</c> [release input].</param>
+        /// <returns></returns>
+        public T MaterializeFrame<T>(FrameSource input, ref T output, bool releaseInput = true)
+            where T : Frame
+        {
+            var outputFrame = output as Frame;
+            return MaterializeFrame(input, ref outputFrame, releaseInput) as T;
         }
 
         #endregion
@@ -600,12 +677,12 @@
                     $"SEEK INIT".Trace(typeof(MediaContainer));
                     var beforeFrameTime = component.LastFrameTime;
                     while (beforeFrameTime == component.LastFrameTime)
-                        ReadNextPacket();
+                        ReadNext();
 
                     $"SEEK START | Current {component.LastFrameTime.TotalSeconds,10:0.000} | Target {targetTime.TotalSeconds,10:0.000}".Trace(typeof(MediaContainer));
                     while (component.LastFrameTime < targetTime)
                     {
-                        ReadNextPacket();
+                        ReadNext();
                         if (IsAtEndOfStream)
                             break;
                     }

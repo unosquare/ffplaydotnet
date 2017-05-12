@@ -46,22 +46,24 @@
         private static bool SaveWaveFile = true;
         private static bool SaveSnapshots = true;
 
-        private static bool readCancel = false;
+        private static volatile bool ReadCancel = false;
         private static ManualResetEventSlim DecodingDone = new ManualResetEventSlim(false);
         private static ManualResetEventSlim DecodingFinished = new ManualResetEventSlim(false);
 
         #endregion
+
+        #region Main Logic
 
         static void Main(string[] args)
         {
 
             #region Setup
 
-            InputFile = TestInputs.UdpStream;
+            InputFile = TestInputs.BigBuckBunnyLocal;
             DecodeDurationLimit = 20;
             IsBenchmarking = false;
-            SaveWaveFile = true;
-            SaveSnapshots = false;
+            SaveWaveFile = false;
+            SaveSnapshots = true;
 
             Player = new MediaContainer(InputFile);
             PrepareOutputDirectory(SaveWaveFile, SaveSnapshots);
@@ -76,18 +78,10 @@
                 DecodingFinished.Wait();
                 chronometer.Stop();
             }
-
+            
             Elapsed = chronometer.ElapsedMilliseconds / 1000d;
             DecodeSpeed = Player.Components.Video.DecodedFrameCount / Elapsed;
             PrintResults();
-
-            if (SaveWaveFile && !IsBenchmarking)
-            {
-                var audioFile = Path.Combine(OutputPath, "audio.wav");
-                SaveWavFile(AudioData, audioFile);
-                $"Saved wave file to '{audioFile}'".Warn(typeof(Program));
-            }
-
             Terminal.ReadKey(true, true);
         }
 
@@ -95,22 +89,24 @@
         {
             return Task.Run(() =>
             {
-                while (readCancel == false)
+                while (ReadCancel == false)
                 {
                     try
                     {
-                        if (Player.IsAtEndOfStream == false && readCancel == false)
+
+                        if (Player.IsAtEndOfStream == false && ReadCancel == false)
                         {
                             // check if the packet buuffer is too low
                             if (Player.Components.PacketBufferCount <= 24)
                             {
                                 // buffer at least 60 packets
-                                while (Player.Components.PacketBufferCount < 48 && readCancel == false)
-                                    Player.ReadNextPacket();
-                                var x = Player.LastReadTimeUtc;
+                                while (Player.Components.PacketBufferCount < 48 && Player.IsAtEndOfStream == false && ReadCancel == false)
+                                    Player.ReadNext();
+
                                 ($"Buffer     | DUR: {Player.Components.PacketBufferDuration.TotalSeconds,10:0.000}"
                                     + $" | LEN: {Player.Components.PacketBufferLength / 1024d,9:0.00}K"
-                                    + $" | CNT: {Player.Components.PacketBufferCount,12}").Warn(typeof(Program));
+                                    + $" | CNT: {Player.Components.PacketBufferCount,12}" + $" | POS: {Player.StreamPosition / 2014d,10:0.00}K")
+                                    .Warn(typeof(Program));
                             }
                         }
 
@@ -139,11 +135,13 @@
 
                     try
                     {
-                        var decodedFrames = Player.DecodeNextPacket();
+                        var decodedFrames = Player.DecodeNext(sortFrames: true);
                         foreach (var frame in decodedFrames)
                         {
-                            Player.Materialize(frame, Outputs[frame.MediaType], true);
-                            HandleFrame(Outputs[frame.MediaType]);
+                            var frameResult = Outputs[frame.MediaType];
+                            Player.MaterializeFrame(frame, ref frameResult, true);
+                            if (IsBenchmarking == false)
+                                HandleFrame(frameResult);
                         }
 
                         if (decodedFrames.Count == 0)
@@ -182,13 +180,17 @@
                     }
                 }
 
-                readCancel = true;
+                ReadCancel = true;
                 DecodingDone.Set();
                 $"Decoder task finished".Warn(typeof(Program));
                 DecodingFinished.Set();
 
             }).ConfigureAwait(false);
         }
+
+        #endregion
+
+        #region Frame Handlers
 
         private static void HandleFrame(Frame e)
         {
@@ -288,6 +290,10 @@
             });
         }
 
+        #endregion
+
+        #region Utility Methods
+
         private static void SaveWavFile(List<byte> audioData, string audioFile)
         {
             if (File.Exists(audioFile))
@@ -347,7 +353,6 @@
                 $"    Start Time  : {Player.MediaStartTime.TotalSeconds,10:0.000}\r\n" +
                 $"    Duration    : {Player.MediaDuration.TotalSeconds,10:0.000} secs\r\n" +
                 $"    Seekable    : {Player.IsStreamSeekable,10}\r\n" +
-                $"    Can Suspend : {Player.CanReadSuspend,10}\r\n" +
                 $"    Is Realtime : {Player.IsRealtimeStream,10}\r\n" +
                 $"    Packets     : {Player.Components.ReceivedPacketCount,10}\r\n" +
                 $"    Raw Data    : {TotalBytes / (double)(1024 * 1024),10:0.00} MB\r\n" +
@@ -357,7 +362,17 @@
                 $"    Speed Ratio : {DecodeSpeed / Player.Components.Video.CurrentFrameRate,10:0.000}\r\n" +
                 $"    Benchmark T : {Elapsed,10:0.000} secs"
                 ).Info(typeof(Program));
+
+
+            if (SaveWaveFile && !IsBenchmarking)
+            {
+                var audioFile = Path.Combine(OutputPath, "audio.wav");
+                SaveWavFile(AudioData, audioFile);
+                $"Saved wave file to '{audioFile}'".Warn(typeof(Program));
+            }
         }
+
+        #endregion
 
     }
 }

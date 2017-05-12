@@ -43,14 +43,31 @@
 
         #region Methods
 
-        protected override unsafe FrameSource CreateFrame(AVFrame* frame)
+        /// <summary>
+        /// Creates a frame source object given the raw FFmpeg frame reference.
+        /// </summary>
+        /// <param name="frame">The raw FFmpeg frame pointer.</param>
+        /// <returns></returns>
+        protected override unsafe FrameSource CreateFrameSource(AVFrame* frame)
         {
             var frameHolder = new AudioFrameSource(frame, Stream->time_base);
             return frameHolder;
         }
 
-        internal override void Materialize(FrameSource input, Frame output)
+        /// <summary>
+        /// Converts decoded, raw frame data in the frame source into a a usable frame. <br />
+        /// The process includes performing picture, samples or text conversions
+        /// so that the decoded source frame data is easily usable in multimedia applications
+        /// </summary>
+        /// <param name="input">The source frame to use as an input.</param>
+        /// <param name="output">The target frame that will be updated with the source frame. If null is passed the frame will be instantiated.</param>
+        /// <returns>
+        /// Return the updated output frame
+        /// </returns>
+        /// <exception cref="System.ArgumentNullException">input</exception>
+        internal override Frame MaterializeFrame(FrameSource input, ref Frame output)
         {
+            if (output == null) output = new AudioFrame();
             var source = input as AudioFrameSource;
             var target = output as AudioFrame;
 
@@ -101,6 +118,8 @@
             target.SampleRate = targetSpec.SampleRate;
             target.SamplesPerChannel = outputSamplesPerChannel;
             target.StartTime = source.StartTime;
+
+            return target;
 
         }
 

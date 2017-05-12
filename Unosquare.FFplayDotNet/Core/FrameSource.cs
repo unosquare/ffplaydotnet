@@ -9,7 +9,7 @@
     /// Derived classes implement the specifics of each media type.
     /// </summary>
     /// <seealso cref="System.IDisposable" />
-    public unsafe abstract class FrameSource : IDisposable
+    public unsafe abstract class FrameSource : IDisposable, IComparable<FrameSource>
     {
 
         #region Private Members
@@ -60,6 +60,12 @@
         /// </summary>
         public TimeSpan Duration { get; protected set; }
 
+        /// <summary>
+        /// When the unmanaged frame is released (freed from unmanaged memory)
+        /// this property will return true.
+        /// </summary>
+        public bool IsStale { get; private set; }
+
         #endregion
 
         #region Methods
@@ -68,6 +74,18 @@
         /// Releases internal frame 
         /// </summary>
         protected abstract void Release();
+
+        /// <summary>
+        /// Compares the current instance with another object of the same type and returns an integer that indicates whether the current instance precedes, follows, or occurs in the same position in the sort order as the other object.
+        /// </summary>
+        /// <param name="other">An object to compare with this instance.</param>
+        /// <returns>
+        /// A value that indicates the relative order of the objects being compared. The return value has these meanings: Value Meaning Less than zero This instance precedes <paramref name="other" /> in the sort order.  Zero This instance occurs in the same position in the sort order as <paramref name="other" />. Greater than zero This instance follows <paramref name="other" /> in the sort order.
+        /// </returns>
+        public int CompareTo(FrameSource other)
+        {
+            return StartTime.CompareTo(other.StartTime);
+        }
 
         #endregion
 
@@ -79,13 +97,15 @@
         /// <param name="alsoManaged"><c>true</c> to release both managed and unmanaged resources; <c>false</c> to release only unmanaged resources.</param>
         protected virtual void Dispose(bool alsoManaged)
         {
-            if (!IsDisposed)
-            {
-                if (alsoManaged)
-                    Release();
+            if (IsDisposed) return;
 
-                IsDisposed = true;
+            if (alsoManaged)
+            {
+                Release();
+                IsStale = true;
             }
+
+            IsDisposed = true;
         }
 
         /// <summary>
@@ -119,7 +139,7 @@
         /// </summary>
         /// <param name="frame">The frame.</param>
         /// <param name="timeBase">The time base.</param>
-        public VideoFrameSource(AVFrame* frame, AVRational timeBase)
+        internal VideoFrameSource(AVFrame* frame, AVRational timeBase)
             : base(frame, timeBase)
         {
             m_Pointer = (AVFrame*)InternalPointer;
@@ -164,6 +184,7 @@
         }
 
         #endregion
+
     }
 
     /// <summary>
@@ -185,7 +206,7 @@
         /// </summary>
         /// <param name="frame">The frame.</param>
         /// <param name="timeBase">The time base.</param>
-        public AudioFrameSource(AVFrame* frame, AVRational timeBase)
+        internal AudioFrameSource(AVFrame* frame, AVRational timeBase)
             : base(frame, timeBase)
         {
             m_Pointer = (AVFrame*)InternalPointer;
@@ -250,7 +271,7 @@
         /// </summary>
         /// <param name="frame">The frame.</param>
         /// <param name="timeBase">The time base.</param>
-        public SubtitleFrameSource(AVSubtitle* frame, AVRational timeBase)
+        internal SubtitleFrameSource(AVSubtitle* frame, AVRational timeBase)
             : base(frame, timeBase)
         {
             m_Pointer = (AVSubtitle*)InternalPointer;

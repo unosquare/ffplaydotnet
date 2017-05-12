@@ -17,11 +17,6 @@
         #region Private Declarations
 
         /// <summary>
-        /// The synchronization root for locking
-        /// </summary>
-        private readonly object SyncRoot = new object();
-
-        /// <summary>
         /// To detect redundant Dispose calls
         /// </summary>
         private bool IsDisposed = false;
@@ -29,7 +24,13 @@
         /// <summary>
         /// The internal Components
         /// </summary>
-        protected readonly Dictionary<MediaType, MediaComponent> Items = new Dictionary<MediaType, MediaComponent>();
+        private readonly Dictionary<MediaType, MediaComponent> Items = new Dictionary<MediaType, MediaComponent>();
+
+
+        /// <summary>
+        /// Provides a cached array to the components backing the All property.
+        /// </summary>
+        private MediaComponent[] CachedComponents = new MediaComponent[0];
 
         #endregion
 
@@ -48,6 +49,20 @@
         #region Properties
 
         /// <summary>
+        /// Gets all the components in an array.
+        /// </summary>
+        public MediaComponent[] All
+        {
+            get
+            {
+                if (CachedComponents.Length != Items.Count)
+                    CachedComponents = Items.Values.ToArray();
+
+                return CachedComponents;
+            }
+        }
+
+        /// <summary>
         /// Gets the video component.
         /// Returns null when there is no such stream component.
         /// </summary>
@@ -55,8 +70,7 @@
         {
             get
             {
-                lock (SyncRoot)
-                    return Items.ContainsKey(MediaType.Video) ? Items[MediaType.Video] as VideoComponent : null;
+                return Items.ContainsKey(MediaType.Video) ? Items[MediaType.Video] as VideoComponent : null;
             }
         }
 
@@ -68,8 +82,7 @@
         {
             get
             {
-                lock (SyncRoot)
-                    return Items.ContainsKey(MediaType.Audio) ? Items[MediaType.Audio] as AudioComponent : null;
+                return Items.ContainsKey(MediaType.Audio) ? Items[MediaType.Audio] as AudioComponent : null;
             }
         }
 
@@ -81,8 +94,7 @@
         {
             get
             {
-                lock (SyncRoot)
-                    return Items.ContainsKey(MediaType.Subtitle) ? Items[MediaType.Subtitle] as SubtitleComponent : null;
+                return Items.ContainsKey(MediaType.Subtitle) ? Items[MediaType.Subtitle] as SubtitleComponent : null;
             }
         }
 
@@ -93,8 +105,7 @@
         {
             get
             {
-                lock (SyncRoot)
-                    return (ulong)Items.Sum(s => (double)s.Value.DecodedFrameCount);
+                return (ulong)All.Sum(c => (double)c.DecodedFrameCount);
             }
         }
 
@@ -105,8 +116,7 @@
         {
             get
             {
-                lock (SyncRoot)
-                    return (ulong)Items.Sum(s => (double)s.Value.ReceivedPacketCount);
+                return (ulong)All.Sum(c => (double)c.ReceivedPacketCount);
             }
         }
 
@@ -118,8 +128,7 @@
         {
             get
             {
-                lock (SyncRoot)
-                    return Items.Sum(s => s.Value.PacketBufferLength);
+                return All.Sum(c => c.PacketBufferLength);
             }
         }
 
@@ -131,8 +140,7 @@
         {
             get
             {
-                lock (SyncRoot)
-                    return Items.Sum(s => s.Value.PacketBufferCount);
+                return All.Sum(c => c.PacketBufferCount);
             }
         }
 
@@ -143,8 +151,7 @@
         {
             get
             {
-                lock (SyncRoot)
-                    return Items.Min(s => s.Value.PacketBufferDuration);
+                return All.Min(c => c.PacketBufferDuration);
             }
         }
 
@@ -176,19 +183,17 @@
         {
             get
             {
-                lock (SyncRoot)
-                    return Items.ContainsKey(mediaType) ? Items[mediaType] : null;
+
+                return Items.ContainsKey(mediaType) ? Items[mediaType] : null;
             }
             set
             {
-                lock (SyncRoot)
-                {
-                    if (Items.ContainsKey(mediaType))
-                        throw new ArgumentException($"A component for '{mediaType}' is already registered.");
+                if (Items.ContainsKey(mediaType))
+                    throw new ArgumentException($"A component for '{mediaType}' is already registered.");
 
-                    Items[mediaType] = value ??
-                        throw new ArgumentNullException($"{nameof(MediaComponent)} {nameof(value)} must not be null.");
-                }
+                Items[mediaType] = value ??
+                    throw new ArgumentNullException($"{nameof(MediaComponent)} {nameof(value)} must not be null.");
+
             }
         }
 
@@ -199,19 +204,17 @@
         /// <param name="mediaType">Type of the media.</param>
         public void Remove(MediaType mediaType)
         {
-            lock (SyncRoot)
-            {
-                if (Items.ContainsKey(mediaType) == false) return;
 
-                try
-                {
-                    var component = Items[mediaType];
-                    Items.Remove(mediaType);
-                    component.Dispose();
-                }
-                catch
-                { }
+            if (Items.ContainsKey(mediaType) == false) return;
+
+            try
+            {
+                var component = Items[mediaType];
+                Items.Remove(mediaType);
+                component.Dispose();
             }
+            catch
+            { }
         }
 
         #endregion
@@ -221,28 +224,25 @@
         /// <summary>
         /// Sends the specified packet to the correct component by reading the stream index
         /// of the packet that is being sent. No packet is sent if the provided packet is set to null.
-        /// Returns true if the packet matched a component and was sent successfully. Otherwise, it returns false.
+        /// Returns the media type of the component that accepted the packet.
         /// </summary>
         /// <param name="packet">The packet.</param>
         /// <returns></returns>
-        internal unsafe bool SendPacket(AVPacket* packet)
+        internal unsafe MediaType SendPacket(AVPacket* packet)
         {
             if (packet == null)
-                return false;
+                return MediaType.None;
 
-            lock (SyncRoot)
+            foreach (var component in All)
             {
-                foreach (var item in Items)
+                if (component.StreamIndex == packet->stream_index)
                 {
-                    if (item.Value.StreamIndex == packet->stream_index)
-                    {
-                        item.Value.SendPacket(packet);
-                        return true;
-                    }
+                    component.SendPacket(packet);
+                    return component.MediaType;
                 }
             }
 
-            return false;
+            return MediaType.None;
         }
 
         /// <summary>
@@ -252,9 +252,8 @@
         /// </summary>
         internal void SendEmptyPackets()
         {
-            lock (SyncRoot)
-                foreach (var item in Items)
-                    item.Value.SendEmptyPacket();
+            foreach (var component in All)
+                component.SendEmptyPacket();
         }
 
         /// <summary>
@@ -265,27 +264,9 @@
         /// </summary>
         internal void ClearPacketQueues()
         {
-            lock (SyncRoot)
-                foreach (var item in Items)
-                    item.Value.ClearPacketQueues();
+            foreach (var component in All)
+                component.ClearPacketQueues();
         }
-
-        /// <summary>
-        /// Decodes the next available packet in the packet queue for all components.
-        /// Returns the frames that were decoded.
-        /// </summary>
-        internal List<FrameSource> DecodeNextPacket()
-        {
-            lock (SyncRoot)
-            {
-                var result = new List<FrameSource>(64);
-                foreach (var component in Items)
-                    result.AddRange(component.Value.DecodeNextPacket());
-
-                return result;
-            }
-        }
-
 
         #endregion
 
@@ -301,12 +282,9 @@
             {
                 if (alsoManaged)
                 {
-                    lock (SyncRoot)
-                    {
-                        var componentKeys = Items.Keys.ToArray();
-                        foreach (var mediaType in componentKeys)
-                            Remove(mediaType);
-                    }
+                    var componentKeys = Items.Keys.ToArray();
+                    foreach (var mediaType in componentKeys)
+                        Remove(mediaType);
                 }
 
                 // free unmanaged resources (unmanaged objects) and override a finalizer below.

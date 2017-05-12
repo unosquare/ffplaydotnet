@@ -90,15 +90,32 @@
 
         }
 
-        protected override unsafe FrameSource CreateFrame(AVFrame* frame)
+        /// <summary>
+        /// Creates a frame source object given the raw FFmpeg frame reference.
+        /// </summary>
+        /// <param name="frame">The raw FFmpeg frame pointer.</param>
+        /// <returns></returns>
+        protected override unsafe FrameSource CreateFrameSource(AVFrame* frame)
         {
             var frameHolder = new VideoFrameSource(frame, Stream->time_base);
             CurrentFrameRate = ffmpeg.av_guess_frame_rate(Container.InputContext, Stream, frame).ToDouble();
             return frameHolder;
         }
 
-        internal override void Materialize(FrameSource input, Frame output)
+        /// <summary>
+        /// Converts decoded, raw frame data in the frame source into a a usable frame. <br />
+        /// The process includes performing picture, samples or text conversions
+        /// so that the decoded source frame data is easily usable in multimedia applications
+        /// </summary>
+        /// <param name="input">The source frame to use as an input.</param>
+        /// <param name="output">The target frame that will be updated with the source frame. If null is passed the frame will be instantiated.</param>
+        /// <returns>
+        /// Return the updated output frame
+        /// </returns>
+        /// <exception cref="System.ArgumentNullException">input</exception>
+        internal override Frame MaterializeFrame(FrameSource input, ref Frame output)
         {
+            if (output == null) output = new VideoFrame();
             var source = input as VideoFrameSource;
             var target = output as VideoFrame;
 
@@ -143,6 +160,8 @@
             target.PixelHeight = source.Pointer->height;
             target.PixelWidth = source.Pointer->width;
             target.StartTime = source.StartTime;
+
+            return target;
         }
 
         #endregion

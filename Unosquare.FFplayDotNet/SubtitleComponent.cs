@@ -10,20 +10,42 @@
     /// <seealso cref="Unosquare.FFplayDotNet.MediaComponent" />
     public sealed unsafe class SubtitleComponent : MediaComponent
     {
+        /// <summary>
+        /// Initializes a new instance of the <see cref="SubtitleComponent"/> class.
+        /// </summary>
+        /// <param name="container">The container.</param>
+        /// <param name="streamIndex">Index of the stream.</param>
         internal SubtitleComponent(MediaContainer container, int streamIndex)
             : base(container, streamIndex)
         {
             // placeholder. Nothing else to change here.
         }
 
-        protected override unsafe FrameSource CreateFrame(AVSubtitle* frame)
+        /// <summary>
+        /// Creates a frame source object given the raw FFmpeg subtitle reference.
+        /// </summary>
+        /// <param name="frame">The raw FFmpeg subtitle pointer.</param>
+        /// <returns></returns>
+        protected override unsafe FrameSource CreateFrameSource(AVSubtitle* frame)
         {
             var frameHolder = new SubtitleFrameSource(frame, Stream->time_base);
             return frameHolder;
         }
 
-        internal override void Materialize(FrameSource input, Frame output)
+        /// <summary>
+        /// Converts decoded, raw frame data in the frame source into a a usable frame. <br />
+        /// The process includes performing picture, samples or text conversions
+        /// so that the decoded source frame data is easily usable in multimedia applications
+        /// </summary>
+        /// <param name="input">The source frame to use as an input.</param>
+        /// <param name="output">The target frame that will be updated with the source frame. If null is passed the frame will be instantiated.</param>
+        /// <returns>
+        /// Return the updated output frame
+        /// </returns>
+        /// <exception cref="System.ArgumentNullException">input</exception>
+        internal override Frame MaterializeFrame(FrameSource input, ref Frame output)
         {
+            if (output == null) output = new SubtitleFrame();
             var source = input as SubtitleFrameSource;
             var target = output as SubtitleFrame;
 
@@ -36,6 +58,8 @@
             target.StartTime = source.StartTime;
             target.Text.Clear();
             target.Text.AddRange(source.Text);
+
+            return target;
         }
     }
 

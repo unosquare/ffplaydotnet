@@ -60,24 +60,19 @@
         /// </summary>
         private readonly PacketQueue SentPackets = new PacketQueue();
 
-        /// <summary>
-        /// The synchronization root locker
-        /// </summary>
-        private readonly object SyncRoot = new object();
-
         #endregion
 
         #region Properties
 
         /// <summary>
+        /// Gets the media container associated with this component.
+        /// </summary>
+        internal MediaContainer Container { get; }
+
+        /// <summary>
         /// Gets the type of the media.
         /// </summary>
         public MediaType MediaType { get; }
-
-        /// <summary>
-        /// Gets the media container associated with this component.
-        /// </summary>
-        public MediaContainer Container { get; }
 
         /// <summary>
         /// Gets the index of the associated stream.
@@ -122,17 +117,17 @@
         /// Gets the current length in bytes of the 
         /// packet buffer.
         /// </summary>
-        public int PacketBufferLength { get { lock (SyncRoot) return Packets.BufferLength; } }
+        public int PacketBufferLength { get { return Packets.BufferLength; } }
 
         /// <summary>
         /// Gets the current duration of the packet buffer.
         /// </summary>
-        public TimeSpan PacketBufferDuration { get { lock (SyncRoot) return Packets.Duration.ToTimeSpan(Stream->time_base); } }
+        public TimeSpan PacketBufferDuration { get { return Packets.Duration.ToTimeSpan(Stream->time_base); } }
 
         /// <summary>
         /// Gets the number of packets in the queue.
         /// </summary>
-        public int PacketBufferCount { get { lock (SyncRoot) return Packets.Count; } }
+        public int PacketBufferCount { get { return Packets.Count; } }
 
         #endregion
 
@@ -257,18 +252,14 @@
         /// </summary>
         internal void ClearPacketQueues()
         {
-            lock (SyncRoot)
-            {
-                // Release packets that are already in the queue.
-                SentPackets.Clear();
-                Packets.Clear();
+            // Release packets that are already in the queue.
+            SentPackets.Clear();
+            Packets.Clear();
 
-                // Discard any data that was buffered in codec's internal memory.
-                // reset the buffer
-                if (CodecContext != null)
-                    ffmpeg.avcodec_flush_buffers(CodecContext);
-            }
-
+            // Discard any data that was buffered in codec's internal memory.
+            // reset the buffer
+            if (CodecContext != null)
+                ffmpeg.avcodec_flush_buffers(CodecContext);
         }
 
         /// <summary>
@@ -277,14 +268,10 @@
         /// </summary>
         internal void SendEmptyPacket()
         {
-            lock (SyncRoot)
-            {
-                var emptyPacket = ffmpeg.av_packet_alloc();
-                emptyPacket->data = null;
-                emptyPacket->size = 0;
-                SendPacket(emptyPacket);
-            }
-
+            var emptyPacket = ffmpeg.av_packet_alloc();
+            emptyPacket->data = null;
+            emptyPacket->size = 0;
+            SendPacket(emptyPacket);
         }
 
         /// <summary>
@@ -300,26 +287,20 @@
             // ffplay.c reference: pkt_in_play_range
             if (packet == null) return;
 
-            lock (SyncRoot)
-            {
-                Packets.Push(packet);
-                ReceivedPacketCount += 1;
-            }
+            Packets.Push(packet);
+            ReceivedPacketCount += 1;
         }
 
         /// <summary>
         /// Decodes the next packet in the packet queue in this media component.
         /// Returns the decoded frames
         /// </summary>
-        public List<FrameSource> DecodeNextPacket()
+        internal List<FrameSource> DecodeNextPacket()
         {
-            lock (SyncRoot)
-            {
-                if (PacketBufferCount <= 0) return new List<FrameSource>(0);
-                var decodedFrames = DecodeNextPacketInternal();
-                DecodedFrameCount += (ulong)decodedFrames.Count;
-                return decodedFrames;
-            }
+            if (PacketBufferCount <= 0) return new List<FrameSource>(0);
+            var decodedFrames = DecodeNextPacketInternal();
+            DecodedFrameCount += (ulong)decodedFrames.Count;
+            return decodedFrames;
         }
 
         /// <summary>
@@ -363,9 +344,9 @@
                         if (receiveFrameResult == 0)
                         {
                             // Send the frame to processing
-                            var managedFrame = CreateFrame(outputFrame);
+                            var managedFrame = CreateFrameSource(outputFrame);
                             if (managedFrame == null)
-                                throw new MediaContainerException($"{MediaType} Component does not implement {nameof(CreateFrame)}");
+                                throw new MediaContainerException($"{MediaType} Component does not implement {nameof(CreateFrameSource)}");
                             result.Add(managedFrame);
                             LastFrameTime = managedFrame.StartTime;
                         }
@@ -402,9 +383,9 @@
                         try
                         {
                             // Send the frame to processing
-                            var managedFrame = CreateFrame(&outputFrame);
+                            var managedFrame = CreateFrameSource(&outputFrame);
                             if (managedFrame == null)
-                                throw new MediaContainerException($"{MediaType} Component does not implement {nameof(CreateFrame)}");
+                                throw new MediaContainerException($"{MediaType} Component does not implement {nameof(CreateFrameSource)}");
                             result.Add(managedFrame);
                             LastFrameTime = managedFrame.StartTime;
                         }
@@ -434,9 +415,9 @@
                             if (gotFrame != 0 && receiveFrameResult > 0)
                             {
                                 // Send the subtitle to processing
-                                var managedFrame = CreateFrame(&outputFrame);
+                                var managedFrame = CreateFrameSource(&outputFrame);
                                 if (managedFrame == null)
-                                    throw new MediaContainerException($"{MediaType} Component does not implement {nameof(CreateFrame)}");
+                                    throw new MediaContainerException($"{MediaType} Component does not implement {nameof(CreateFrameSource)}");
                                 result.Add(managedFrame);
                                 LastFrameTime = managedFrame.StartTime;
                             }
@@ -472,11 +453,29 @@
             return result;
         }
 
-        internal abstract void Materialize(FrameSource input, Frame output);
+        /// <summary>
+        /// Converts decoded, raw frame data in the frame source into a a usable frame. <br />
+        /// The process includes performing picture, samples or text conversions
+        /// so that the decoded source frame data is easily usable in multimedia applications
+        /// </summary>
+        /// <param name="input">The source frame to use as an input.</param>
+        /// <param name="output">The target frame that will be updated with the source frame. If null is passed the frame will be instantiated.</param>
+        /// <returns>Return the updated output frame</returns>
+        internal abstract Frame MaterializeFrame(FrameSource input, ref Frame output);
 
-        protected virtual FrameSource CreateFrame(AVFrame* frame) { return null; }
+        /// <summary>
+        /// Creates a frame source object given the raw FFmpeg frame reference.
+        /// </summary>
+        /// <param name="frame">The raw FFmpeg frame pointer.</param>
+        /// <returns></returns>
+        protected virtual FrameSource CreateFrameSource(AVFrame* frame) { return null; }
 
-        protected virtual FrameSource CreateFrame(AVSubtitle* frame) { return null; }
+        /// <summary>
+        /// Creates a frame source object given the raw FFmpeg subtitle reference.
+        /// </summary>
+        /// <param name="frame">The raw FFmpeg subtitle pointer.</param>
+        /// <returns></returns>
+        protected virtual FrameSource CreateFrameSource(AVSubtitle* frame) { return null; }
 
         #endregion
 

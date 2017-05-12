@@ -61,7 +61,7 @@
             DecodeDurationLimit = 20;
             IsBenchmarking = false;
             SaveWaveFile = true;
-            SaveSnapshots = true;
+            SaveSnapshots = false;
 
             Player = new MediaContainer(InputFile);
             PrepareOutputDirectory(SaveWaveFile, SaveSnapshots);

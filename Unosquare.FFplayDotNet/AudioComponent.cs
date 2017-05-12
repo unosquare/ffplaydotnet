@@ -1,14 +1,10 @@
-﻿using FFmpeg.AutoGen;
-using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Runtime.InteropServices;
-using System.Text;
-using System.Threading.Tasks;
-using Unosquare.FFplayDotNet.Core;
-
-namespace Unosquare.FFplayDotNet
+﻿namespace Unosquare.FFplayDotNet
 {
+    using FFmpeg.AutoGen;
+    using System;
+    using System.Runtime.InteropServices;
+    using Unosquare.FFplayDotNet.Core;
+
     /// <summary>
     /// Performs audio sample decoding, scaling and extraction logic.
     /// </summary>

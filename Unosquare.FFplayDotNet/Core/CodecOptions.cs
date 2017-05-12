@@ -1,49 +1,70 @@
-﻿namespace FFmpeg.AutoGen
+﻿namespace Unosquare.FFplayDotNet.Core
 {
+    using FFmpeg.AutoGen;
     using System.Collections.Generic;
 
     /// <summary>
-    /// Represents a 
+    /// Represents a set of codec options per 
     /// </summary>
-    public class FFOptionsCollection
+    public class CodecOptions
     {
-        private class CodecOptionItem
-        {
-            public CodecOptionItem(FFStreamSpecifier spec, string key, string value)
-            {
-                StreamSpecifier = spec;
-                Key = key;
-                Value = value;
-            }
+        #region Private Members
 
-            public FFStreamSpecifier StreamSpecifier { get; set; }
-            public string Key { get; set; }
-            public string Value { get; set; }
-        }
-
+        /// <summary>
+        /// Holds the internal list of option items
+        /// </summary>
         private readonly List<CodecOptionItem> Options = new List<CodecOptionItem>();
 
-        public FFOptionsCollection()
+        #endregion
+
+        #region Constructor
+
+        /// <summary>
+        /// Initializes a new instance of the <see cref="CodecOptions"/> class.
+        /// </summary>
+        public CodecOptions()
         {
             // Placeholder
         }
 
+        #endregion
 
-        public void Add(string key, string value, char streamType)
+        #region Methods
+
+        /// <summary>
+        /// Adds an option
+        /// </summary>
+        /// <param name="key">The key.</param>
+        /// <param name="value">The value.</param>
+        /// <param name="streamType">Type of the stream.</param>
+        public void Add(string key, string value, MediaType streamType)
         {
-            var option = new CodecOptionItem(new FFStreamSpecifier(streamType), key, value);
+            var option = new CodecOptionItem(new StreamSpecifier(streamType), key, value);
             Options.Add(option);
         }
 
+        /// <summary>
+        /// Adds an option
+        /// </summary>
+        /// <param name="key">The key.</param>
+        /// <param name="value">The value.</param>
+        /// <param name="streamIndex">Index of the stream.</param>
         public void Add(string key, string value, int streamIndex)
         {
-            var option = new CodecOptionItem(new FFStreamSpecifier(streamIndex), key, value);
+            var option = new CodecOptionItem(new StreamSpecifier(streamIndex), key, value);
             Options.Add(option);
         }
 
-        public void Add(string key, string value, char streamType, int streamIndex)
+        /// <summary>
+        /// Adds an option
+        /// </summary>
+        /// <param name="key">The key.</param>
+        /// <param name="value">The value.</param>
+        /// <param name="streamType">Type of the stream.</param>
+        /// <param name="streamIndex">Index of the stream.</param>
+        public void Add(string key, string value, MediaType streamType, int streamIndex)
         {
-            var option = new CodecOptionItem(new FFStreamSpecifier(streamType, streamIndex), key, value);
+            var option = new CodecOptionItem(new StreamSpecifier(streamType, streamIndex), key, value);
             Options.Add(option);
         }
 
@@ -100,7 +121,7 @@
                 {
                     result[optionItem.Key] = optionItem.Value;
                 }
-                else if (optionItem.StreamSpecifier.StreamType[0] == streamType && ffmpeg.av_opt_find(&codecClass, optionItem.Key, null, flags, ffmpeg.AV_OPT_SEARCH_FAKE_OBJ) != null)
+                else if (optionItem.StreamSpecifier.StreamSuffix[0] == streamType && ffmpeg.av_opt_find(&codecClass, optionItem.Key, null, flags, ffmpeg.AV_OPT_SEARCH_FAKE_OBJ) != null)
                 {
                     result[optionItem.Key] = optionItem.Value;
                 }
@@ -129,6 +150,8 @@
 
             return result;
         }
+
+        #endregion
 
     }
 }

@@ -43,7 +43,7 @@
         /// <summary>
         /// The initialization options.
         /// </summary>
-        internal MediaContainerOptions Options = null;
+        internal MediaOptions Options = null;
 
         /// <summary>
         /// Determines if the stream seeks by bytes always
@@ -222,7 +222,7 @@
 
             // Create the options object
             MediaUrl = mediaUrl;
-            Options = new MediaContainerOptions();
+            Options = new MediaOptions();
 
             // Retrieve the input format (null = auto for default)
             AVInputFormat* inputFormat = null;

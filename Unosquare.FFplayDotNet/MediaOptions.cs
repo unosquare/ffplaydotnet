@@ -1,12 +1,12 @@
 ﻿namespace Unosquare.FFplayDotNet
 {
-    using FFmpeg.AutoGen;
     using System.Collections.Generic;
+    using Unosquare.FFplayDotNet.Core;
 
     /// <summary>
     /// Represents a set of options that are used to initialize a media container.
     /// </summary>
-    public class MediaContainerOptions
+    public class MediaOptions
     {
         // TODO: Support specific stream selection for each component, forced input format
 
@@ -35,7 +35,7 @@
         /// Codec options are documented here: https://www.ffmpeg.org/ffmpeg-codecs.html#Codec-Options
         /// Port of codec_opts
         /// </summary>
-        public FFOptionsCollection CodecOptions { get; } = new FFOptionsCollection();
+        public CodecOptions CodecOptions { get; } = new CodecOptions();
 
         /// <summary>
         /// Gets or sets a value indicating whether PTS are generated automatically and not read

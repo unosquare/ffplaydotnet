@@ -1,4 +1,4 @@
-﻿namespace Unosquare.FFplayDotNet
+﻿namespace Unosquare.FFplayDotNet.Core
 {
     using System.Collections.Generic;
     using Unosquare.FFplayDotNet.Core;

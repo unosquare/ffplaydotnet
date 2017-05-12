@@ -7,12 +7,14 @@
     using System.Linq;
     using System.Threading;
     using Unosquare.FFplayDotNet.Core;
+    using Unosquare.FFplayDotNet.Decoding;
     using Unosquare.Swan;
 
     /// <summary>
     /// A container capable of opening an input url,
     /// reading packets from it, decoding frames, seeking, and pausing and resuming network streams
     /// Code heavily based on https://raw.githubusercontent.com/FFmpeg/FFmpeg/release/3.2/ffplay.c
+    /// The method pipeline should be Read, Decode, Materialize
     /// </summary>
     /// <seealso cref="System.IDisposable" />
     public unsafe class MediaContainer : IDisposable

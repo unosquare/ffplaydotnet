@@ -21,7 +21,7 @@
 
         private static string OutputPath = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "output");
 
-        private static MediaContainer Player;
+        private static MediaContainer Container;
 
         private static List<byte> AudioData = new List<byte>();
         private static double TotalDurationSeconds = 0d;
@@ -65,7 +65,7 @@
             SaveWaveFile = false;
             SaveSnapshots = false;
 
-            Player = new MediaContainer(InputFile);
+            Container = new MediaContainer(InputFile);
             PrepareOutputDirectory(SaveWaveFile, SaveSnapshots);
 
             #endregion
@@ -80,9 +80,10 @@
             }
             
             Elapsed = chronometer.ElapsedMilliseconds / 1000d;
-            DecodeSpeed = Player.Components.Video.DecodedFrameCount / Elapsed;
+            DecodeSpeed = Container.Components.Main.DecodedFrameCount / Elapsed;
             PrintResults();
             Terminal.ReadKey(true, true);
+
         }
 
         private static ConfiguredTaskAwaitable RunReaderTask()
@@ -94,18 +95,18 @@
                     try
                     {
 
-                        if (Player.IsAtEndOfStream == false && ReadCancel == false)
+                        if (Container.IsAtEndOfStream == false && ReadCancel == false)
                         {
                             // check if the packet buuffer is too low
-                            if (Player.Components.PacketBufferCount <= 24)
+                            if (Container.Components.PacketBufferCount <= 24)
                             {
                                 // buffer at least 60 packets
-                                while (Player.Components.PacketBufferCount < 48 && Player.IsAtEndOfStream == false && ReadCancel == false)
-                                    Player.ReadNext();
+                                while (Container.Components.PacketBufferCount < 48 && Container.IsAtEndOfStream == false && ReadCancel == false)
+                                    Container.ReadNext();
 
-                                ($"Buffer     | DUR: {Player.Components.PacketBufferDuration.TotalSeconds,10:0.000}"
-                                    + $" | LEN: {Player.Components.PacketBufferLength / 1024d,9:0.00}K"
-                                    + $" | CNT: {Player.Components.PacketBufferCount,12}" + $" | POS: {Player.StreamPosition / 2014d,10:0.00}K")
+                                ($"Buffer     | DUR: {Container.Components.PacketBufferDuration.TotalSeconds,10:0.000}"
+                                    + $" | LEN: {Container.Components.PacketBufferLength / 1024d,9:0.00}K"
+                                    + $" | CNT: {Container.Components.PacketBufferCount,12}" + $" | POS: {Container.StreamPosition / 2014d,10:0.00}K")
                                     .Warn(typeof(Program));
                             }
                         }
@@ -135,11 +136,11 @@
 
                     try
                     {
-                        var decodedFrames = Player.DecodeNext(sortFrames: true);
+                        var decodedFrames = Container.DecodeNext(sortFrames: true);
                         foreach (var frame in decodedFrames)
                         {
                             var frameResult = Outputs[frame.MediaType];
-                            Player.MaterializeFrame(frame, ref frameResult, true);
+                            Container.MaterializeFrame(frame, ref frameResult, true);
                             if (IsBenchmarking == false)
                                 HandleFrame(frameResult);
                         }
@@ -150,16 +151,16 @@
                             DecodingDone.Set();
 
                             // no more frames can be decoded now. Let's wait for more packets to arrive.
-                            if (Player.IsRealtimeStream)
+                            if (Container.IsStreamRealtime)
                                 Thread.Sleep(1);
                         }
                         else
                         {
                             var currentPosition =
-                                Player.Components.Video.LastFrameTime.TotalSeconds
-                                 - Player.Components.Video.StartTime.TotalSeconds;
+                                Container.Components.Main.LastFrameTime.TotalSeconds
+                                 - Container.Components.Main.StartTime.TotalSeconds;
 
-                            if (Player.IsAtEndOfStream)
+                            if (Container.IsAtEndOfStream)
                             {
                                 "End of file reached.".Warn(typeof(Program));
                                 break;
@@ -237,7 +238,7 @@
         {
             TotalBytes += (ulong)e.BufferLength;
             TotalDurationSeconds += e.Duration.TotalSeconds;
-            $"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB | LRT: {Player.Components.Video.LastFrameTime.TotalSeconds,10:0.000}".Info(typeof(Program));
+            $"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB | LRT: {Container.Components.Video.LastFrameTime.TotalSeconds,10:0.000}".Info(typeof(Program));
 
             if (IsBenchmarking) return;
             if (DecompressDispatcher == null) return;
@@ -347,19 +348,19 @@
         static private void PrintResults()
         {
             ($"Media Info\r\n" +
-                $"    URL         : {Player.MediaUrl}\r\n" +
-                $"    Bitrate     : {Player.MediaBitrate,10} bps\r\n" +
-                $"    FPS         : {Player.Components.Video.CurrentFrameRate,10:0.000}\r\n" +
-                $"    Start Time  : {Player.MediaStartTime.TotalSeconds,10:0.000}\r\n" +
-                $"    Duration    : {Player.MediaDuration.TotalSeconds,10:0.000} secs\r\n" +
-                $"    Seekable    : {Player.IsStreamSeekable,10}\r\n" +
-                $"    Is Realtime : {Player.IsRealtimeStream,10}\r\n" +
-                $"    Packets     : {Player.Components.ReceivedPacketCount,10}\r\n" +
+                $"    URL         : {Container.MediaUrl}\r\n" +
+                $"    Bitrate     : {Container.MediaBitrate,10} bps\r\n" +
+                $"    FPS         : {Container.Components.Video?.CurrentFrameRate,10:0.000}\r\n" +
+                $"    Start Time  : {Container.MediaStartTime.TotalSeconds,10:0.000}\r\n" +
+                $"    Duration    : {Container.MediaDuration.TotalSeconds,10:0.000} secs\r\n" +
+                $"    Seekable    : {Container.IsStreamSeekable,10}\r\n" +
+                $"    Is Realtime : {Container.IsStreamRealtime,10}\r\n" +
+                $"    Packets     : {Container.Components.ReceivedPacketCount,10}\r\n" +
                 $"    Raw Data    : {TotalBytes / (double)(1024 * 1024),10:0.00} MB\r\n" +
                 $"    Decoded     : {TotalDurationSeconds,10:0.000} secs\r\n" +
                 $"    Decode FPS  : {DecodeSpeed,10:0.000}\r\n" +
-                $"    Frames      : {Player.Components.Video.DecodedFrameCount,10}\r\n" +
-                $"    Speed Ratio : {DecodeSpeed / Player.Components.Video.CurrentFrameRate,10:0.000}\r\n" +
+                $"    Frames      : {Container.Components.Main.DecodedFrameCount,10}\r\n" +
+                $"    Speed Ratio : {DecodeSpeed / Container.Components.Video?.CurrentFrameRate,10:0.000}\r\n" +
                 $"    Benchmark T : {Elapsed,10:0.000} secs"
                 ).Info(typeof(Program));
 

@@ -4,8 +4,6 @@
     using System;
     using System.Collections.Generic;
     using System.Globalization;
-    using System.Threading;
-    using System.Threading.Tasks;
     using Unosquare.FFplayDotNet.Core;
     using Unosquare.Swan;
 
@@ -17,6 +15,8 @@
     /// <seealso cref="System.IDisposable" />
     public unsafe abstract class MediaComponent : IDisposable
     {
+
+        // TODO: Last frame time might need to be removed. It does not make sense.
 
         #region Constants
 

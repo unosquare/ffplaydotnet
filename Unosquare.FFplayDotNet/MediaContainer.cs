@@ -140,18 +140,17 @@
         /// If the format name is rtp, rtsp, or sdp or if the url starts with udp: or rtp:
         /// then this property will be set to true.
         /// </summary>
-        public bool IsRealtimeStream { get; private set; }
-
-        /// <summary>
-        /// Gets the time the last packet was read from the input
-        /// </summary>
-        public DateTime LastReadTimeUtc { get; private set; } = DateTime.MinValue;
+        public bool IsStreamRealtime { get; private set; }
 
         /// <summary>
         /// Provides direct access to the individual Media components of the input stream.
         /// </summary>
         public MediaComponentSet Components { get; private set; }
 
+        /// <summary>
+        /// Gets the time the last packet was read from the input
+        /// </summary>
+        internal DateTime StreamLastReadTimeUtc { get; private set; } = DateTime.MinValue;
 
         /// <summary>
         /// For RTSP and other realtime streams reads can be suspended.
@@ -276,7 +275,7 @@
 
                 // Setup initial state variables
                 MediaTitle = FFDictionary.GetEntry(InputContext->metadata, EntryName.Title, false)?.Value;
-                IsRealtimeStream = new[] { "rtp", "rtsp", "sdp" }.Any(s => MediaFormatName.Equals(s)) ||
+                IsStreamRealtime = new[] { "rtp", "rtsp", "sdp" }.Any(s => MediaFormatName.Equals(s)) ||
                     (InputContext->pb != null && new[] { "rtp:", "udp:" }.Any(s => MediaUrl.StartsWith(s)));
 
                 RequiresReadDelay = MediaFormatName.Equals("rstp") || MediaUrl.StartsWith("mmsh:");
@@ -426,7 +425,7 @@
             if (RequiresReadDelay)
             {
                 // in ffplay.c this is referenced via CONFIG_RTSP_DEMUXER || CONFIG_MMSH_PROTOCOL
-                var millisecondsDifference = (int)Math.Round(DateTime.UtcNow.Subtract(LastReadTimeUtc).TotalMilliseconds, 2);
+                var millisecondsDifference = (int)Math.Round(DateTime.UtcNow.Subtract(StreamLastReadTimeUtc).TotalMilliseconds, 2);
                 var sleepMilliseconds = 10 - millisecondsDifference;
 
                 // wait at least 10 ms to avoid trying to get another packet
@@ -450,7 +449,7 @@
             // Allocate the packet to read
             var readPacket = ffmpeg.av_packet_alloc();
             var readResult = ffmpeg.av_read_frame(InputContext, readPacket);
-            LastReadTimeUtc = DateTime.UtcNow;
+            StreamLastReadTimeUtc = DateTime.UtcNow;
 
             if (readResult < 0)
             {

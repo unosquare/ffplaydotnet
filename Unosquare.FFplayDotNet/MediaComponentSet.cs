@@ -3,6 +3,7 @@
     using FFmpeg.AutoGen;
     using System;
     using System.Collections.Generic;
+    using System.Collections.ObjectModel;
     using System.Linq;
     using Unosquare.FFplayDotNet.Core;
 
@@ -30,7 +31,7 @@
         /// <summary>
         /// Provides a cached array to the components backing the All property.
         /// </summary>
-        private MediaComponent[] CachedComponents = new MediaComponent[0];
+        private ReadOnlyCollection<MediaComponent> CachedComponents = null;
 
         #endregion
 
@@ -49,17 +50,26 @@
         #region Properties
 
         /// <summary>
-        /// Gets all the components in an array.
+        /// Gets all the components in a read-only collection.
         /// </summary>
-        public MediaComponent[] All
+        public ReadOnlyCollection<MediaComponent> All
         {
             get
             {
-                if (CachedComponents.Length != Items.Count)
-                    CachedComponents = Items.Values.ToArray();
+                if (CachedComponents == null || CachedComponents.Count != Items.Count)
+                    CachedComponents = new ReadOnlyCollection<MediaComponent>(Items.Values.ToArray());
 
                 return CachedComponents;
             }
+        }
+
+        /// <summary>
+        /// Gets the main media component of the stream.
+        /// By Main it is meant Video, then Audio.
+        /// </summary>
+        public MediaComponent Main
+        {
+            get { return HasVideo ? Video as MediaComponent : Audio as MediaComponent; }
         }
 
         /// <summary>

@@ -42,9 +42,9 @@
 
         private static string InputFile = TestInputs.BigBuckBunnyLocal;
         private static double DecodeDurationLimit = 80;
-        private static bool IsBenchmarking = true;
-        private static bool SaveWaveFile = true;
-        private static bool SaveSnapshots = true;
+        private static bool IsBenchmarking = false;
+        private static bool SaveWaveFile = false;
+        private static bool SaveSnapshots = false;
 
         private static volatile bool ReadCancel = false;
         private static ManualResetEventSlim DecodingDone = new ManualResetEventSlim(false);
@@ -63,7 +63,7 @@
             DecodeDurationLimit = 20;
             IsBenchmarking = false;
             SaveWaveFile = false;
-            SaveSnapshots = true;
+            SaveSnapshots = false;
 
             Player = new MediaContainer(InputFile);
             PrepareOutputDirectory(SaveWaveFile, SaveSnapshots);

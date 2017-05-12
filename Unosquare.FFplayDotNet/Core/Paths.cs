@@ -10,6 +10,7 @@
         /// </summary>
         static Paths()
         {
+            // Ensure FFmpeg is extracted and registered.
             Utils.RegisterFFmpeg();
         }
 

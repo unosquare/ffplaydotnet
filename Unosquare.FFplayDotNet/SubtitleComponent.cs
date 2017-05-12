@@ -17,16 +17,16 @@
             // placeholder. Nothing else to change here.
         }
 
-        protected override unsafe Frame CreateFrame(AVSubtitle* frame)
+        protected override unsafe FrameSource CreateFrame(AVSubtitle* frame)
         {
-            var frameHolder = new SubtitleFrame(frame, Stream->time_base);
+            var frameHolder = new SubtitleFrameSource(frame, Stream->time_base);
             return frameHolder;
         }
 
-        internal override void Materialize(Frame input, FrameContainer output)
+        internal override void Materialize(FrameSource input, Frame output)
         {
-            var source = input as SubtitleFrame;
-            var target = output as SubtitleFrameContainer;
+            var source = input as SubtitleFrameSource;
+            var target = output as SubtitleFrame;
 
             if (source == null || target == null)
                 throw new ArgumentNullException($"{nameof(input)} and {nameof(output)} are either null or not of a compatible media type '{MediaType}'");

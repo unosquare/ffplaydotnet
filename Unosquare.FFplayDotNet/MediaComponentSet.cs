@@ -274,11 +274,11 @@
         /// Decodes the next available packet in the packet queue for all components.
         /// Returns the frames that were decoded.
         /// </summary>
-        internal List<Frame> DecodeNextPacket()
+        internal List<FrameSource> DecodeNextPacket()
         {
             lock (SyncRoot)
             {
-                var result = new List<Frame>(64);
+                var result = new List<FrameSource>(64);
                 foreach (var component in Items)
                     result.AddRange(component.Value.DecodeNextPacket());
 

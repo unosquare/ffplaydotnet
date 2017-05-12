@@ -90,17 +90,17 @@
 
         }
 
-        protected override unsafe Frame CreateFrame(AVFrame* frame)
+        protected override unsafe FrameSource CreateFrame(AVFrame* frame)
         {
-            var frameHolder = new VideoFrame(frame, Stream->time_base);
+            var frameHolder = new VideoFrameSource(frame, Stream->time_base);
             CurrentFrameRate = ffmpeg.av_guess_frame_rate(Container.InputContext, Stream, frame).ToDouble();
             return frameHolder;
         }
 
-        internal override void Materialize(Frame input, FrameContainer output)
+        internal override void Materialize(FrameSource input, Frame output)
         {
-            var source = input as VideoFrame;
-            var target = output as VideoFrameContainer;
+            var source = input as VideoFrameSource;
+            var target = output as VideoFrame;
 
             if (source == null || target == null)
                 throw new ArgumentNullException($"{nameof(input)} and {nameof(output)} are either null or not of a compatible media type '{MediaType}'");

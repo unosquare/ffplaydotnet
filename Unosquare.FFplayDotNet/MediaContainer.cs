@@ -495,16 +495,16 @@
         /// Decodes the next available packet in the packet queue for all components.
         /// Returns the list of decoded frames.
         /// </summary>
-        public List<Frame> DecodeNextPacket()
+        public List<FrameSource> DecodeNextPacket()
         {
             return Components.DecodeNextPacket();
         }
 
-        public void Materialize(Frame input, FrameContainer output, bool releaseInput)
+        public void Materialize(FrameSource input, Frame output, bool releaseInput)
         {
             if (input == null) throw new ArgumentNullException($"{nameof(input)} cannot be null.");
             if (output == null) throw new ArgumentNullException($"{nameof(output)} cannot be null.");
-            
+
             try
             {
                 switch (input.MediaType)
@@ -518,6 +518,8 @@
                     case MediaType.Subtitle:
                         if (Components.HasSubtitles) Components.Subtitles.Materialize(input, output);
                         return;
+                    default:
+                        throw new MediaContainerException($"Unable to materialize {nameof(MediaType)} {(int)input.MediaType}");
                 }
             }
             finally
@@ -530,6 +532,7 @@
 
         #endregion
 
+        #region Private Methods
 
         private void StreamReadSuspend()
         {
@@ -615,6 +618,8 @@
 
             }
         }
+
+        #endregion
 
         #region IDisposable Support
 

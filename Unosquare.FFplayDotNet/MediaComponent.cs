@@ -311,11 +311,11 @@
         /// Decodes the next packet in the packet queue in this media component.
         /// Returns the decoded frames
         /// </summary>
-        public List<Frame> DecodeNextPacket()
+        public List<FrameSource> DecodeNextPacket()
         {
             lock (SyncRoot)
             {
-                if (PacketBufferCount <= 0) return new List<Frame>(0);
+                if (PacketBufferCount <= 0) return new List<FrameSource>(0);
                 var decodedFrames = DecodeNextPacketInternal();
                 DecodedFrameCount += (ulong)decodedFrames.Count;
                 return decodedFrames;
@@ -329,9 +329,9 @@
         /// ProcessFrame method.
         /// </summary>
         /// <returns></returns>
-        private List<Frame> DecodeNextPacketInternal()
+        private List<FrameSource> DecodeNextPacketInternal()
         {
-            var result = new List<Frame>();
+            var result = new List<FrameSource>();
 
             // Ensure there is at least one packet in the queue
             if (PacketBufferCount <= 0) return result;
@@ -472,11 +472,11 @@
             return result;
         }
 
-        internal abstract void Materialize(Frame input, FrameContainer output);
+        internal abstract void Materialize(FrameSource input, Frame output);
 
-        protected virtual Frame CreateFrame(AVFrame* frame) { return null; }
+        protected virtual FrameSource CreateFrame(AVFrame* frame) { return null; }
 
-        protected virtual Frame CreateFrame(AVSubtitle* frame) { return null; }
+        protected virtual FrameSource CreateFrame(AVSubtitle* frame) { return null; }
 
         #endregion
 

@@ -7,7 +7,7 @@
     /// Contains audio format properties essential
     /// to audio resampling
     /// </summary>
-    public sealed unsafe class AudioParams
+    internal sealed unsafe class AudioParams
     {
         #region Constant Definitions
 

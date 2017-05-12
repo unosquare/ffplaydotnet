@@ -13,5 +13,8 @@
         /// </summary>
         /// <param name="message">The message that describes the error.</param>
         public MediaContainerException(string message) : base(message) { }
+
+        // TODO: Add error code property and enumerate error codes.
+
     }
 }

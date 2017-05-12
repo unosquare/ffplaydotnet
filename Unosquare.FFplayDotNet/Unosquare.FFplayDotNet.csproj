@@ -55,9 +55,9 @@
     <Compile Include="Core\AudioParams.cs" />
     <Compile Include="Core\Enums.cs" />
     <Compile Include="Core\Exceptions.cs" />
-    <Compile Include="Core\Frame.cs" />
+    <Compile Include="Core\FrameSource.cs" />
     <Compile Include="Core\FrameQueue.cs" />
-    <Compile Include="Core\FrameContainer.cs" />
+    <Compile Include="Core\Frame.cs" />
     <Compile Include="MediaComponent.cs" />
     <Compile Include="MediaComponentSet.cs" />
     <Compile Include="MediaContainer.cs" />

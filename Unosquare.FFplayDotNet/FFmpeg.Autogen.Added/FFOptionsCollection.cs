@@ -2,6 +2,9 @@
 {
     using System.Collections.Generic;
 
+    /// <summary>
+    /// Represents a 
+    /// </summary>
     public class FFOptionsCollection
     {
         private class CodecOptionItem

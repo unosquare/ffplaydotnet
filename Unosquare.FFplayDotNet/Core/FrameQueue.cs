@@ -8,7 +8,7 @@
         #region Private Declarations
 
         private bool IsDisposed = false; // To detect redundant calls
-        private readonly List<Frame> Frames = new List<Frame>();
+        private readonly List<FrameSource> Frames = new List<FrameSource>();
         private readonly object SyncRoot = new object();
 
         #endregion
@@ -17,14 +17,14 @@
 
 
         /// <summary>
-        /// Gets or sets the <see cref="Frame"/> at the specified index.
+        /// Gets or sets the <see cref="FrameSource"/> at the specified index.
         /// </summary>
         /// <value>
-        /// The <see cref="Frame"/>.
+        /// The <see cref="FrameSource"/>.
         /// </value>
         /// <param name="index">The index.</param>
         /// <returns></returns>
-        private Frame this[int index]
+        private FrameSource this[int index]
         {
             get
             {
@@ -64,7 +64,7 @@
         /// If no frames are available, null is returned.
         /// </summary>
         /// <returns></returns>
-        public Frame Peek()
+        public FrameSource Peek()
         {
             lock (SyncRoot)
             {
@@ -78,7 +78,7 @@
         /// In other words, enqueues the frame.
         /// </summary>
         /// <param name="frame">The frame.</param>
-        public void Push(Frame frame)
+        public void Push(FrameSource frame)
         {
             lock (SyncRoot)
             {
@@ -92,7 +92,7 @@
         /// Dequeues a frame from this queue.
         /// </summary>
         /// <returns></returns>
-        public Frame Dequeue()
+        public FrameSource Dequeue()
         {
             lock (SyncRoot)
             {

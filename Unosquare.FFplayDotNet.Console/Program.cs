@@ -30,11 +30,11 @@
         private static double Elapsed = 0d;
         private static double DecodeSpeed = 0d;
 
-        private static Dictionary<MediaType, FrameContainer> Outputs = new Dictionary<MediaType, FrameContainer>
+        private static Dictionary<MediaType, Frame> Outputs = new Dictionary<MediaType, Frame>
         {
-            { MediaType.Video,  new VideoFrameContainer() },
-            { MediaType.Audio,  new AudioFrameContainer() },
-            { MediaType.Subtitle,  new SubtitleFrameContainer() },
+            { MediaType.Video,  new VideoFrame() },
+            { MediaType.Audio,  new AudioFrame() },
+            { MediaType.Subtitle,  new SubtitleFrame() },
 
         };
 
@@ -57,9 +57,9 @@
 
             #region Setup
 
-            InputFile = TestInputs.YoutubeLocalFile;
+            InputFile = TestInputs.UdpStream;
             DecodeDurationLimit = 20;
-            IsBenchmarking = true;
+            IsBenchmarking = false;
             SaveWaveFile = true;
             SaveSnapshots = true;
 
@@ -69,14 +69,10 @@
             #endregion
 
             var chronometer = new Stopwatch();
-            chronometer.Start();
             {
-                // Continuously read packets
-                var readerTask = RunReaderTask();
-
-                // Continuously decode packets
-                var decoderTask = RunDecoderTask();
-
+                chronometer.Start();
+                var readerTask = RunReaderTask(); // Continuously read packets
+                var decoderTask = RunDecoderTask(); // Continuously decode packets
                 DecodingFinished.Wait();
                 chronometer.Stop();
             }
@@ -111,7 +107,7 @@
                                 // buffer at least 60 packets
                                 while (Player.Components.PacketBufferCount < 48 && readCancel == false)
                                     Player.ReadNextPacket();
-
+                                var x = Player.LastReadTimeUtc;
                                 ($"Buffer     | DUR: {Player.Components.PacketBufferDuration.TotalSeconds,10:0.000}"
                                     + $" | LEN: {Player.Components.PacketBufferLength / 1024d,9:0.00}K"
                                     + $" | CNT: {Player.Components.PacketBufferCount,12}").Warn(typeof(Program));
@@ -194,25 +190,25 @@
             }).ConfigureAwait(false);
         }
 
-        private static void HandleFrame(FrameContainer e)
+        private static void HandleFrame(Frame e)
         {
             switch (e.MediaType)
             {
                 case MediaType.Video:
-                    HandleVideoFrame(e as VideoFrameContainer);
+                    HandleVideoFrame(e as VideoFrame);
                     return;
                 case MediaType.Audio:
-                    HandleAudioFrame(e as AudioFrameContainer);
+                    HandleAudioFrame(e as AudioFrame);
                     return;
                 case MediaType.Subtitle:
-                    HandleSubtitleFrame(e as SubtitleFrameContainer);
+                    HandleSubtitleFrame(e as SubtitleFrame);
                     return;
             }
 
 
         }
 
-        private static void HandleAudioFrame(AudioFrameContainer e)
+        private static void HandleAudioFrame(AudioFrame e)
         {
             TotalBytes += (ulong)e.BufferLength;
 
@@ -230,12 +226,12 @@
             }
         }
 
-        private static void HandleSubtitleFrame(SubtitleFrameContainer e)
+        private static void HandleSubtitleFrame(SubtitleFrame e)
         {
             ("Subtitle: " + string.Join(" ", e.Text)).Warn(typeof(Program));
         }
 
-        private static void HandleVideoFrame(VideoFrameContainer e)
+        private static void HandleVideoFrame(VideoFrame e)
         {
             TotalBytes += (ulong)e.BufferLength;
             TotalDurationSeconds += e.Duration.TotalSeconds;
@@ -300,7 +296,7 @@
             using (var file = File.OpenWrite(audioFile))
             {
                 var bytesPerSample = 2;
-                var spec = AudioParams.Output;
+                var spec = Outputs[MediaType.Audio] as AudioFrame;
                 using (var writer = new BinaryWriter(file))
                 {
                     writer.Write("RIFF".ToCharArray()); // Group Id

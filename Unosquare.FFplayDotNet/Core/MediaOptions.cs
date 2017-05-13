@@ -11,6 +11,12 @@
         // TODO: Support specific stream selection for each component, forced input format
 
         /// <summary>
+        /// Gets or sets the forced input format. If let null or empty,
+        /// the input format will be selected automatically.
+        /// </summary>
+        public string ForcedInputFormat { get; set; }
+
+        /// <summary>
         /// Gets or sets a value indicating whether [enable low resource].
         /// In theroy this should be 0,1,2,3 for 1, 1/2, 1,4 and 1/8 resolutions.
         /// TODO: We are for now just supporting 1/2 rest (true value)

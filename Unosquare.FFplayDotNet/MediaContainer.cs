@@ -17,7 +17,7 @@
     /// The method pipeline should be Read, Decode, Materialize
     /// </summary>
     /// <seealso cref="System.IDisposable" />
-    public unsafe class MediaContainer : IDisposable
+    public unsafe sealed class MediaContainer : IDisposable
     {
 
         #region Constants
@@ -43,14 +43,9 @@
         internal AVFormatContext* InputContext = null;
 
         /// <summary>
-        /// The initialization options.
-        /// </summary>
-        internal MediaOptions Options = null;
-
-        /// <summary>
         /// Determines if the stream seeks by bytes always
         /// </summary>
-        internal bool MediaSeeksByBytes = false;
+        private bool MediaSeeksByBytes = false;
 
         /// <summary>
         /// Hold the value for the internal property with the same name.
@@ -71,6 +66,13 @@
         public string MediaUrl { get; private set; }
 
         /// <summary>
+        /// The media initialization options.
+        /// Options are applied when calling the Initialize method.
+        /// After nitialization, changing the options has no effect.
+        /// </summary>
+        public MediaOptions MediaOptions { get; } = new MediaOptions();
+
+        /// <summary>
         /// Gets the name of the media format.
         /// </summary>
         public string MediaFormatName { get; private set; }
@@ -86,6 +88,11 @@
                 return InputContext->bit_rate;
             }
         }
+
+        /// <summary>
+        /// Gets a value indicating whether an Input Context has been initialize.
+        /// </summary>
+        public bool IsInitialized { get { return InputContext != null; } }
 
         /// <summary>
         /// If available, the title will be extracted from the metadata of the media.
@@ -119,7 +126,6 @@
         /// </summary>
         public bool IsAtEndOfStream { get; private set; }
 
-
         /// <summary>
         /// Gets the byte position at which the stream is being read.
         /// </summary>
@@ -147,7 +153,7 @@
         /// <summary>
         /// Provides direct access to the individual Media components of the input stream.
         /// </summary>
-        public MediaComponentSet Components { get; private set; }
+        public MediaComponentSet Components { get; } = new MediaComponentSet();
 
         /// <summary>
         /// Gets the time the last packet was read from the input
@@ -210,10 +216,8 @@
         /// Initializes a new instance of the <see cref="MediaContainer"/> class.
         /// </summary>
         /// <param name="mediaUrl">The media URL.</param>
-        /// <param name="forcedFormatName">Name of the format.</param>
         /// <exception cref="System.ArgumentNullException">mediaUrl</exception>
-        /// <exception cref="Unosquare.FFplayDotNet.MediaContainerException"></exception>
-        public MediaContainer(string mediaUrl, string forcedFormatName = null)
+        public MediaContainer(string mediaUrl)
         {
             // Argument Validation
             if (string.IsNullOrWhiteSpace(mediaUrl))
@@ -224,20 +228,30 @@
 
             // Create the options object
             MediaUrl = mediaUrl;
-            Options = new MediaOptions();
+        }
+
+        /// <summary>
+        /// Initializes the input context to start read operations.
+        /// </summary>
+        /// <exception cref="System.InvalidOperationException">The input context has already been initialized.</exception>
+        /// <exception cref="MediaContainerException"></exception>
+        private void InitializeInputContext()
+        {
+            if (IsInitialized)
+                throw new InvalidOperationException("The input context has already been initialized.");
 
             // Retrieve the input format (null = auto for default)
             AVInputFormat* inputFormat = null;
-            if (string.IsNullOrWhiteSpace(forcedFormatName) == false)
+            if (string.IsNullOrWhiteSpace(MediaOptions.ForcedInputFormat) == false)
             {
-                inputFormat = ffmpeg.av_find_input_format(forcedFormatName);
-                $"Format '{forcedFormatName}' not found. Will use automatic format detection.".Warn(typeof(MediaContainer));
+                inputFormat = ffmpeg.av_find_input_format(MediaOptions.ForcedInputFormat);
+                $"Format '{MediaOptions.ForcedInputFormat}' not found. Will use automatic format detection.".Warn(typeof(MediaContainer));
             }
 
             try
             {
                 // Create the input format context, and open the input based on the provided format options.
-                using (var formatOptions = new FFDictionary(Options.FormatOptions))
+                using (var formatOptions = new FFDictionary(MediaOptions.FormatOptions))
                 {
                     if (formatOptions.HasKey(EntryName.ScanAllPMTs) == false)
                         formatOptions.Set(EntryName.ScanAllPMTs, "1", true);
@@ -265,7 +279,7 @@
                 }
 
                 // Inject Codec Parameters
-                if (Options.GeneratePts) InputContext->flags |= ffmpeg.AVFMT_FLAG_GENPTS;
+                if (MediaOptions.GeneratePts) InputContext->flags |= ffmpeg.AVFMT_FLAG_GENPTS;
                 ffmpeg.av_format_inject_global_side_data(InputContext);
 
                 // This is useful for file formats with no headers such as MPEG. This function also computes the real framerate in case of MPEG-2 repeat frame mode.
@@ -294,7 +308,7 @@
                     MediaEndTime = TimeSpan.MinValue;
 
                 // Open the best suitable streams. Throw if no audio and/or video streams are found
-                Components = CreateStreamComponents();
+                CreateStreamComponents();
 
                 // For network streams, figure out if reads can be paused and then start them.
                 CanReadSuspend = ffmpeg.av_read_pause(InputContext) == 0;
@@ -320,7 +334,7 @@
         /// </summary>
         /// <returns></returns>
         /// <exception cref="Unosquare.FFplayDotNet.MediaContainerException"></exception>
-        private MediaComponentSet CreateStreamComponents()
+        private void CreateStreamComponents()
         {
             // Display stream information in the console if we are debugging
             if (Debugger.IsAttached)
@@ -337,20 +351,20 @@
                 // find_best_stream would not validate whether a valid decoder is registed.
                 AVCodec* requestedCodec = null;
 
-                if (Options.IsVideoDisabled == false)
+                if (MediaOptions.IsVideoDisabled == false)
                     streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_VIDEO] =
                         ffmpeg.av_find_best_stream(InputContext, AVMediaType.AVMEDIA_TYPE_VIDEO,
                                             streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_VIDEO], -1,
                                             &requestedCodec, 0);
 
-                if (Options.IsAudioDisabled == false)
+                if (MediaOptions.IsAudioDisabled == false)
                     streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_AUDIO] =
                     ffmpeg.av_find_best_stream(InputContext, AVMediaType.AVMEDIA_TYPE_AUDIO,
                                         streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_AUDIO],
                                         streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_VIDEO],
                                         &requestedCodec, 0);
 
-                if (Options.IsSubtitleDisabled == false)
+                if (MediaOptions.IsSubtitleDisabled == false)
                     streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_SUBTITLE] =
                     ffmpeg.av_find_best_stream(InputContext, AVMediaType.AVMEDIA_TYPE_SUBTITLE,
                                         streamIndexes[(int)AVMediaType.AVMEDIA_TYPE_SUBTITLE],
@@ -360,7 +374,6 @@
                                         &requestedCodec, 0);
             }
 
-            var result = new MediaComponentSet();
             var allMediaTypes = Enum.GetValues(typeof(MediaType));
 
             foreach (var mediaTypeItem in allMediaTypes)
@@ -375,20 +388,20 @@
                         switch (mediaType)
                         {
                             case MediaType.Video:
-                                result[mediaType] = new VideoComponent(this, streamIndexes[(int)mediaType]);
+                                Components[mediaType] = new VideoComponent(this, streamIndexes[(int)mediaType]);
                                 break;
                             case MediaType.Audio:
-                                result[mediaType] = new AudioComponent(this, streamIndexes[(int)mediaType]);
+                                Components[mediaType] = new AudioComponent(this, streamIndexes[(int)mediaType]);
                                 break;
                             case MediaType.Subtitle:
-                                result[mediaType] = new SubtitleComponent(this, streamIndexes[(int)mediaType]);
+                                Components[mediaType] = new SubtitleComponent(this, streamIndexes[(int)mediaType]);
                                 break;
                             default:
                                 continue;
                         }
 
                         if (Debugger.IsAttached)
-                            $"{mediaType}: Selected Stream Index = {result[mediaType].StreamIndex}".Info(typeof(MediaContainer));
+                            $"{mediaType}: Selected Stream Index = {Components[mediaType].StreamIndex}".Info(typeof(MediaContainer));
                     }
 
                 }
@@ -398,18 +411,24 @@
                 }
             }
 
-
             // Verify we have at least 1 valid stream component to work with.
-            if (result.HasVideo == false && result.HasAudio == false)
+            if (Components.HasVideo == false && Components.HasAudio == false)
                 throw new MediaContainerException($"{MediaUrl}: No audio or video streams found to decode.");
-
-            return result;
 
         }
 
         #endregion
 
         #region Public API
+
+        /// <summary>
+        /// Initializes the input context in order to start reading from the Media URL.
+        /// Any Media Options must be set before this method is called.
+        /// </summary>
+        public void Initialize()
+        {
+            InitializeInputContext();
+        }
 
         /// <summary>
         /// Reads the next available packet, sending the packet to the corresponding
@@ -421,6 +440,10 @@
         /// <exception cref="MediaContainerException"></exception>
         public MediaType ReadNext()
         {
+            // Check the context has been initialized
+            if (IsInitialized == false)
+                throw new InvalidOperationException($"Please call the {nameof(Initialize)} method before attempting this operation.");
+            
             // Ensure read is not suspended
             StreamReadResume();
 
@@ -554,7 +577,9 @@
         /// <exception cref="MediaContainerException">MediaType</exception>
         public Frame MaterializeFrame(FrameSource input, ref Frame output, bool releaseInput = true)
         {
-            if (input == null) throw new ArgumentNullException($"{nameof(input)} cannot be null.");
+            // Check the input parameters
+            if (input == null)
+                throw new ArgumentNullException($"{nameof(input)} cannot be null.");
 
             try
             {
@@ -594,12 +619,13 @@
         }
 
         /// <summary>
-        /// Materializes the frame.
+        /// A specialized version of the Materialize Frame function. For additional info, look at the
+        /// general version of this method.
         /// </summary>
         /// <typeparam name="T"></typeparam>
-        /// <param name="input">The input.</param>
-        /// <param name="output">The output.</param>
-        /// <param name="releaseInput">if set to <c>true</c> [release input].</param>
+        /// <param name="input">The raw frame source.</param>
+        /// <param name="output">The target frame.</param>
+        /// <param name="releaseInput">if set to <c>true</c> releases the raw frame source from unmanaged memory.</param>
         /// <returns></returns>
         public T MaterializeFrame<T>(FrameSource input, ref T output, bool releaseInput = true)
             where T : Frame
@@ -610,7 +636,7 @@
 
         #endregion
 
-        #region Private Methods
+        #region Stream Methods
 
         private void StreamReadSuspend()
         {
@@ -701,36 +727,39 @@
 
         #region IDisposable Support
 
-        protected virtual void Dispose(bool alsoManaged)
+        /// <summary>
+        /// Releases unmanaged and - optionally - managed resources.
+        /// </summary>
+        /// <param name="alsoManaged">
+        ///   <c>true</c> to release both managed and unmanaged resources; <c>false</c> to release only unmanaged resources.</param>
+        private void Dispose(bool alsoManaged)
         {
-            if (!IsDisposed)
+            if (IsDisposed) return;
+
+            if (alsoManaged)
             {
-                if (alsoManaged)
+                Components.Dispose();
+
+                if (InputContext != null)
                 {
-                    if (InputContext != null)
-                    {
-                        fixed (AVFormatContext** inputContext = &InputContext)
-                            ffmpeg.avformat_close_input(inputContext);
+                    fixed (AVFormatContext** inputContext = &InputContext)
+                        ffmpeg.avformat_close_input(inputContext);
 
-                        ffmpeg.avformat_free_context(InputContext);
+                    ffmpeg.avformat_free_context(InputContext);
 
-                        Components.Dispose();
-                    }
+                    InputContext = null;
                 }
-
-                IsDisposed = true;
             }
+
+            IsDisposed = true;
         }
 
-        ~MediaContainer()
-        {
-            Dispose(false);
-        }
-
+        /// <summary>
+        /// Releases unmanaged and - optionally - managed resources.
+        /// </summary>
         public void Dispose()
         {
             Dispose(true);
-            GC.SuppressFinalize(this);
         }
 
         #endregion

@@ -66,6 +66,7 @@
             SaveSnapshots = false;
 
             Container = new MediaContainer(InputFile);
+            Container.Initialize();
             PrepareOutputDirectory(SaveWaveFile, SaveSnapshots);
 
             #endregion

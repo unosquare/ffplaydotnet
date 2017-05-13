@@ -170,7 +170,7 @@
 
             // Process the low res index option
             var lowResIndex = ffmpeg.av_codec_get_max_lowres(codec);
-            if (Container.Options.EnableLowRes)
+            if (Container.MediaOptions.EnableLowRes)
             {
                 ffmpeg.av_codec_set_lowres(CodecContext, lowResIndex);
                 CodecContext->flags |= ffmpeg.CODEC_FLAG_EMU_EDGE;
@@ -181,14 +181,14 @@
             }
 
             // Configure the codec context flags
-            if (Container.Options.EnableFastDecoding) CodecContext->flags2 |= ffmpeg.AV_CODEC_FLAG2_FAST;
+            if (Container.MediaOptions.EnableFastDecoding) CodecContext->flags2 |= ffmpeg.AV_CODEC_FLAG2_FAST;
             if ((codec->capabilities & ffmpeg.AV_CODEC_CAP_DR1) != 0) CodecContext->flags |= ffmpeg.CODEC_FLAG_EMU_EDGE;
             if ((codec->capabilities & ffmpeg.AV_CODEC_CAP_TRUNCATED) != 0) CodecContext->flags |= ffmpeg.AV_CODEC_CAP_TRUNCATED;
             if ((codec->capabilities & ffmpeg.CODEC_FLAG2_CHUNKS) != 0) CodecContext->flags |= ffmpeg.CODEC_FLAG2_CHUNKS;
 
             // Setup additional settings. The most important one is Threads -- Setting it to 1 decoding is very slow. Setting it to auto
             // decoding is very fast in most scenarios.
-            var codecOptions = Container.Options.CodecOptions.FilterOptions(CodecContext->codec_id, Container.InputContext, Stream, codec);
+            var codecOptions = Container.MediaOptions.CodecOptions.FilterOptions(CodecContext->codec_id, Container.InputContext, Stream, codec);
             if (codecOptions.HasKey(CodecOption.Threads) == false) codecOptions[CodecOption.Threads] = "auto";
             if (lowResIndex != 0) codecOptions[CodecOption.LowRes] = lowResIndex.ToString(CultureInfo.InvariantCulture);
             if (CodecContext->codec_type == AVMediaType.AVMEDIA_TYPE_VIDEO || CodecContext->codec_type == AVMediaType.AVMEDIA_TYPE_AUDIO)

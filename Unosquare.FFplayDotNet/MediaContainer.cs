@@ -14,7 +14,10 @@
     /// A container capable of opening an input url,
     /// reading packets from it, decoding frames, seeking, and pausing and resuming network streams
     /// Code heavily based on https://raw.githubusercontent.com/FFmpeg/FFmpeg/release/3.2/ffplay.c
-    /// The method pipeline should be Read, Decode, Materialize
+    /// The method pipeline should be: 
+    /// 1. Set Options (or don't for automatic options) and Initialize, 
+    /// 2. Perform continuous Reads, 
+    /// 3. Perform continuous Decode and Materialize
     /// </summary>
     /// <seealso cref="System.IDisposable" />
     public unsafe sealed class MediaContainer : IDisposable
@@ -154,6 +157,10 @@
         /// Provides direct access to the individual Media components of the input stream.
         /// </summary>
         public MediaComponentSet Components { get; } = new MediaComponentSet();
+
+        #endregion
+
+        #region Internal Properties
 
         /// <summary>
         /// Gets the time the last packet was read from the input
@@ -636,7 +643,7 @@
 
         #endregion
 
-        #region Stream Methods
+        #region Private Stream Methods
 
         private void StreamReadSuspend()
         {

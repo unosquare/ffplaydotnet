@@ -724,13 +724,34 @@
                     var packetComponent = Components[packetType];
                     if (packetComponent == null) continue;
 
-                    while (packetComponent.PacketBufferCount > 2 && packetComponent.PacketBufferNextStartTime < targetTime)
-                        packetComponent.DropNextPacket();
-
                     if (packetComponent == component && component.PacketBufferLastStartTime >= targetTime)
                         break;
 
+                    // TODO: Call packet cleanup function if packet count is > 64
+
                 }
+
+                // drop all packets that we don't need!
+                // TODO: Move to cleanup function
+                foreach (var c in Components.All)
+                {
+                    var packets = c.GetPacketStartTimes().Select(p=> new { Index = p.Key, StartTime = p.Value }).ToList();
+                    packets.Sort((t1, t2) => { return t1.StartTime.CompareTo(t2.StartTime); });
+                    var packetsToDrop = new List<int>(c.PacketBufferCount);
+                    
+                    for (var i = 0; i < packets.Count - 1; i++)
+                    {
+                        var currentPacket = packets[i];
+                        var nextPacket = packets[i + 1];
+
+                        if (currentPacket.StartTime < targetTime && nextPacket.StartTime <= targetTime)
+                            packetsToDrop.Add(currentPacket.Index);
+                    }
+
+                    c.DropPackets(packetsToDrop);
+                }
+
+                $"SEEK (R):  Next PTS: {Components.Main.PacketBufferNextStartTime.TotalSeconds,14:0.0000}s | Last PTS: {Components.Main.PacketBufferLastStartTime.TotalSeconds,14:0.0000}s".Trace(typeof(MediaContainer));
 
                 ($"SEEK (2):  " 
                     + $"P0: {(startPos / 1024d),14:#,###.000}K | " 

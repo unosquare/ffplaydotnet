@@ -146,12 +146,37 @@
             }
         }
 
-        /// <summary>
-        /// Removes and rteleases the next available packet to be dequeued
-        /// </summary>
-        public void DequeueDrop()
+        public void Drop(List<int> indexes)
         {
-            Drop(0);
+            lock (SyncRoot)
+            {
+                indexes.Sort();
+                indexes.Reverse();
+
+                foreach (var index in indexes)
+                {
+                    var result = PacketPointers[index];
+                    PacketPointers.RemoveAt(index);
+
+                    var packet = (AVPacket*)result;
+                    BufferLength -= packet->size;
+                    Duration -= packet->duration;
+                    ffmpeg.av_packet_free(&packet);
+                }
+            }
+        }
+
+        public Dictionary<int, TimeSpan> GetStartTimes(AVRational timeBase)
+        {
+            lock (SyncRoot)
+            {
+                var result = new Dictionary<int, TimeSpan>(Count);
+                for (var i = 0; i < PacketPointers.Count; i++)
+                    result[i] = ((AVPacket*)PacketPointers[i])->pts.ToTimeSpan(timeBase);
+
+                return result;
+            }
+
         }
 
         /// <summary>

@@ -264,13 +264,15 @@
                 ffmpeg.avcodec_flush_buffers(CodecContext);
         }
 
-        /// <summary>
-        /// Drops the last packet that was queued.
-        /// and releases it from unmanaged memory.
-        /// </summary>
-        internal void DropNextPacket()
+
+        internal void DropPackets(List<int> indexes)
         {
-            Packets.DequeueDrop();
+            Packets.Drop(indexes);
+        }
+
+        internal Dictionary<int, TimeSpan> GetPacketStartTimes()
+        {
+            return Packets.GetStartTimes(Stream->time_base);
         }
 
         /// <summary>

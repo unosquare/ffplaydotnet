@@ -60,13 +60,14 @@
 
             #region Setup
 
-            InputFile = TestInputs.YoutubeLocalFile;
+            InputFile = TestInputs.TransportLocalFile;
             DecodeDurationLimit = 10;
             IsBenchmarking = false;
             SaveWaveFile = false;
             SaveSnapshots = false;
 
             Container = new MediaContainer(InputFile);
+            //Container.MediaOptions.GeneratePts = true;
             Container.Initialize();
             PrepareOutputDirectory(SaveWaveFile, SaveSnapshots);
 
@@ -93,7 +94,7 @@
             //Container.StreamSeek(TimeSpan.FromSeconds(6));
             //Container.StreamSeek(TimeSpan.FromSeconds(6.1));
             //Container.StreamSeek(TimeSpan.FromSeconds(6.2));
-            Container.StreamSeek(TimeSpan.FromSeconds(6.3), false);
+            Container.StreamSeek(TimeSpan.FromSeconds(6.3), true);
 
             return Task.Run(() =>
             {

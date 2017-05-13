@@ -85,6 +85,18 @@
         #region Math 
 
         /// <summary>
+        /// Converts the given value to a value that is of the given multiple. 
+        /// </summary>
+        /// <param name="value">The value.</param>
+        /// <param name="multiple">The multiple.</param>
+        /// <returns></returns>
+        public static double ToMultipleOf(this double value, double multiple)
+        {
+            var factor = (int)(value / multiple);
+            return factor * multiple;
+        }
+
+        /// <summary>
         /// Gets a timespan given a timestamp and a timebase.
         /// </summary>
         /// <param name="pts">The PTS.</param>

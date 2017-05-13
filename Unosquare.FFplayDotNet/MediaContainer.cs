@@ -450,7 +450,7 @@
             // Check the context has been initialized
             if (IsInitialized == false)
                 throw new InvalidOperationException($"Please call the {nameof(Initialize)} method before attempting this operation.");
-            
+
             // Ensure read is not suspended
             StreamReadResume();
 
@@ -659,7 +659,7 @@
             IsReadSuspended = false;
         }
 
-        private void StreamSeek(TimeSpan targetTime)
+        public void StreamSeek(TimeSpan targetTime, bool doShortSeeks)
         {
             // TODO: Seeking and resetting attached picture
             // This method is WIP and missing some stufff
@@ -677,52 +677,68 @@
                 if (targetTime < MediaStartTime) targetTime = MediaStartTime;
             }
 
-            var seekFlags = MediaSeeksByBytes ? ffmpeg.AVSEEK_FLAG_BYTE : 0;
-
-            var streamIndex = -1;
-            var timeBase = ffmpeg.AV_TIME_BASE_Q;
-            var component = Components.HasVideo ?
-                Components.Video as MediaComponent : Components.Audio as MediaComponent;
-
+            // Select the main component
+            var component = Components.Main;
             if (component == null) return;
 
-            // Check if we really need to seek.
-            if (component.LastFrameTime == targetTime)
-                return;
+            // Compute the seek parameters
+            if (component is VideoComponent)
+            {
+                var newTargetTime = TimeSpan.FromSeconds(targetTime.TotalSeconds.ToMultipleOf(1d / Components.Video.BaseFrameRate));
+                $"SEEK (0):  TT: {targetTime.TotalSeconds,14:0.0000}s | TA: {newTargetTime.TotalSeconds,14:0.0000}s".Trace(typeof(MediaContainer));
+                targetTime = newTargetTime;
+            }
+                
 
-            streamIndex = component.StreamIndex;
-            timeBase = component.Stream->time_base;
+            var seekFlags = MediaSeeksByBytes ? ffmpeg.AVSEEK_FLAG_BYTE : 0;
+            var streamIndex = component.StreamIndex;
+            var timeBase = component.Stream->time_base;
             var seekTarget = (long)Math.Round(targetTime.TotalSeconds * timeBase.den / timeBase.num, 0);
 
-            var startTime = DateTime.Now;
+            // Perform the stream seek
+            var benchmarkStartTime = DateTime.Now;
+            var startPos = StreamPosition;
             var seekResult = ffmpeg.avformat_seek_file(InputContext, streamIndex, long.MinValue, seekTarget, seekTarget, seekFlags);
-            $"{DateTime.Now.Subtract(startTime).TotalMilliseconds,10:0.000} ms Long seek".Trace(typeof(MediaContainer));
+            ($"SEEK (1):  "
+                + $"P0: {startPos / 1024d,14:#,###.000}K | "
+                + $"P1: {StreamPosition / 1024d,14:#,###.000}K | "
+                + $"TM: {DateTime.Now.Subtract(benchmarkStartTime).TotalMilliseconds,10:0.0000}ms | "
+                + $"CY: {0,6} | "
+                + $"BF: {Components.PacketBufferCount,6}").Trace(typeof(MediaContainer));
 
+            var shortSeekCycles = 0;
+            startPos = StreamPosition;
+            benchmarkStartTime = DateTime.Now;
+            
             if (seekResult >= 0)
             {
                 Components.ClearPacketQueues();
                 RequiresPictureAttachments = true;
                 IsAtEndOfStream = false;
 
-                if (component != null)
+                // Perform packet seek
+                while (IsAtEndOfStream == false && doShortSeeks)
                 {
-                    // Perform reads until the next component frame is obtained
-                    // as we need to check where in the component stream we have landed after the seek.
-                    $"SEEK INIT".Trace(typeof(MediaContainer));
-                    var beforeFrameTime = component.LastFrameTime;
-                    while (beforeFrameTime == component.LastFrameTime)
-                        ReadNext();
+                    shortSeekCycles++;
+                    var packetType = ReadNext();
+                    var packetComponent = Components[packetType];
+                    if (packetComponent == null) continue;
 
-                    $"SEEK START | Current {component.LastFrameTime.TotalSeconds,10:0.000} | Target {targetTime.TotalSeconds,10:0.000}".Trace(typeof(MediaContainer));
-                    while (component.LastFrameTime < targetTime)
-                    {
-                        ReadNext();
-                        if (IsAtEndOfStream)
-                            break;
-                    }
+                    while (packetComponent.PacketBufferCount > 2 && packetComponent.PacketBufferNextStartTime < targetTime)
+                        packetComponent.DropNextPacket();
 
-                    $"SEEK END   | Current {component.LastFrameTime.TotalSeconds,10:0.000} | Target {targetTime.TotalSeconds,10:0.000}".Trace(typeof(MediaContainer));
+                    if (packetComponent == component && component.PacketBufferLastStartTime >= targetTime)
+                        break;
+
                 }
+
+                ($"SEEK (2):  " 
+                    + $"P0: {(startPos / 1024d),14:#,###.000}K | " 
+                    + $"P1: {(StreamPosition / 1024d),14:#,###.000}K | "
+                    + $"TM: {DateTime.Now.Subtract(benchmarkStartTime).TotalMilliseconds,10:0.0000}ms | " 
+                    + $"CY: {shortSeekCycles,6} | "
+                    + $"BF: {Components.PacketBufferCount,6}").Trace(typeof(MediaContainer));
+
             }
             else
             {

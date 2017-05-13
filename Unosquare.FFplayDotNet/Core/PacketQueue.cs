@@ -67,6 +67,16 @@
         /// </summary>
         public long Duration { get; private set; }
 
+        /// <summary>
+        /// Gets the pts of the next available packet in stream TimeBase Units.
+        /// </summary>
+        public long NextPacketStartTime { get { return Count == 0 ? ffmpeg.AV_NOPTS : this[0]->pts; } }
+
+        /// <summary>
+        /// Gets the pts of the last available packet in stream TimeBase Units.
+        /// </summary>
+        public long LastPacketStartTime { get { return Count == 0 ? ffmpeg.AV_NOPTS : this[Count - 1]->pts; } }
+
         #endregion
 
         #region Methods
@@ -118,6 +128,30 @@
                 Duration -= packet->duration;
                 return packet;
             }
+        }
+
+
+        public void Drop(int index)
+        {
+            lock (SyncRoot)
+            {
+                if (PacketPointers.Count <= 0) return;
+                var result = PacketPointers[index];
+                PacketPointers.RemoveAt(index);
+
+                var packet = (AVPacket*)result;
+                BufferLength -= packet->size;
+                Duration -= packet->duration;
+                ffmpeg.av_packet_free(&packet);
+            }
+        }
+
+        /// <summary>
+        /// Removes and rteleases the next available packet to be dequeued
+        /// </summary>
+        public void DequeueDrop()
+        {
+            Drop(0);
         }
 
         /// <summary>

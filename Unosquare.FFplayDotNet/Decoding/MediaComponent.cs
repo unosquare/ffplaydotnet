@@ -15,9 +15,6 @@
     /// <seealso cref="System.IDisposable" />
     public unsafe abstract class MediaComponent : IDisposable
     {
-
-        // TODO: Last frame time might need to be removed. It does not make sense.
-
         #region Constants
 
         /// <summary>
@@ -103,11 +100,6 @@
         public ulong DecodedFrameCount { get; private set; }
 
         /// <summary>
-        /// Gets the render (start) time of the last processed frame.
-        /// </summary>
-        public TimeSpan LastFrameTime { get; protected set; }
-
-        /// <summary>
         /// Gets the number of packets that have been received
         /// by this media component.
         /// </summary>
@@ -128,6 +120,16 @@
         /// Gets the number of packets in the queue.
         /// </summary>
         public int PacketBufferCount { get { return Packets.Count; } }
+
+        /// <summary>
+        /// Gets the start time of the next available packet in the queue.
+        /// </summary>
+        public TimeSpan PacketBufferNextStartTime { get { return Packets.NextPacketStartTime.ToTimeSpan(Stream->time_base); } }
+
+        /// <summary>
+        /// Gets the start time of the last packet that was pushed into the queue
+        /// </summary>
+        public TimeSpan PacketBufferLastStartTime { get { return Packets.LastPacketStartTime.ToTimeSpan(Stream->time_base); } }
 
         #endregion
 
@@ -263,6 +265,15 @@
         }
 
         /// <summary>
+        /// Drops the last packet that was queued.
+        /// and releases it from unmanaged memory.
+        /// </summary>
+        internal void DropNextPacket()
+        {
+            Packets.DequeueDrop();
+        }
+
+        /// <summary>
         /// Sends a special kind of packet (an empty packet)
         /// that tells the decoder to enter draining mode.
         /// </summary>
@@ -348,7 +359,6 @@
                             if (managedFrame == null)
                                 throw new MediaContainerException($"{MediaType} Component does not implement {nameof(CreateFrameSource)}");
                             result.Add(managedFrame);
-                            LastFrameTime = managedFrame.StartTime;
                         }
                     }
                     catch
@@ -387,7 +397,6 @@
                             if (managedFrame == null)
                                 throw new MediaContainerException($"{MediaType} Component does not implement {nameof(CreateFrameSource)}");
                             result.Add(managedFrame);
-                            LastFrameTime = managedFrame.StartTime;
                         }
                         catch
                         {
@@ -419,7 +428,6 @@
                                 if (managedFrame == null)
                                     throw new MediaContainerException($"{MediaType} Component does not implement {nameof(CreateFrameSource)}");
                                 result.Add(managedFrame);
-                                LastFrameTime = managedFrame.StartTime;
                             }
 
                         }

@@ -8,7 +8,7 @@
     /// </summary>
     public class MediaOptions
     {
-        // TODO: Support specific stream selection for each component, forced input format
+        // TODO: Support specific stream selection for each component
 
         /// <summary>
         /// Gets or sets the forced input format. If let null or empty,

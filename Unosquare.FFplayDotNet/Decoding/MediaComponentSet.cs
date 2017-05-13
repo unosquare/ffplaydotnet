@@ -193,7 +193,6 @@
         {
             get
             {
-
                 return Items.ContainsKey(mediaType) ? Items[mediaType] : null;
             }
             set

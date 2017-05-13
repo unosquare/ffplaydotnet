@@ -4,6 +4,7 @@
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.IO;
+    using System.Linq;
     using System.Runtime.CompilerServices;
     using System.Runtime.InteropServices;
     using System.Threading;
@@ -59,8 +60,8 @@
 
             #region Setup
 
-            InputFile = TestInputs.BigBuckBunnyLocal;
-            DecodeDurationLimit = 20;
+            InputFile = TestInputs.YoutubeLocalFile;
+            DecodeDurationLimit = 10;
             IsBenchmarking = false;
             SaveWaveFile = false;
             SaveSnapshots = false;
@@ -89,13 +90,17 @@
 
         private static ConfiguredTaskAwaitable RunReaderTask()
         {
+            //Container.StreamSeek(TimeSpan.FromSeconds(6));
+            //Container.StreamSeek(TimeSpan.FromSeconds(6.1));
+            //Container.StreamSeek(TimeSpan.FromSeconds(6.2));
+            Container.StreamSeek(TimeSpan.FromSeconds(6.3), false);
+
             return Task.Run(() =>
             {
                 while (ReadCancel == false)
                 {
                     try
                     {
-
                         if (Container.IsAtEndOfStream == false && ReadCancel == false)
                         {
                             // check if the packet buuffer is too low
@@ -131,6 +136,8 @@
                 if (DecompressDispatcher == null)
                     DecompressDispatcher = Dispatcher.CurrentDispatcher;
 
+                var decodedSeconds = 0d;
+
                 while (true)
                 {
                     DecodingDone.Reset();
@@ -138,6 +145,7 @@
                     try
                     {
                         var decodedFrames = Container.DecodeNext(sortFrames: true);
+                        
                         foreach (var frame in decodedFrames)
                         {
                             var frameResult = Outputs[frame.MediaType];
@@ -157,18 +165,18 @@
                         }
                         else
                         {
-                            var currentPosition =
-                                Container.Components.Main.LastFrameTime.TotalSeconds
-                                 - Container.Components.Main.StartTime.TotalSeconds;
+                            decodedSeconds += decodedFrames
+                                .Where(f => f.MediaType == Container.Components.Main.MediaType)
+                                .Sum(f => f.Duration.TotalSeconds);
 
                             if (Container.IsAtEndOfStream)
                             {
                                 "End of file reached.".Warn(typeof(Program));
                                 break;
                             }
-                            else if (currentPosition >= DecodeDurationLimit)
+                            else if (decodedSeconds >= DecodeDurationLimit)
                             {
-                                ($"Decoder limit duration reached at {currentPosition,8:0.00000} secs. " +
+                                ($"Decoder limit duration reached at {decodedFrames.Last().StartTime.TotalSeconds,8:0.00000} secs. " +
                                 $"Limit was: {DecodeDurationLimit,8:0.00000} seconds").Info(typeof(Program));
                                 break;
                             }
@@ -215,6 +223,8 @@
         private static void HandleAudioFrame(AudioFrame e)
         {
             TotalBytes += (ulong)e.BufferLength;
+            $"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB".Info(typeof(Program));
+
 
             if (IsBenchmarking) return;
             if (DecompressDispatcher == null) return;
@@ -239,7 +249,7 @@
         {
             TotalBytes += (ulong)e.BufferLength;
             TotalDurationSeconds += e.Duration.TotalSeconds;
-            $"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB | LRT: {Container.Components.Video.LastFrameTime.TotalSeconds,10:0.000}".Info(typeof(Program));
+            $"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB".Info(typeof(Program));
 
             if (IsBenchmarking) return;
             if (DecompressDispatcher == null) return;

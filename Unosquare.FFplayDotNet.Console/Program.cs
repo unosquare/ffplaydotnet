@@ -61,15 +61,15 @@
 
             #region Setup
 
-            InputFile = TestInputs.YoutubeLocalFile;
-            StartTime = 26.8;
+            InputFile = TestInputs.BigBuckBunnyLocal;
+            StartTime = 24;
             DecodeDurationLimit = 10;
             IsBenchmarking = false;
             SaveWaveFile = false;
-            SaveSnapshots = false;
+            SaveSnapshots = true;
 
             Container = new MediaContainer(InputFile);
-            //Container.MediaOptions.GeneratePts = true;
+            Container.MediaOptions.IsSubtitleDisabled = true;
             Container.Initialize();
             PrepareOutputDirectory(SaveWaveFile, SaveSnapshots);
 

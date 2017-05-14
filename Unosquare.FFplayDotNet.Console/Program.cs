@@ -61,8 +61,8 @@
 
             #region Setup
 
-            InputFile = TestInputs.MatroskaLocalFile;
-            StartTime = 3;
+            InputFile = TestInputs.YoutubeLocalFile;
+            StartTime = 26.8;
             DecodeDurationLimit = 10;
             IsBenchmarking = false;
             SaveWaveFile = false;

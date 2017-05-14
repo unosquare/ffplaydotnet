@@ -59,7 +59,7 @@
         static void Main(string[] args)
         {
 
-            InputFile = TestInputs.BigBuckBunnyLocal;
+            InputFile = TestInputs.MpegPart2LocalFile;
             StartTime = 10;
             DecodeDurationLimit = 10;
             IsBenchmarking = false;
@@ -80,6 +80,8 @@
                 seekTimes++;
                 //if (seekTimes >= 5) break;
             }
+
+            Container.StreamSeek(TimeSpan.Zero, true);
 
             Container.Dispose();
 

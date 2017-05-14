@@ -81,7 +81,7 @@
         public string MediaFormatName { get; private set; }
 
         /// <summary>
-        /// Gets the media bitrate. Returns 0 if not available.
+        /// Gets the media bitrate (bits per second). Returns 0 if not available.
         /// </summary>
         public long MediaBitrate
         {
@@ -318,6 +318,7 @@
                 RequiresReadDelay = MediaFormatName.Equals("rstp") || MediaUrl.StartsWith("mmsh:");
                 var inputAllowsDiscontinuities = (InputContext->iformat->flags & ffmpeg.AVFMT_TS_DISCONT) != 0;
                 MediaSeeksByBytes = inputAllowsDiscontinuities && (MediaFormatName.Equals("ogg") == false);
+                MediaSeeksByBytes = MediaSeeksByBytes && MediaBitrate > 0;
 
                 // Compute timespans
                 MediaRelativeStartTime = InputContext->start_time.ToTimeSpan();
@@ -733,12 +734,14 @@
 
 
 
-        public void StreamSeekToStart()
+        private void StreamSeekToStart()
         {
-            if (MediaRelativeStartTime != TimeSpan.MinValue) return;
+            if (MediaRelativeStartTime == TimeSpan.MinValue) return;
             var startSeekTime = (long)(MediaRelativeStartTime.TotalSeconds * ffmpeg.AV_TIME_BASE);
-            var seekResult = ffmpeg.avformat_seek_file(InputContext, -1,
-                long.MinValue, startSeekTime, long.MaxValue, 0);
+            if (MediaSeeksByBytes) startSeekTime = 0;
+
+            var seekResult = ffmpeg.av_seek_frame(InputContext, -1,
+                startSeekTime, ffmpeg.AVSEEK_FLAG_BACKWARD);
 
             Components.ClearPacketQueues();
             RequiresPictureAttachments = true;
@@ -747,13 +750,16 @@
 
         public List<FrameSource> StreamSeek(TimeSpan targetTime, bool doPreciseSeek)
         {
-            // TODO: Seeking and resetting attached picture
-            // This method is WIP and missing some stufff
-            // like seeking by byes and others.
+            // This method is still WIP
+            var result = new List<FrameSource>();
+
+            if (targetTime <= TimeSpan.Zero)
+            {
+                StreamSeekToStart();
+                return result;
+            }
 
             #region Setup
-
-            var result = new List<FrameSource>();
 
             if (IsStreamSeekable == false)
             {
@@ -778,14 +784,20 @@
 
             // Stream seeking by main component
             // The backward flag means that we want to seek to at MOST the target position
-            var seekFlags = ffmpeg.AVSEEK_FLAG_BACKWARD | (MediaSeeksByBytes ? ffmpeg.AVSEEK_FLAG_BYTE : 0);
+            var seekFlags = ffmpeg.AVSEEK_FLAG_BACKWARD;
             var streamIndex = mainComp.StreamIndex;
             var timeBase = mainComp.Stream->time_base;
 
             // The seek target is computed by using the absolute, 0-based target time and adding the component stream's start time
             var relativeTargetTime = TimeSpan.FromTicks(targetTime.Ticks + mainComp.RelativeStartTime.Ticks);
-
             var seekTarget = (long)Math.Round(relativeTargetTime.TotalSeconds * timeBase.den / timeBase.num, 0) - 2;
+
+            if (MediaSeeksByBytes)
+            {
+                seekTarget = (long)(MediaBitrate * targetTime.TotalSeconds / 8d);
+                seekFlags = ffmpeg.AVSEEK_FLAG_BYTE;
+                streamIndex = -1;
+            }
 
             // Perform the stream seek
             var seekResult = 0;
@@ -796,10 +808,9 @@
             #region Perform Long Seek
 
             var startTime = DateTime.UtcNow;
-            seekResult = ffmpeg.avformat_seek_file(InputContext, streamIndex, long.MinValue, seekTarget, seekTarget, seekFlags);
-            //seekResult = ffmpeg.av_seek_frame(InputContext, streamIndex, seekTarget, seekFlags);
+            //seekResult = ffmpeg.avformat_seek_file(InputContext, streamIndex, long.MinValue, seekTarget, seekTarget, seekFlags);
+            seekResult = ffmpeg.av_seek_frame(InputContext, streamIndex, seekTarget, seekFlags);
             $"SEEK L: Elapsed: {startTime.DebugElapsedUtc()} | Target: {targetTime.Debug()} | Seek: {seekTarget.Debug()} | P0: {startPos.Debug(1024)} | P1: {StreamPosition.Debug(1024)} ".Trace(typeof(MediaContainer));
-
 
             // Flush the buffered packets and codec
             Components.ClearPacketQueues();

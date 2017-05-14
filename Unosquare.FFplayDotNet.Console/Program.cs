@@ -43,6 +43,7 @@
 
         private static string InputFile = TestInputs.BigBuckBunnyLocal;
         private static double DecodeDurationLimit = 80;
+        private static double StartTime = 0;
         private static bool IsBenchmarking = false;
         private static bool SaveWaveFile = false;
         private static bool SaveSnapshots = false;
@@ -60,7 +61,8 @@
 
             #region Setup
 
-            InputFile = TestInputs.TransportLocalFile;
+            InputFile = TestInputs.MatroskaLocalFile;
+            StartTime = 3;
             DecodeDurationLimit = 10;
             IsBenchmarking = false;
             SaveWaveFile = false;
@@ -89,12 +91,21 @@
 
         }
 
+        private static void HandleDecoding(List<FrameSource> decodedFrames)
+        {
+            foreach (var frame in decodedFrames)
+            {
+                var frameResult = Outputs[frame.MediaType];
+                Container.MaterializeFrame(frame, ref frameResult, true);
+                if (IsBenchmarking == false)
+                    HandleFrame(frameResult);
+            }
+        }
+
         private static ConfiguredTaskAwaitable RunReaderTask()
         {
-            //Container.StreamSeek(TimeSpan.FromSeconds(6));
-            //Container.StreamSeek(TimeSpan.FromSeconds(6.1));
-            //Container.StreamSeek(TimeSpan.FromSeconds(6.2));
-            Container.StreamSeek(TimeSpan.FromSeconds(6.3), true);
+            var decodedFrames = Container.StreamSeek(TimeSpan.FromSeconds(StartTime), true);
+            HandleDecoding(decodedFrames);
 
             return Task.Run(() =>
             {
@@ -146,14 +157,7 @@
                     try
                     {
                         var decodedFrames = Container.DecodeNext(sortFrames: true);
-                        
-                        foreach (var frame in decodedFrames)
-                        {
-                            var frameResult = Outputs[frame.MediaType];
-                            Container.MaterializeFrame(frame, ref frameResult, true);
-                            if (IsBenchmarking == false)
-                                HandleFrame(frameResult);
-                        }
+                        HandleDecoding(decodedFrames);
 
                         if (decodedFrames.Count == 0)
                         {

@@ -264,17 +264,6 @@
                 ffmpeg.avcodec_flush_buffers(CodecContext);
         }
 
-
-        internal void DropPackets(List<int> indexes)
-        {
-            Packets.Drop(indexes);
-        }
-
-        internal Dictionary<int, TimeSpan> GetPacketStartTimes()
-        {
-            return Packets.GetStartTimes(Stream->time_base);
-        }
-
         /// <summary>
         /// Sends a special kind of packet (an empty packet)
         /// that tells the decoder to enter draining mode.

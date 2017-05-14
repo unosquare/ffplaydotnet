@@ -548,19 +548,25 @@
         /// </summary>
         /// <typeparam name="T">Video Audio or Subtitle Frame Source</typeparam>
         /// <returns></returns>
-        public List<T> DecodeNext<T>()
+        public List<T> DecodeNext<T>(bool sortFrames = false)
             where T : FrameSource
         {
-            if (Components.HasVideo && typeof(T) == typeof(VideoFrameSource))
-                return Components.Video.DecodeNextPacket().Cast<T>().ToList();
+            List<T> result = null;
 
-            if (Components.HasAudio && typeof(T) == typeof(AudioFrameSource))
+            if (Components.HasVideo && typeof(T) == typeof(VideoFrameSource))
+                result = Components.Video.DecodeNextPacket().Cast<T>().ToList();
+
+            else if (Components.HasAudio && typeof(T) == typeof(AudioFrameSource))
                 return Components.Audio.DecodeNextPacket().Cast<T>().ToList();
 
-            if (Components.HasSubtitles && typeof(T) == typeof(SubtitleFrameSource))
+            else if (Components.HasSubtitles && typeof(T) == typeof(SubtitleFrameSource))
                 return Components.Subtitles.DecodeNextPacket().Cast<T>().ToList();
 
-            return new List<T>(0);
+            if (result == null) return new List<T>(0);
+            if (sortFrames) result.Sort();
+
+            return result;
+
         }
 
         /// <summary>
@@ -659,16 +665,45 @@
             IsReadSuspended = false;
         }
 
-        public void StreamSeek(TimeSpan targetTime, bool doShortSeeks)
+        private void DropSeekFrames(List<FrameSource> frames, TimeSpan targetTime)
+        {
+            if (frames.Count < 2) return;
+            frames.Sort();
+
+            var framesToDrop = new List<int>(frames.Count);
+
+            for (var i = 0; i < frames.Count - 1; i++)
+            {
+                var currentFrame = frames[i];
+                var nextFrame = frames[i + 1];
+
+                if (currentFrame.StartTime >= targetTime)
+                    break;
+                else if (currentFrame.StartTime < targetTime && nextFrame.StartTime <= targetTime)
+                    framesToDrop.Add(i);
+            }
+
+            for (var i = framesToDrop.Count - 1; i >= 0; i--)
+            {
+                var dropIndex = framesToDrop[i];
+                var frame = frames[dropIndex];
+                frames.RemoveAt(dropIndex);
+                frame.Dispose();
+            }
+        }
+
+        public List<FrameSource> StreamSeek(TimeSpan targetTime, bool doPreciseSeek)
         {
             // TODO: Seeking and resetting attached picture
             // This method is WIP and missing some stufff
             // like seeking by byes and others.
 
+            var result = new List<FrameSource>();
+
             if (IsStreamSeekable == false)
             {
                 $"Unable to seek. Underlying stream does not support seeking.".Warn(typeof(MediaContainer));
-                return;
+                return result;
             }
 
             if (MediaSeeksByBytes == false)
@@ -678,27 +713,20 @@
             }
 
             // Select the main component
-            var component = Components.Main;
-            if (component == null) return;
+            var mainComp = Components.Main;
+            if (mainComp == null) return result;
 
-            // Compute the seek parameters
-            if (component is VideoComponent)
-            {
-                var newTargetTime = TimeSpan.FromSeconds(targetTime.TotalSeconds.ToMultipleOf(1d / Components.Video.BaseFrameRate));
-                $"SEEK (0):  TT: {targetTime.TotalSeconds,14:0.0000}s | TA: {newTargetTime.TotalSeconds,14:0.0000}s".Trace(typeof(MediaContainer));
-                targetTime = newTargetTime;
-            }
-                
-
-            var seekFlags = MediaSeeksByBytes ? ffmpeg.AVSEEK_FLAG_BYTE : 0;
-            var streamIndex = component.StreamIndex;
-            var timeBase = component.Stream->time_base;
+            // Stream seeking by main component
+            var seekFlags = ffmpeg.AVSEEK_FLAG_BACKWARD | (MediaSeeksByBytes ? ffmpeg.AVSEEK_FLAG_BYTE : 0);
+            var streamIndex = mainComp.StreamIndex;
+            var timeBase = mainComp.Stream->time_base;
             var seekTarget = (long)Math.Round(targetTime.TotalSeconds * timeBase.den / timeBase.num, 0);
 
             // Perform the stream seek
             var benchmarkStartTime = DateTime.Now;
             var startPos = StreamPosition;
             var seekResult = ffmpeg.avformat_seek_file(InputContext, streamIndex, long.MinValue, seekTarget, seekTarget, seekFlags);
+
             ($"SEEK (1):  "
                 + $"P0: {startPos / 1024d,14:#,###.000}K | "
                 + $"P1: {StreamPosition / 1024d,14:#,###.000}K | "
@@ -706,65 +734,79 @@
                 + $"CY: {0,6} | "
                 + $"BF: {Components.PacketBufferCount,6}").Trace(typeof(MediaContainer));
 
+            // Ensure we had a successful seek operation
+            if (seekResult < 0)
+            {
+                $"Seek operation failed. Error code {seekResult}, {ffmpeg.ErrorMessage(seekResult)}".Warn(typeof(MediaContainer));
+                return result;
+            }
+
+            // Flush the buffered packets and codec
+            Components.ClearPacketQueues();
+            RequiresPictureAttachments = true;
+            IsAtEndOfStream = false;
+
+            // Perform frame based seek. Packet seek is not good enough
             var shortSeekCycles = 0;
             startPos = StreamPosition;
             benchmarkStartTime = DateTime.Now;
-            
-            if (seekResult >= 0)
+
+            // Create a holder of frame lists
+            var outputFrames = new Dictionary<MediaType, List<FrameSource>>();
+            foreach (var c in Components.All)
+                outputFrames[c.MediaType] = new List<FrameSource>();
+
+            while (IsAtEndOfStream == false && doPreciseSeek)
             {
-                Components.ClearPacketQueues();
-                RequiresPictureAttachments = true;
-                IsAtEndOfStream = false;
+                shortSeekCycles++;
+                var mediaType = ReadNext();
+                if (outputFrames.ContainsKey(mediaType) == false)
+                    continue;
 
-                // Perform packet seek
-                while (IsAtEndOfStream == false && doShortSeeks)
+                outputFrames[mediaType].AddRange(Components[mediaType].DecodeNextPacket());
+
+                // check if we are done with precise seeking
+                // all streams must have at least 1 frame in the range
+                var isDoneSeeking = true;
+                foreach (var kvp in outputFrames)
                 {
-                    shortSeekCycles++;
-                    var packetType = ReadNext();
-                    var packetComponent = Components[packetType];
-                    if (packetComponent == null) continue;
+                    var componentFrames = kvp.Value;
+                    if (componentFrames.Count >= 12)
+                        DropSeekFrames(componentFrames, targetTime);
 
-                    if (packetComponent == component && component.PacketBufferLastStartTime >= targetTime)
-                        break;
+                    var hasTargetRange = componentFrames.Count > 0
+                        //&& componentFrames.Min(f => f.StartTime) <= targetTime
+                        && componentFrames.Max(f => f.StartTime) >= targetTime;
 
-                    // TODO: Call packet cleanup function if packet count is > 64
-
-                }
-
-                // drop all packets that we don't need!
-                // TODO: Move to cleanup function
-                foreach (var c in Components.All)
-                {
-                    var packets = c.GetPacketStartTimes().Select(p=> new { Index = p.Key, StartTime = p.Value }).ToList();
-                    packets.Sort((t1, t2) => { return t1.StartTime.CompareTo(t2.StartTime); });
-                    var packetsToDrop = new List<int>(c.PacketBufferCount);
-                    
-                    for (var i = 0; i < packets.Count - 1; i++)
+                    if (hasTargetRange == false)
                     {
-                        var currentPacket = packets[i];
-                        var nextPacket = packets[i + 1];
-
-                        if (currentPacket.StartTime < targetTime && nextPacket.StartTime <= targetTime)
-                            packetsToDrop.Add(currentPacket.Index);
+                        isDoneSeeking = false;
+                        break;
                     }
-
-                    c.DropPackets(packetsToDrop);
                 }
 
-                $"SEEK (R):  Next PTS: {Components.Main.PacketBufferNextStartTime.TotalSeconds,14:0.0000}s | Last PTS: {Components.Main.PacketBufferLastStartTime.TotalSeconds,14:0.0000}s".Trace(typeof(MediaContainer));
-
-                ($"SEEK (2):  " 
-                    + $"P0: {(startPos / 1024d),14:#,###.000}K | " 
-                    + $"P1: {(StreamPosition / 1024d),14:#,###.000}K | "
-                    + $"TM: {DateTime.Now.Subtract(benchmarkStartTime).TotalMilliseconds,10:0.0000}ms | " 
-                    + $"CY: {shortSeekCycles,6} | "
-                    + $"BF: {Components.PacketBufferCount,6}").Trace(typeof(MediaContainer));
-
+                if (isDoneSeeking)
+                    break;
             }
-            else
+
+            // Perform one final cleanup
+            foreach (var kvp in outputFrames)
             {
-
+                var componentFrames = kvp.Value;
+                DropSeekFrames(componentFrames, targetTime);
+                result.AddRange(componentFrames);
             }
+
+            ($"SEEK (2):  "
+                + $"P0: {(startPos / 1024d),14:#,###.000}K | "
+                + $"P1: {(StreamPosition / 1024d),14:#,###.000}K | "
+                + $"TM: {DateTime.Now.Subtract(benchmarkStartTime).TotalMilliseconds,10:0.0000}ms | "
+                + $"CY: {shortSeekCycles,6} | "
+                + $"BF: {Components.PacketBufferCount,6}").Trace(typeof(MediaContainer));
+
+            result.Sort();
+            return result;
+
         }
 
         #endregion

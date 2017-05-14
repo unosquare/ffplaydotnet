@@ -94,10 +94,11 @@
         /// Creates a frame source object given the raw FFmpeg frame reference.
         /// </summary>
         /// <param name="frame">The raw FFmpeg frame pointer.</param>
+        /// <param name="packet">The packet.</param>
         /// <returns></returns>
-        protected override unsafe FrameSource CreateFrameSource(AVFrame* frame)
+        protected override unsafe FrameSource CreateFrameSource(AVFrame* frame, AVPacket* packet)
         {
-            var frameHolder = new VideoFrameSource(frame, Stream->time_base);
+            var frameHolder = new VideoFrameSource(frame, packet, Stream->time_base);
             CurrentFrameRate = ffmpeg.av_guess_frame_rate(Container.InputContext, Stream, frame).ToDouble();
             return frameHolder;
         }

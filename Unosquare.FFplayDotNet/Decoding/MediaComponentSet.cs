@@ -67,10 +67,7 @@
         /// Gets the main media component of the stream.
         /// By Main it is meant Video, then Audio.
         /// </summary>
-        public MediaComponent Main
-        {
-            get { return HasVideo ? Video as MediaComponent : Audio as MediaComponent; }
-        }
+        public MediaComponent Main { get; private set; }
 
         /// <summary>
         /// Gets the video component.
@@ -203,6 +200,7 @@
                 Items[mediaType] = value ??
                     throw new ArgumentNullException($"{nameof(MediaComponent)} {nameof(value)} must not be null.");
 
+                Main = HasVideo? Video as MediaComponent : Audio as MediaComponent;
             }
         }
 

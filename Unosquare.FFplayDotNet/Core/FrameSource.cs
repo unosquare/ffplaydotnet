@@ -15,7 +15,6 @@
         #region Private Members
 
         protected void* InternalPointer;
-        protected AVRational TimeBase;
         private bool IsDisposed = false;
 
         #endregion
@@ -27,10 +26,20 @@
         /// </summary>
         /// <param name="pointer">The pointer.</param>
         /// <param name="timeBase">The time base.</param>
-        internal FrameSource(void* pointer, AVRational timeBase)
+        internal FrameSource(void* pointer, AVPacket* packet, AVRational timeBase)
         {
             InternalPointer = pointer;
             TimeBase = timeBase;
+
+            // Set packet properties
+            if (packet != null)
+            {
+                PacketDecodingTime = packet->dts.ToTimeSpan(timeBase);
+                PacketDuration = packet->duration.ToTimeSpan(timeBase);
+                PacketPosition = packet->pos;
+                PacketSize = packet->size;
+                PacketStartTime = packet->pts.ToTimeSpan(timeBase);
+            }
         }
 
         #endregion
@@ -59,6 +68,39 @@
         /// Gets the amount of time this data has to be presented
         /// </summary>
         public TimeSpan Duration { get; protected set; }
+
+        /// <summary>
+        /// Gets the time base of the stream that generated this frame.
+        /// </summary>
+        internal AVRational TimeBase { get; }
+
+        /// <summary>
+        /// Gets the source packet PTS.
+        /// The real pts is the StartTime of the frame as some muxers
+        /// don't set the PTS correctly.
+        /// </summary>
+        public TimeSpan PacketStartTime { get; protected set; }
+
+        /// <summary>
+        /// Gets the packet DTS. Some muxers don't set this correctly.
+        /// </summary>
+        public TimeSpan PacketDecodingTime { get; protected set; }
+
+        /// <summary>
+        /// Gets the packet duration. Some muxers don't set this correctly.
+        /// </summary>
+        public TimeSpan PacketDuration { get; protected set; }
+
+        /// <summary>
+        /// Gets the size of the packet that triggered the creation of this frame.
+        /// </summary>
+        public int PacketSize { get; protected set; }
+
+        /// <summary>
+        /// Gets the bye position at which the packet triggering the
+        /// creation of this frame was found.
+        /// </summary>
+        public long PacketPosition { get; protected set; }
 
         /// <summary>
         /// When the unmanaged frame is released (freed from unmanaged memory)
@@ -135,14 +177,25 @@
         #region Constructors
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="VideoFrameSource"/> class.
+        /// Initializes a new instance of the <see cref="VideoFrameSource" /> class.
         /// </summary>
         /// <param name="frame">The frame.</param>
+        /// <param name="packet">The packet.</param>
         /// <param name="timeBase">The time base.</param>
-        internal VideoFrameSource(AVFrame* frame, AVRational timeBase)
-            : base(frame, timeBase)
+        internal VideoFrameSource(AVFrame* frame, AVPacket* packet, AVRational timeBase)
+            : base(frame, packet, timeBase)
         {
             m_Pointer = (AVFrame*)InternalPointer;
+
+            // Set packet properties
+            if (packet == null)
+            {
+                PacketDecodingTime = frame->pkt_dts.ToTimeSpan(timeBase);
+                PacketDuration = frame->pkt_duration.ToTimeSpan(timeBase);
+                PacketPosition = frame->pkt_pos;
+                PacketSize = frame->pkt_size;
+                PacketStartTime = frame->pkt_pts.ToTimeSpan(timeBase);
+            }
 
             // for vide frames, we always get the best effort timestamp as dts and pts might
             // contain different times.
@@ -202,14 +255,25 @@
         #region Constructor
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="AudioFrameSource"/> class.
+        /// Initializes a new instance of the <see cref="AudioFrameSource" /> class.
         /// </summary>
         /// <param name="frame">The frame.</param>
+        /// <param name="packet">The packet.</param>
         /// <param name="timeBase">The time base.</param>
-        internal AudioFrameSource(AVFrame* frame, AVRational timeBase)
-            : base(frame, timeBase)
+        internal AudioFrameSource(AVFrame* frame, AVPacket* packet, AVRational timeBase)
+            : base(frame, packet, timeBase)
         {
             m_Pointer = (AVFrame*)InternalPointer;
+
+            // Set packet properties
+            if (packet == null)
+            {
+                PacketDecodingTime = frame->pkt_dts.ToTimeSpan(timeBase);
+                PacketDuration = frame->pkt_duration.ToTimeSpan(timeBase);
+                PacketPosition = frame->pkt_pos;
+                PacketSize = frame->pkt_size;
+                PacketStartTime = frame->pkt_pts.ToTimeSpan(timeBase);
+            }
 
             // Compute the timespans
             StartTime = ffmpeg.av_frame_get_best_effort_timestamp(frame).ToTimeSpan(timeBase);
@@ -271,8 +335,8 @@
         /// </summary>
         /// <param name="frame">The frame.</param>
         /// <param name="timeBase">The time base.</param>
-        internal SubtitleFrameSource(AVSubtitle* frame, AVRational timeBase)
-            : base(frame, timeBase)
+        internal SubtitleFrameSource(AVSubtitle* frame, AVPacket* packet, AVRational timeBase)
+            : base(frame, packet, timeBase)
         {
             m_Pointer = (AVSubtitle*)InternalPointer;
 
@@ -290,7 +354,8 @@
                     Text.Add(Utils.PtrToStringUTF8(rect->text));
             }
 
-            // Immediately release as the struct was created in managed memory
+            // Immediately release the frame as the struct was created in managed memory
+            // Accessing it later will eventually caused a memory access error.
             Release();
         }
 

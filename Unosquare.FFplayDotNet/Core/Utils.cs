@@ -4,6 +4,7 @@
     using System;
     using System.Collections.Generic;
     using System.ComponentModel;
+    using System.Diagnostics;
     using System.IO;
     using System.Linq;
     using System.Reflection;
@@ -306,6 +307,29 @@
         #region Misc
 
         /// <summary>
+        /// Returns a formatted timestamp string in Seconds
+        /// </summary>
+        /// <param name="ts">The ts.</param>
+        /// <returns></returns>
+        internal static string Debug(this TimeSpan ts)
+        {
+            return $"{ts.TotalSeconds,10:0.000}";
+        }
+
+        internal static string Debug(this Stopwatch sw)
+        {
+            return $"{sw.ElapsedMilliseconds,5}";
+        }
+
+        internal static string Debug(this long ts, double divideBy = 1)
+        {
+            if (divideBy == 1)
+                return $"{ts,10:#,##0}";
+            else
+                return $"{(ts / divideBy),10:#,##0.000}";
+        }
+
+        /// <summary>
         /// Determines if we are currently in Design Time
         /// </summary>
         /// <value>
@@ -325,6 +349,7 @@
         }
 
         #endregion
+
     }
 
 }

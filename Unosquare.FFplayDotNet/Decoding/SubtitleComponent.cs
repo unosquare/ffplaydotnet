@@ -25,10 +25,11 @@
         /// Creates a frame source object given the raw FFmpeg subtitle reference.
         /// </summary>
         /// <param name="frame">The raw FFmpeg subtitle pointer.</param>
+        /// <param name="packet">The packet.</param>
         /// <returns></returns>
-        protected override unsafe FrameSource CreateFrameSource(AVSubtitle* frame)
+        protected override unsafe FrameSource CreateFrameSource(AVSubtitle* frame, AVPacket* packet)
         {
-            var frameHolder = new SubtitleFrameSource(frame, Stream->time_base);
+            var frameHolder = new SubtitleFrameSource(frame, packet, Stream->time_base);
             return frameHolder;
         }
 

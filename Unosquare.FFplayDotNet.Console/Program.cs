@@ -59,21 +59,33 @@
         static void Main(string[] args)
         {
 
-            #region Setup
-
-            InputFile = TestInputs.NetworkShareStream;
-            StartTime = 900;
+            InputFile = TestInputs.BigBuckBunnyLocal;
+            StartTime = 10;
             DecodeDurationLimit = 10;
             IsBenchmarking = false;
             SaveWaveFile = false;
             SaveSnapshots = true;
 
             Container = new MediaContainer(InputFile);
-            Container.MediaOptions.IsSubtitleDisabled = true;
+            //Container.MediaOptions.IsSubtitleDisabled = false;
             Container.Initialize();
-            PrepareOutputDirectory(SaveWaveFile, SaveSnapshots);
 
-            #endregion
+            //TestNormalDecoding();
+            TestSeeking(TimeSpan.FromSeconds(9.5));
+
+            Terminal.ReadKey(true, true);
+
+        }
+
+        private static void TestSeeking(TimeSpan target)
+        {
+            var decodedFrames = Container.StreamSeek(target, true);
+            HandleDecoding(decodedFrames);
+        }
+
+        private static void TestNormalDecoding()
+        {
+            PrepareOutputDirectory(SaveWaveFile, SaveSnapshots);
 
             var chronometer = new Stopwatch();
             {
@@ -83,12 +95,10 @@
                 DecodingFinished.Wait();
                 chronometer.Stop();
             }
-            
+
             Elapsed = chronometer.ElapsedMilliseconds / 1000d;
             DecodeSpeed = Container.Components.Main.DecodedFrameCount / Elapsed;
             PrintResults();
-            Terminal.ReadKey(true, true);
-
         }
 
         private static void HandleDecoding(List<FrameSource> decodedFrames)
@@ -104,8 +114,11 @@
 
         private static ConfiguredTaskAwaitable RunReaderTask()
         {
-            var decodedFrames = Container.StreamSeek(TimeSpan.FromSeconds(StartTime), true);
-            HandleDecoding(decodedFrames);
+            if (StartTime != 0)
+            {
+                var decodedFrames = Container.StreamSeek(TimeSpan.FromSeconds(StartTime), true);
+                HandleDecoding(decodedFrames);
+            }
 
             return Task.Run(() =>
             {

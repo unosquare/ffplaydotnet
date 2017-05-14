@@ -665,12 +665,14 @@
             IsReadSuspended = false;
         }
 
-        private void DropSeekFrames(List<FrameSource> frames, TimeSpan targetTime)
+        private int DropSeekFrames(List<FrameSource> frames, TimeSpan targetTime)
         {
-            if (frames.Count < 2) return;
+            var result = 0;
+            if (frames.Count < 2) return result;
             frames.Sort();
 
             var framesToDrop = new List<int>(frames.Count);
+            var frameType = frames[0].MediaType;
 
             for (var i = 0; i < frames.Count - 1; i++)
             {
@@ -689,7 +691,13 @@
                 var frame = frames[dropIndex];
                 frames.RemoveAt(dropIndex);
                 frame.Dispose();
+                result++;
             }
+
+            if (result > 0)
+                $"Dropped {result,5} decoded {frameType,10} frames in seek operation.".Trace(typeof(MediaContainer));
+
+            return result;
         }
 
         public List<FrameSource> StreamSeek(TimeSpan targetTime, bool doPreciseSeek)
@@ -697,6 +705,8 @@
             // TODO: Seeking and resetting attached picture
             // This method is WIP and missing some stufff
             // like seeking by byes and others.
+
+            #region Setup
 
             var result = new List<FrameSource>();
 
@@ -706,15 +716,15 @@
                 return result;
             }
 
-            if (MediaSeeksByBytes == false)
-            {
-                if (targetTime > MediaEndTime) targetTime = MediaEndTime;
-                if (targetTime < MediaStartTime) targetTime = MediaStartTime;
-            }
-
             // Select the main component
             var mainComp = Components.Main;
             if (mainComp == null) return result;
+
+            if (MediaSeeksByBytes == false)
+            {
+                if (targetTime > mainComp.EndTime) targetTime = mainComp.EndTime;
+                if (targetTime < mainComp.StartTime) targetTime = mainComp.StartTime;
+            }
 
             // Stream seeking by main component
             var seekFlags = ffmpeg.AVSEEK_FLAG_BACKWARD | (MediaSeeksByBytes ? ffmpeg.AVSEEK_FLAG_BYTE : 0);
@@ -723,19 +733,26 @@
             var seekTarget = (long)Math.Round(targetTime.TotalSeconds * timeBase.den / timeBase.num, 0);
 
             // Perform the stream seek
-            var benchmarkStartTime = DateTime.Now;
-            var startPos = StreamPosition;
             var seekResult = 0;
+            var startPos = StreamPosition;
 
-            //seekResult = ffmpeg.avformat_seek_file(InputContext, streamIndex, long.MinValue, seekTarget, seekTarget, seekFlags);
-            seekResult = ffmpeg.av_seek_frame(InputContext, streamIndex, seekTarget, seekFlags);
+            #endregion
 
-            ($"SEEK (1):  "
-                + $"P0: {startPos / 1024d,14:#,###.000}K | "
-                + $"P1: {StreamPosition / 1024d,14:#,###.000}K | "
-                + $"TM: {DateTime.Now.Subtract(benchmarkStartTime).TotalMilliseconds,10:0.0000}ms | "
-                + $"CY: {0,6} | "
-                + $"BF: {Components.PacketBufferCount,6}").Trace(typeof(MediaContainer));
+            #region Long Seek
+
+            var chronometer = new Stopwatch();
+            {
+                chronometer.Start();
+                seekResult = ffmpeg.avformat_seek_file(InputContext, streamIndex, long.MinValue, seekTarget, seekTarget, seekFlags);
+                //seekResult = ffmpeg.av_seek_frame(InputContext, streamIndex, seekTarget, seekFlags);
+                chronometer.Stop();
+                $"SEEK L: Elapsed: {chronometer.Debug()} | Target: {targetTime.Debug()} | Seek: {seekTarget.Debug()} | P0: {startPos.Debug(1024)} | P1: {StreamPosition.Debug(1024)} ".Trace(typeof(MediaContainer));
+            }
+
+            // Flush the buffered packets and codec
+            Components.ClearPacketQueues();
+            RequiresPictureAttachments = true;
+            IsAtEndOfStream = false;
 
             // Ensure we had a successful seek operation
             if (seekResult < 0)
@@ -744,21 +761,25 @@
                 return result;
             }
 
-            // Flush the buffered packets and codec
-            Components.ClearPacketQueues();
-            RequiresPictureAttachments = true;
-            IsAtEndOfStream = false;
+            #endregion
+
+            #region Precise Seek
+
+            // If precise seek not requested simply return.
+            if (doPreciseSeek == false) return result;
 
             // Perform frame based seek. Packet seek is not good enough
+            chronometer.Restart();
+            var outputPacketStats = true;
             var shortSeekCycles = 0;
             startPos = StreamPosition;
-            benchmarkStartTime = DateTime.Now;
 
-            // Create a holder of frame lists
+            // Create a holder of frame lists; one for each type of media
             var outputFrames = new Dictionary<MediaType, List<FrameSource>>();
             foreach (var c in Components.All)
                 outputFrames[c.MediaType] = new List<FrameSource>();
 
+            // Start reading and decoding util we reach the target
             while (IsAtEndOfStream == false && doPreciseSeek)
             {
                 shortSeekCycles++;
@@ -766,7 +787,14 @@
                 if (outputFrames.ContainsKey(mediaType) == false)
                     continue;
 
+                // Output statistics on the frame that was first decoded.
                 outputFrames[mediaType].AddRange(Components[mediaType].DecodeNextPacket());
+                if (outputPacketStats && outputFrames[mediaType].Count > 0)
+                {
+                    var firstFrame = outputFrames[mediaType][0];
+                    $"SEEK P: Elapsed: {chronometer.Debug()} | PKT: {firstFrame.PacketStartTime.Debug()} | FR: {firstFrame.StartTime.Debug()} | P0: {startPos.Debug(1024)} | P1: {StreamPosition.Debug(1024)} ".Trace(typeof(MediaContainer));
+                    outputPacketStats = false;
+                }
 
                 // check if we are done with precise seeking
                 // all streams must have at least 1 frame in the range
@@ -778,7 +806,6 @@
                         DropSeekFrames(componentFrames, targetTime);
 
                     var hasTargetRange = componentFrames.Count > 0
-                        //&& componentFrames.Min(f => f.StartTime) <= targetTime
                         && componentFrames.Max(f => f.StartTime) >= targetTime;
 
                     if (hasTargetRange == false)
@@ -800,12 +827,10 @@
                 result.AddRange(componentFrames);
             }
 
-            ($"SEEK (2):  "
-                + $"P0: {(startPos / 1024d),14:#,###.000}K | "
-                + $"P1: {(StreamPosition / 1024d),14:#,###.000}K | "
-                + $"TM: {DateTime.Now.Subtract(benchmarkStartTime).TotalMilliseconds,10:0.0000}ms | "
-                + $"CY: {shortSeekCycles,6} | "
-                + $"BF: {Components.PacketBufferCount,6}").Trace(typeof(MediaContainer));
+            $"SEEK F: Elapsed: {chronometer.Debug()} | CY: {shortSeekCycles} | FR: {result.Count} | P0: {startPos.Debug(1024)} | P1: {StreamPosition.Debug(1024)} ".Trace(typeof(MediaContainer));
+            chronometer.Stop();
+
+            #endregion
 
             result.Sort();
             return result;

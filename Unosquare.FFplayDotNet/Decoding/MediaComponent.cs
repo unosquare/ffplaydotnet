@@ -336,7 +336,7 @@
                         if (receiveFrameResult == 0)
                         {
                             // Send the frame to processing
-                            var managedFrame = CreateFrameSource(outputFrame);
+                            var managedFrame = CreateFrameSource(outputFrame, IsEmptyPacket(packet) ? null : packet);
                             if (managedFrame == null)
                                 throw new MediaContainerException($"{MediaType} Component does not implement {nameof(CreateFrameSource)}");
                             result.Add(managedFrame);
@@ -374,7 +374,7 @@
                         try
                         {
                             // Send the frame to processing
-                            var managedFrame = CreateFrameSource(&outputFrame);
+                            var managedFrame = CreateFrameSource(&outputFrame, packet);
                             if (managedFrame == null)
                                 throw new MediaContainerException($"{MediaType} Component does not implement {nameof(CreateFrameSource)}");
                             result.Add(managedFrame);
@@ -405,7 +405,7 @@
                             if (gotFrame != 0 && receiveFrameResult > 0)
                             {
                                 // Send the subtitle to processing
-                                var managedFrame = CreateFrameSource(&outputFrame);
+                                var managedFrame = CreateFrameSource(&outputFrame, emptyPacket);
                                 if (managedFrame == null)
                                     throw new MediaContainerException($"{MediaType} Component does not implement {nameof(CreateFrameSource)}");
                                 result.Add(managedFrame);
@@ -456,15 +456,17 @@
         /// Creates a frame source object given the raw FFmpeg frame reference.
         /// </summary>
         /// <param name="frame">The raw FFmpeg frame pointer.</param>
+        /// <param name="packet">The packet.</param>
         /// <returns></returns>
-        protected virtual FrameSource CreateFrameSource(AVFrame* frame) { return null; }
+        protected virtual FrameSource CreateFrameSource(AVFrame* frame, AVPacket* packet) { return null; }
 
         /// <summary>
         /// Creates a frame source object given the raw FFmpeg subtitle reference.
         /// </summary>
         /// <param name="frame">The raw FFmpeg subtitle pointer.</param>
+        /// <param name="packet">The packet.</param>
         /// <returns></returns>
-        protected virtual FrameSource CreateFrameSource(AVSubtitle* frame) { return null; }
+        protected virtual FrameSource CreateFrameSource(AVSubtitle* frame, AVPacket* packet) { return null; }
 
         #endregion
 

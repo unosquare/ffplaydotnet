@@ -59,7 +59,7 @@
         static void Main(string[] args)
         {
 
-            InputFile = TestInputs.YoutubeLocalFile;
+            InputFile = TestInputs.BigBuckBunnyLocal;
             StartTime = 10;
             DecodeDurationLimit = 10;
             IsBenchmarking = false;
@@ -69,7 +69,7 @@
             Container = new MediaContainer(InputFile);
             Container.MediaOptions.IsSubtitleDisabled = true;
             Container.Initialize();
-
+            
             //TestNormalDecoding();
             var seekTimes = 0;
             var seekIncrement = Container.MediaDuration.TotalSeconds / 10d;
@@ -80,9 +80,10 @@
                 seekTimes++;
                 //if (seekTimes >= 5) break;
             }
-                
 
+            Container.Dispose();
 
+            Terminal.WriteLine("All Done!");
             Terminal.ReadKey(true, true);
 
         }
@@ -272,8 +273,7 @@
         private static void HandleAudioFrame(AudioFrame e)
         {
             TotalBytes += (ulong)e.BufferLength;
-            $"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB".Info(typeof(Program));
-
+            //$"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB".Info(typeof(Program));
 
             if (IsBenchmarking) return;
             if (DecompressDispatcher == null) return;
@@ -411,7 +411,7 @@
                 $"    URL         : {Container.MediaUrl}\r\n" +
                 $"    Bitrate     : {Container.MediaBitrate,10} bps\r\n" +
                 $"    FPS         : {Container.Components.Video?.CurrentFrameRate,10:0.000}\r\n" +
-                $"    Start Time  : {Container.MediaStartTime.TotalSeconds,10:0.000}\r\n" +
+                $"    Rel Start   : {Container.MediaRelativeStartTime.TotalSeconds,10:0.000}\r\n" +
                 $"    Duration    : {Container.MediaDuration.TotalSeconds,10:0.000} secs\r\n" +
                 $"    Seekable    : {Container.IsStreamSeekable,10}\r\n" +
                 $"    Is Realtime : {Container.IsStreamRealtime,10}\r\n" +

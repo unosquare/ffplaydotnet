@@ -105,24 +105,38 @@
 
         /// <summary>
         /// Gets the media start time. It could be something other than 0.
-        /// If this start time is not available (i.e. realtime streams) it will
+        /// If this start time is not available (i.e. realtime media) it will
         /// be set to TimeSpan.MinValue
+        /// </summary>
+        public TimeSpan MediaRelativeStartTime { get; private set; }
+
+        /// <summary>
+        /// Gets the absolute start time of the media.
+        /// Returns 0 when this information is available. Returns
+        /// TimeSapn.MinValue wehn this information is not available.
         /// </summary>
         public TimeSpan MediaStartTime { get; private set; }
 
         /// <summary>
         /// Gets the duration of the media.
-        /// If this information is not available (i.e. realtime streams) it will
+        /// If this information is not available (i.e. realtime media) it will
         /// be set to TimeSpan.MinValue
         /// </summary>
         public TimeSpan MediaDuration { get; private set; }
 
         /// <summary>
-        /// Gets the end time of the media.
+        /// Gets the end time of the media including any offsets of the input URL.
         /// If this information is not available (i.e. realtime streams) it will
         /// be set to TimeSpan.MinValue
         /// </summary>
+        public TimeSpan MediaRelativeEndTime { get; private set; }
+
+        /// <summary>
+        /// Gets the absolute end time of the media by substracting the relative start time.
+        /// TimeSapn.MinValue when this information is not available.
+        /// </summary>
         public TimeSpan MediaEndTime { get; private set; }
+
 
         /// <summary>
         /// Will be set to true whenever an End Of File situation is reached.
@@ -144,7 +158,7 @@
         /// <summary>
         /// Gets a value indicating whether the underlying media is seekable.
         /// </summary>
-        public bool IsStreamSeekable { get { return MediaDuration.TotalSeconds > 0; } }
+        public bool IsStreamSeekable { get { return MediaDuration.TotalSeconds > 0 && MediaDuration != TimeSpan.MinValue; } }
 
         /// <summary>
         /// Gets a value indicating whether this container represents realtime media.
@@ -306,13 +320,20 @@
                 MediaSeeksByBytes = inputAllowsDiscontinuities && (MediaFormatName.Equals("ogg") == false);
 
                 // Compute timespans
-                MediaStartTime = InputContext->start_time.ToTimeSpan();
+                MediaRelativeStartTime = InputContext->start_time.ToTimeSpan();
                 MediaDuration = InputContext->duration.ToTimeSpan();
+                MediaEndTime = MediaDuration;
 
-                if (MediaStartTime != TimeSpan.MinValue && MediaDuration != TimeSpan.MinValue)
-                    MediaEndTime = MediaStartTime + MediaDuration;
+                if (MediaRelativeStartTime != TimeSpan.MinValue && MediaDuration != TimeSpan.MinValue)
+                {
+                    MediaStartTime = TimeSpan.Zero;
+                    MediaRelativeEndTime = TimeSpan.FromTicks(MediaRelativeStartTime.Ticks + MediaDuration.Ticks);
+                }
                 else
-                    MediaEndTime = TimeSpan.MinValue;
+                {
+                    MediaStartTime = TimeSpan.MinValue;
+                    MediaRelativeEndTime = TimeSpan.MinValue;
+                }
 
                 // Open the best suitable streams. Throw if no audio and/or video streams are found
                 CreateStreamComponents();
@@ -325,6 +346,9 @@
                 // Initially and depending on the video component, rquire picture attachments.
                 // Picture attachments are only required after the first read or after a seek.
                 RequiresPictureAttachments = true;
+
+                // Seek to the begining of the file
+                StreamSeekToStart();
 
             }
             catch (Exception ex)
@@ -707,6 +731,20 @@
             return result;
         }
 
+
+
+        public void StreamSeekToStart()
+        {
+            if (MediaRelativeStartTime != TimeSpan.MinValue) return;
+            var startSeekTime = (long)(MediaRelativeStartTime.TotalSeconds * ffmpeg.AV_TIME_BASE);
+            var seekResult = ffmpeg.avformat_seek_file(InputContext, -1,
+                long.MinValue, startSeekTime, long.MaxValue, 0);
+
+            Components.ClearPacketQueues();
+            RequiresPictureAttachments = true;
+            IsAtEndOfStream = false;
+        }
+
         public List<FrameSource> StreamSeek(TimeSpan targetTime, bool doPreciseSeek)
         {
             // TODO: Seeking and resetting attached picture
@@ -729,9 +767,7 @@
 
             var videoComponent = mainComp as VideoComponent;
             if (videoComponent != null)
-            {
                 targetTime = TimeSpan.FromSeconds(targetTime.TotalSeconds.ToMultipleOf(1d / videoComponent.CurrentFrameRate));
-            }
 
             // clamp the target time to the component's bounds
             if (MediaSeeksByBytes == false)
@@ -748,7 +784,8 @@
 
             // The seek target is computed by using the absolute, 0-based target time and adding the component stream's start time
             var relativeTargetTime = TimeSpan.FromTicks(targetTime.Ticks + mainComp.RelativeStartTime.Ticks);
-            var seekTarget = (long)Math.Round(relativeTargetTime.TotalSeconds * timeBase.den / timeBase.num, 0);
+
+            var seekTarget = (long)Math.Round(relativeTargetTime.TotalSeconds * timeBase.den / timeBase.num, 0) - 2;
 
             // Perform the stream seek
             var seekResult = 0;
@@ -871,6 +908,7 @@
 
                 if (InputContext != null)
                 {
+                    StreamReadSuspend();
                     fixed (AVFormatContext** inputContext = &InputContext)
                         ffmpeg.avformat_close_input(inputContext);
 

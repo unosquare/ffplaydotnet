@@ -51,7 +51,7 @@
         /// <returns></returns>
         protected override unsafe FrameSource CreateFrameSource(AVFrame* frame, AVPacket* packet)
         {
-            var frameHolder = new AudioFrameSource(frame, packet, Stream->time_base);
+            var frameHolder = new AudioFrameSource(frame, packet, Stream);
             return frameHolder;
         }
 
@@ -112,13 +112,14 @@
                 ffmpeg.av_samples_get_buffer_size(null, targetSpec.ChannelCount, outputSamplesPerChannel, targetSpec.Format, 1);
 
             // set the target properties
+            target.StartTime = source.StartTime;
+            target.EndTime = source.EndTime;
             target.BufferLength = outputBufferLength;
             target.ChannelCount = targetSpec.ChannelCount;
             target.Duration = source.Duration;
-            target.EndTime = source.EndTime;
             target.SampleRate = targetSpec.SampleRate;
             target.SamplesPerChannel = outputSamplesPerChannel;
-            target.StartTime = source.StartTime;
+
 
             return target;
 

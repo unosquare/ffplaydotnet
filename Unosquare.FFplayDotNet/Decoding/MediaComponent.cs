@@ -80,8 +80,13 @@
         /// Gets the start time of this stream component.
         /// If there is no such information it will return TimeSpan.MinValue
         /// </summary>
-        public TimeSpan StartTime { get; }
+        public TimeSpan RelativeStartTime { get; }
 
+        /// <summary>
+        /// Always rturn 0 as an absolute timestamp always starts in zero.
+        /// </summary>
+        public TimeSpan StartTime { get { return TimeSpan.Zero; } }
+        
         /// <summary>
         /// Gets the duration of this stream component.
         /// If there is no such information it will return TimeSpan.MinValue
@@ -92,7 +97,12 @@
         /// Gets the end time of this stream component.
         /// If there is no such information it will return TimeSpan.MinValue
         /// </summary>
-        public TimeSpan EndTime { get; }
+        public TimeSpan RelativeEndTime { get; }
+
+        /// <summary>
+        /// Returns the absolute, 0-based end time of the component's stream.
+        /// </summary>
+        public TimeSpan EndTime { get { return TimeSpan.FromTicks(RelativeEndTime.Ticks - RelativeStartTime.Ticks); } }
 
         /// <summary>
         /// Gets the number of frames that have been decoded by this component
@@ -204,9 +214,9 @@
 
             // Compute the start time
             if (Stream->start_time == ffmpeg.AV_NOPTS)
-                StartTime = Container.InputContext->start_time.ToTimeSpan();
+                RelativeStartTime = Container.InputContext->start_time.ToTimeSpan();
             else
-                StartTime = Stream->start_time.ToTimeSpan(Stream->time_base);
+                RelativeStartTime = Stream->start_time.ToTimeSpan(Stream->time_base);
 
             // compute the duration
             if (Stream->duration == ffmpeg.AV_NOPTS || Stream->duration == 0)
@@ -215,12 +225,12 @@
                 Duration = Stream->duration.ToTimeSpan(Stream->time_base);
 
             // compute the end time
-            if (StartTime != TimeSpan.MinValue && Duration != TimeSpan.MinValue)
-                EndTime = StartTime + Duration;
+            if (RelativeStartTime != TimeSpan.MinValue && Duration != TimeSpan.MinValue)
+                RelativeEndTime = RelativeStartTime + Duration;
             else
-                EndTime = TimeSpan.MinValue;
+                RelativeEndTime = TimeSpan.MinValue;
 
-            $"{MediaType}: Start Time: {StartTime}; End Time: {EndTime}; Duration: {Duration}".Trace(typeof(MediaContainer));
+            $"{MediaType}: Relative Start Time: {RelativeStartTime}; Relative End Time: {RelativeEndTime}; Duration: {Duration}".Trace(typeof(MediaContainer));
 
         }
 

@@ -47,6 +47,8 @@
         {
             BaseFrameRate = Stream->r_frame_rate.ToDouble();
             CurrentFrameRate = Stream->avg_frame_rate.ToDouble();
+            if (double.IsNaN(CurrentFrameRate))
+                CurrentFrameRate = BaseFrameRate;
         }
 
         #endregion
@@ -98,7 +100,7 @@
         /// <returns></returns>
         protected override unsafe FrameSource CreateFrameSource(AVFrame* frame, AVPacket* packet)
         {
-            var frameHolder = new VideoFrameSource(frame, packet, Stream->time_base);
+            var frameHolder = new VideoFrameSource(frame, packet, Stream);
             CurrentFrameRate = ffmpeg.av_guess_frame_rate(Container.InputContext, Stream, frame).ToDouble();
             return frameHolder;
         }
@@ -153,14 +155,15 @@
             var outputHeight = ffmpeg.sws_scale(Scaler, source.Pointer->data, source.Pointer->linesize, 0, source.Pointer->height, targetScan, targetStride);
 
             // We set the target properties
+            target.EndTime = source.EndTime;
+            target.StartTime = source.StartTime;
             target.BufferStride = targetStride[0];
             target.CodedPictureNumber = source.Pointer->coded_picture_number;
             target.DisplayPictureNumber = source.Pointer->display_picture_number;
             target.Duration = source.Duration;
-            target.EndTime = source.EndTime;
             target.PixelHeight = source.Pointer->height;
             target.PixelWidth = source.Pointer->width;
-            target.StartTime = source.StartTime;
+
 
             return target;
         }

@@ -29,7 +29,7 @@
         /// <returns></returns>
         protected override unsafe FrameSource CreateFrameSource(AVSubtitle* frame, AVPacket* packet)
         {
-            var frameHolder = new SubtitleFrameSource(frame, packet, Stream->time_base);
+            var frameHolder = new SubtitleFrameSource(frame, packet, Stream);
             return frameHolder;
         }
 
@@ -54,9 +54,9 @@
                 throw new ArgumentNullException($"{nameof(input)} and {nameof(output)} are either null or not of a compatible media type '{MediaType}'");
 
             // Set the target data
-            target.Duration = source.Duration;
             target.EndTime = source.EndTime;
             target.StartTime = source.StartTime;
+            target.Duration = source.Duration;
             target.Text.Clear();
             target.Text.AddRange(source.Text);
 

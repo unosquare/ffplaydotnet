@@ -16,6 +16,8 @@
 
         protected void* InternalPointer;
         private bool IsDisposed = false;
+        private TimeSpan? m_AbsoluteStartTime = null;
+        private TimeSpan? m_AbsoluteEndTime = null;
 
         #endregion
 
@@ -26,19 +28,19 @@
         /// </summary>
         /// <param name="pointer">The pointer.</param>
         /// <param name="timeBase">The time base.</param>
-        internal FrameSource(void* pointer, AVPacket* packet, AVRational timeBase)
+        internal FrameSource(void* pointer, AVPacket* packet, AVStream* stream)
         {
             InternalPointer = pointer;
-            TimeBase = timeBase;
-
+            StreamTimeBase = stream->time_base;
+            StreamStartTime = stream->start_time.ToTimeSpan(StreamTimeBase);
             // Set packet properties
             if (packet != null)
             {
-                PacketDecodingTime = packet->dts.ToTimeSpan(timeBase);
-                PacketDuration = packet->duration.ToTimeSpan(timeBase);
+                PacketDecodingTime = packet->dts.ToTimeSpan(StreamTimeBase);
+                PacketDuration = packet->duration.ToTimeSpan(StreamTimeBase);
                 PacketPosition = packet->pos;
                 PacketSize = packet->size;
-                PacketStartTime = packet->pts.ToTimeSpan(timeBase);
+                PacketStartTime = packet->pts.ToTimeSpan(StreamTimeBase);
             }
         }
 
@@ -56,23 +58,59 @@
 
         /// <summary>
         /// Gets the time at which this data should be presented (PTS)
+        /// This timestamp has an offset of component stream's start time
         /// </summary>
-        public TimeSpan StartTime { get; protected set; }
+        public TimeSpan RelativeStartTime { get; protected set; }
+
 
         /// <summary>
-        /// Gets the end time (render time + duration)
+        /// Gets the end time (start pts time + duration)
+        /// This timestamp has an offset of the compontnet stream's start time
         /// </summary>
-        public TimeSpan EndTime { get; protected set; }
+        public TimeSpan RelativeEndTime { get; protected set; }
+
+
+        /// <summary>
+        /// Gets the absolute start time by removing the component stream's start time offset.
+        /// This represents the zero-based start presentation timestamp.
+        /// </summary>
+        public TimeSpan StartTime
+        {
+            get
+            {
+                if (m_AbsoluteStartTime == null) m_AbsoluteStartTime = TimeSpan.FromTicks(RelativeStartTime.Ticks - StreamStartTime.Ticks);
+                return m_AbsoluteStartTime.Value;
+            }
+        }
+
+        /// <summary>
+        /// Gets the absolute end time by removing the component stream's start time offset.
+        /// This represents the zero-based end presentation timestamp.
+        /// </summary>
+        public TimeSpan EndTime
+        {
+            get
+            {
+                if (m_AbsoluteEndTime == null) m_AbsoluteEndTime = TimeSpan.FromTicks(RelativeStartTime.Ticks - StreamStartTime.Ticks);
+                return m_AbsoluteEndTime.Value;
+            }
+        }
+
+        /// <summary>
+        /// Gets the time base of the stream that generated this frame.
+        /// </summary>
+        internal AVRational StreamTimeBase { get; }
+
+        /// <summary>
+        /// Gets the stream start time. Start Times and End times are relative to this
+        /// Start Time.
+        /// </summary>
+        internal TimeSpan StreamStartTime { get; }
 
         /// <summary>
         /// Gets the amount of time this data has to be presented
         /// </summary>
         public TimeSpan Duration { get; protected set; }
-
-        /// <summary>
-        /// Gets the time base of the stream that generated this frame.
-        /// </summary>
-        internal AVRational TimeBase { get; }
 
         /// <summary>
         /// Gets the source packet PTS.
@@ -126,7 +164,7 @@
         /// </returns>
         public int CompareTo(FrameSource other)
         {
-            return StartTime.CompareTo(other.StartTime);
+            return RelativeStartTime.CompareTo(other.RelativeStartTime);
         }
 
         #endregion
@@ -181,28 +219,28 @@
         /// </summary>
         /// <param name="frame">The frame.</param>
         /// <param name="packet">The packet.</param>
-        /// <param name="timeBase">The time base.</param>
-        internal VideoFrameSource(AVFrame* frame, AVPacket* packet, AVRational timeBase)
-            : base(frame, packet, timeBase)
+        /// <param name="stream">The stream.</param>
+        internal VideoFrameSource(AVFrame* frame, AVPacket* packet, AVStream* stream)
+            : base(frame, packet, stream)
         {
             m_Pointer = (AVFrame*)InternalPointer;
 
             // Set packet properties
             if (packet == null)
             {
-                PacketDecodingTime = frame->pkt_dts.ToTimeSpan(timeBase);
-                PacketDuration = frame->pkt_duration.ToTimeSpan(timeBase);
+                PacketDecodingTime = frame->pkt_dts.ToTimeSpan(StreamTimeBase);
+                PacketDuration = frame->pkt_duration.ToTimeSpan(StreamTimeBase);
                 PacketPosition = frame->pkt_pos;
                 PacketSize = frame->pkt_size;
-                PacketStartTime = frame->pkt_pts.ToTimeSpan(timeBase);
+                PacketStartTime = frame->pkt_pts.ToTimeSpan(StreamTimeBase);
             }
 
             // for vide frames, we always get the best effort timestamp as dts and pts might
             // contain different times.
             frame->pts = ffmpeg.av_frame_get_best_effort_timestamp(frame);
-            StartTime = frame->pts.ToTimeSpan(timeBase);
-            Duration = ffmpeg.av_frame_get_pkt_duration(frame).ToTimeSpan(timeBase);
-            EndTime = StartTime + Duration;
+            RelativeStartTime = frame->pts.ToTimeSpan(StreamTimeBase);
+            Duration = ffmpeg.av_frame_get_pkt_duration(frame).ToTimeSpan(StreamTimeBase);
+            RelativeEndTime = RelativeStartTime + Duration;
         }
 
         #endregion
@@ -259,26 +297,26 @@
         /// </summary>
         /// <param name="frame">The frame.</param>
         /// <param name="packet">The packet.</param>
-        /// <param name="timeBase">The time base.</param>
-        internal AudioFrameSource(AVFrame* frame, AVPacket* packet, AVRational timeBase)
-            : base(frame, packet, timeBase)
+        /// <param name="stream">The stream.</param>
+        internal AudioFrameSource(AVFrame* frame, AVPacket* packet, AVStream* stream)
+            : base(frame, packet, stream)
         {
             m_Pointer = (AVFrame*)InternalPointer;
 
             // Set packet properties
             if (packet == null)
             {
-                PacketDecodingTime = frame->pkt_dts.ToTimeSpan(timeBase);
-                PacketDuration = frame->pkt_duration.ToTimeSpan(timeBase);
+                PacketDecodingTime = frame->pkt_dts.ToTimeSpan(StreamTimeBase);
+                PacketDuration = frame->pkt_duration.ToTimeSpan(StreamTimeBase);
                 PacketPosition = frame->pkt_pos;
                 PacketSize = frame->pkt_size;
-                PacketStartTime = frame->pkt_pts.ToTimeSpan(timeBase);
+                PacketStartTime = frame->pkt_pts.ToTimeSpan(StreamTimeBase);
             }
 
             // Compute the timespans
-            StartTime = ffmpeg.av_frame_get_best_effort_timestamp(frame).ToTimeSpan(timeBase);
-            Duration = ffmpeg.av_frame_get_pkt_duration(frame).ToTimeSpan(timeBase);
-            EndTime = StartTime + Duration;
+            RelativeStartTime = ffmpeg.av_frame_get_best_effort_timestamp(frame).ToTimeSpan(StreamTimeBase);
+            Duration = ffmpeg.av_frame_get_pkt_duration(frame).ToTimeSpan(StreamTimeBase);
+            RelativeEndTime = RelativeStartTime + Duration;
         }
 
         #endregion
@@ -331,20 +369,21 @@
         #region Constructors
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="SubtitleFrameSource"/> class.
+        /// Initializes a new instance of the <see cref="SubtitleFrameSource" /> class.
         /// </summary>
         /// <param name="frame">The frame.</param>
-        /// <param name="timeBase">The time base.</param>
-        internal SubtitleFrameSource(AVSubtitle* frame, AVPacket* packet, AVRational timeBase)
-            : base(frame, packet, timeBase)
+        /// <param name="packet">The packet.</param>
+        /// <param name="stream">The stream.</param>
+        internal SubtitleFrameSource(AVSubtitle* frame, AVPacket* packet, AVStream* stream)
+            : base(frame, packet, stream)
         {
             m_Pointer = (AVSubtitle*)InternalPointer;
 
             // Extract timing information
             var timeOffset = frame->pts.ToTimeSpan();
-            StartTime = timeOffset + ((long)frame->start_display_time).ToTimeSpan(timeBase);
-            EndTime = timeOffset + ((long)frame->end_display_time).ToTimeSpan(timeBase);
-            Duration = EndTime - StartTime;
+            RelativeStartTime = timeOffset + ((long)frame->start_display_time).ToTimeSpan(StreamTimeBase);
+            RelativeEndTime = timeOffset + ((long)frame->end_display_time).ToTimeSpan(StreamTimeBase);
+            Duration = RelativeEndTime - RelativeStartTime;
 
             // Extract text strings
             for (var i = 0; i < frame->num_rects; i++)

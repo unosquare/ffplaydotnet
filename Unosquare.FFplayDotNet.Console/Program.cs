@@ -59,7 +59,7 @@
         static void Main(string[] args)
         {
 
-            InputFile = TestInputs.BigBuckBunnyLocal;
+            InputFile = TestInputs.YoutubeLocalFile;
             StartTime = 10;
             DecodeDurationLimit = 10;
             IsBenchmarking = false;
@@ -67,11 +67,21 @@
             SaveSnapshots = true;
 
             Container = new MediaContainer(InputFile);
-            //Container.MediaOptions.IsSubtitleDisabled = false;
+            Container.MediaOptions.IsSubtitleDisabled = true;
             Container.Initialize();
 
             //TestNormalDecoding();
-            TestSeeking(TimeSpan.FromSeconds(9.5));
+            var seekTimes = 0;
+            var seekIncrement = Container.MediaDuration.TotalSeconds / 10d;
+
+            for (var i = seekIncrement; i < Container.MediaDuration.TotalSeconds; i += seekIncrement)
+            {
+                TestSeeking(TimeSpan.FromSeconds(i));
+                seekTimes++;
+                //if (seekTimes >= 5) break;
+            }
+                
+
 
             Terminal.ReadKey(true, true);
 
@@ -79,7 +89,28 @@
 
         private static void TestSeeking(TimeSpan target)
         {
+            $"".Warn(typeof(Program));
+            $"Target Time: {target.TotalSeconds,10:0.000}".Warn(typeof(Program));
             var decodedFrames = Container.StreamSeek(target, true);
+
+            var videoFrame = decodedFrames.FirstOrDefault(f => f.MediaType == MediaType.Video);
+            var audioFrame = decodedFrames.FirstOrDefault(f => f.MediaType == MediaType.Audio);
+
+            $"Decoded Frames: {decodedFrames.Count} | Video: {videoFrame?.StartTime.TotalSeconds,10:0.0000} | Audio: {audioFrame?.StartTime.TotalSeconds,10:0.0000}".Debug(typeof(Program));
+
+            var videoFrameCorrect = true;
+            var audioFrameCorrect = true;
+            if (videoFrame != null && videoFrame.StartTime > target)
+                videoFrameCorrect = false;
+
+            if (audioFrame != null && audioFrame.StartTime > target)
+                audioFrameCorrect = false;
+
+            if (videoFrameCorrect && audioFrameCorrect)
+                $"Audio and Video Frames start before Start time. OK".Debug(typeof(Program));
+            else
+                $"Audio or Video Frames start after Start time. BAD SEEK".Error(typeof(Program));
+
             HandleDecoding(decodedFrames);
         }
 

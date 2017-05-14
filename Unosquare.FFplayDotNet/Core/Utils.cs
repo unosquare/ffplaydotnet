@@ -321,6 +321,11 @@
             return $"{sw.ElapsedMilliseconds,5}";
         }
 
+        internal static string DebugElapsedUtc(this DateTime dt)
+        {
+            return $"{DateTime.UtcNow.Subtract(dt).TotalMilliseconds,6:0}";
+        }
+
         internal static string Debug(this long ts, double divideBy = 1)
         {
             if (divideBy == 1)

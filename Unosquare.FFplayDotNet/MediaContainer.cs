@@ -725,7 +725,10 @@
             // Perform the stream seek
             var benchmarkStartTime = DateTime.Now;
             var startPos = StreamPosition;
-            var seekResult = ffmpeg.avformat_seek_file(InputContext, streamIndex, long.MinValue, seekTarget, seekTarget, seekFlags);
+            var seekResult = 0;
+
+            //seekResult = ffmpeg.avformat_seek_file(InputContext, streamIndex, long.MinValue, seekTarget, seekTarget, seekFlags);
+            seekResult = ffmpeg.av_seek_frame(InputContext, streamIndex, seekTarget, seekFlags);
 
             ($"SEEK (1):  "
                 + $"P0: {startPos / 1024d,14:#,###.000}K | "

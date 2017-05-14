@@ -67,16 +67,6 @@
         /// </summary>
         public long Duration { get; private set; }
 
-        /// <summary>
-        /// Gets the pts of the next available packet in stream TimeBase Units.
-        /// </summary>
-        public long NextPacketStartTime { get { return Count == 0 ? ffmpeg.AV_NOPTS : this[0]->pts; } }
-
-        /// <summary>
-        /// Gets the pts of the last available packet in stream TimeBase Units.
-        /// </summary>
-        public long LastPacketStartTime { get { return Count == 0 ? ffmpeg.AV_NOPTS : this[Count - 1]->pts; } }
-
         #endregion
 
         #region Methods

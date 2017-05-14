@@ -121,16 +121,6 @@
         /// </summary>
         public int PacketBufferCount { get { return Packets.Count; } }
 
-        /// <summary>
-        /// Gets the start time of the next available packet in the queue.
-        /// </summary>
-        public TimeSpan PacketBufferNextStartTime { get { return Packets.NextPacketStartTime.ToTimeSpan(Stream->time_base); } }
-
-        /// <summary>
-        /// Gets the start time of the last packet that was pushed into the queue
-        /// </summary>
-        public TimeSpan PacketBufferLastStartTime { get { return Packets.LastPacketStartTime.ToTimeSpan(Stream->time_base); } }
-
         #endregion
 
         #region Constructor

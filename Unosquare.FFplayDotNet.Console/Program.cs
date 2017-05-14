@@ -61,8 +61,8 @@
 
             #region Setup
 
-            InputFile = TestInputs.BigBuckBunnyLocal;
-            StartTime = 24;
+            InputFile = TestInputs.NetworkShareStream;
+            StartTime = 900;
             DecodeDurationLimit = 10;
             IsBenchmarking = false;
             SaveWaveFile = false;

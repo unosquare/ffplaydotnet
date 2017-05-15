@@ -59,7 +59,7 @@
         static void Main(string[] args)
         {
 
-            InputFile = TestInputs.YoutubeLocalFile;
+            InputFile = TestInputs.MatroskaLocalFile;
             StartTime = 0;
             DecodeDurationLimit = 30;
             IsBenchmarking = false;

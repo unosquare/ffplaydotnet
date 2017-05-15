@@ -791,17 +791,19 @@
         /// <returns></returns>
         private List<FrameSource> StreamSeek(TimeSpan targetTime)
         {
-            // This method is still WIP
+            // Create the output result object
             var result = new List<FrameSource>();
 
+            // A special kind of seek is the zero seek. Execute it if requested.
             if (targetTime <= TimeSpan.Zero)
             {
                 StreamSeekToStart();
-                return result;
+                return result; // this will have no frames at this point.
             }
 
             #region Setup
 
+            // Cancel the seek operation if the stream does not support it.
             if (IsStreamSeekable == false)
             {
                 $"Unable to seek. Underlying stream does not support seeking.".Warn(typeof(MediaContainer));
@@ -843,7 +845,7 @@
 
             #endregion
 
-            #region Perform Long Seek
+            #region Perform FFmpeg API Seek
 
             // The relative target time keeps track of where to seek.
             // if the seeking is not successful we decrement this time and try the seek
@@ -878,22 +880,25 @@
                     break;
                 }
 
-                StreamSeekPrecise(result, targetTime);
+                // Read and decode frames for all components and check if the decoded frames
+                // are on or right before the target time.
+                StreamSeekDecode(result, targetTime);
                 var firstAudioFrame = result.FirstOrDefault(f => f.MediaType == MediaType.Audio && f.StartTime <= targetTime);
                 var firstVideoFrame = result.FirstOrDefault(f => f.MediaType == MediaType.Video && f.StartTime <= targetTime);
 
                 var isAudioSeekInRange = Components.HasAudio == false || (firstAudioFrame != null && firstAudioFrame.StartTime <= targetTime);
                 var isVideoSeekInRange = Components.HasVideo == false || (firstVideoFrame != null && firstVideoFrame.StartTime <= targetTime);
 
+                // If we have the correct range, no firther processing is required.
                 if (isAudioSeekInRange && isVideoSeekInRange)
                     break;
 
-                // At this point the result is useless. Siply discard the decoded frames
+                // At this point the result is useless. Simply discard the decoded frames
                 foreach (var frame in result) frame.Dispose();
                 result.Clear();
 
                 // Subtract 1 second from the relative target time.
-                // a new seek target will be computed and we will do a long seek again.
+                // a new seek target will be computed and we will do a av_seek_frame again.
                 relativeTargetTime = relativeTargetTime.Subtract(TimeSpan.FromSeconds(1));
 
             }
@@ -905,11 +910,15 @@
 
         }
 
-        private void StreamSeekPrecise(List<FrameSource> result, TimeSpan targetTime)
+        /// <summary>
+        /// Reads and decodes packets untill all media components have frames on or after the start time.
+        /// </summary>
+        /// <param name="result">The list of frames that is currently being processed. Frames will be added here.</param>
+        /// <param name="targetTime">The target time in absolute 0-based time.</param>
+        /// <returns></returns>
+        private int StreamSeekDecode(List<FrameSource> result, TimeSpan targetTime)
         {
-            var startTime = DateTime.UtcNow;
-            var startPos = StreamPosition;
-            var shortSeekCycles = 0;
+            var readSeekCycles = 0;
 
             // Create a holder of frame lists; one for each type of media
             var outputFrames = new Dictionary<MediaType, List<FrameSource>>();
@@ -919,28 +928,34 @@
             // Start reading and decoding util we reach the target
             while (IsAtEndOfStream == false)
             {
-                shortSeekCycles++;
+                readSeekCycles++;
+
+                // Read the next packet
                 var mediaType = Read();
+
+                // Check if packet contains valid output
                 if (outputFrames.ContainsKey(mediaType) == false)
                     continue;
 
-                // Add the frames to the corresponding output
+                // Decode and add the frames to the corresponding output
                 outputFrames[mediaType].AddRange(Components[mediaType].DecodeNextPacket());
 
-                // Output statistics on the frame that was first decoded.
-
-                // check if we are done with precise seeking
-                // all streams must have at least 1 frame in the range
+                // check if we are done with seeking
+                // all streams must have at least 1 frame on or after thae target time
                 var isDoneSeeking = true;
                 foreach (var kvp in outputFrames)
                 {
                     var componentFrames = kvp.Value;
+
+                    // cleanup frames if the output becomes too big
                     if (componentFrames.Count >= 24)
                         DropSeekFrames(componentFrames, targetTime);
 
+                    // check if we have a valid range
                     var hasTargetRange = componentFrames.Count > 0
                         && componentFrames.Max(f => f.StartTime) >= targetTime;
 
+                    // Set done seeking = false because range is non-matching
                     if (hasTargetRange == false)
                     {
                         isDoneSeeking = false;
@@ -952,7 +967,7 @@
                     break;
             }
 
-            // Perform one final cleanup and aggregate the frames into a single
+            // Perform one final cleanup and aggregate the frames into a single,
             // interleaved collection
             foreach (var kvp in outputFrames)
             {
@@ -962,6 +977,7 @@
             }
 
             result.Sort();
+            return readSeekCycles;
         }
 
         #endregion

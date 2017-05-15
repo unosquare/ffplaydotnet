@@ -59,7 +59,7 @@
         static void Main(string[] args)
         {
 
-            InputFile = TestInputs.TransportLocalFile;
+            InputFile = TestInputs.MpegPart2LocalFile;
             StartTime = 0;
             DecodeDurationLimit = 1;
             IsBenchmarking = false;

@@ -161,7 +161,7 @@
             // for vide frames, we always get the best effort timestamp as dts and pts might
             // contain different times.
             frame->pts = ffmpeg.av_frame_get_best_effort_timestamp(frame);
-            StartTime = TimeSpan.FromTicks(component.StartTime.Ticks + frame->pts.ToTimeSpan(StreamTimeBase).Ticks - component.Container.MediaRelativeStartTime.Ticks);
+            StartTime = TimeSpan.FromTicks(frame->pts.ToTimeSpan(StreamTimeBase).Ticks - component.Container.MediaRelativeStartTime.Ticks);
             var repeatFactor = 1d + (0.5d * frame->repeat_pict);
             var timeBase = ffmpeg.av_guess_frame_rate(component.Container.InputContext, component.Stream, frame);
             Duration = repeatFactor.ToTimeSpan(new AVRational { num = timeBase.den, den = timeBase.num });
@@ -229,7 +229,7 @@
 
             // Compute the timespans
             frame->pts = ffmpeg.av_frame_get_best_effort_timestamp(frame);
-            StartTime = TimeSpan.FromTicks(component.StartTime.Ticks + frame->pts.ToTimeSpan(StreamTimeBase).Ticks - component.Container.MediaRelativeStartTime.Ticks);
+            StartTime = TimeSpan.FromTicks(frame->pts.ToTimeSpan(StreamTimeBase).Ticks - component.Container.MediaRelativeStartTime.Ticks);
 
             // Compute the audio frame duration
             if (frame->pkt_duration != 0)
@@ -300,7 +300,7 @@
             m_Pointer = (AVSubtitle*)InternalPointer;
 
             // Extract timing information
-            var timeOffset = TimeSpan.FromTicks(component.StartTime.Ticks + frame->pts.ToTimeSpan(StreamTimeBase).Ticks - component.Container.MediaRelativeStartTime.Ticks);
+            var timeOffset = TimeSpan.FromTicks(frame->pts.ToTimeSpan(StreamTimeBase).Ticks - component.Container.MediaRelativeStartTime.Ticks);
             StartTime = TimeSpan.FromTicks(timeOffset.Ticks + ((long)frame->start_display_time).ToTimeSpan(StreamTimeBase).Ticks);
             EndTime = TimeSpan.FromTicks(timeOffset.Ticks + ((long)frame->end_display_time).ToTimeSpan(StreamTimeBase).Ticks);
             Duration = TimeSpan.FromTicks(EndTime.Ticks - StartTime.Ticks);

@@ -261,10 +261,12 @@
             frame->pts = ffmpeg.av_frame_get_best_effort_timestamp(frame);
             RelativeStartTime = frame->pts.ToTimeSpan(StreamTimeBase);
 
-            var computedDuration = TimeSpan.FromTicks((long)Math.Round(TimeSpan.TicksPerMillisecond * 1000d * frame->nb_samples / frame->sample_rate, 0));
-            var packetDuration = frame->pkt_duration.ToTimeSpan(StreamTimeBase);
+            // Compute the audio frame duration
+            if (frame->pkt_duration != 0)
+                Duration = frame->pkt_duration.ToTimeSpan(StreamTimeBase);
+            else
+                Duration = TimeSpan.FromTicks((long)Math.Round(TimeSpan.TicksPerMillisecond * 1000d * frame->nb_samples / frame->sample_rate, 0));
 
-            Duration = packetDuration != TimeSpan.Zero ? packetDuration : computedDuration;
             RelativeEndTime = TimeSpan.FromTicks(RelativeStartTime.Ticks + Duration.Ticks);
         }
 

@@ -65,8 +65,10 @@
         /// <summary>
         /// Prevent reading from subtitle stream components.
         /// Port of subtitle_disable
+        /// Subtitles are not yet first-class citizens in FFmpeg and 
+        /// this is why they are disabled by default.
         /// </summary>
-        public bool IsSubtitleDisabled { get; set; } = false;
+        public bool IsSubtitleDisabled { get; set; } = true;
     }
 
 }

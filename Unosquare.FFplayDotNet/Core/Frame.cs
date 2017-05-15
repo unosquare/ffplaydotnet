@@ -101,16 +101,6 @@
         /// </summary>
         public int PixelHeight { get; internal set; }
 
-        /// <summary>
-        /// Gets the coded picture number.
-        /// </summary>
-        public int CodedPictureNumber { get; internal set; }
-
-        /// <summary>
-        /// Gets the display picture number.
-        /// </summary>
-        public int DisplayPictureNumber { get; internal set; }
-
         #endregion
 
         #region IDisposable Support

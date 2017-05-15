@@ -152,17 +152,6 @@
         }
 
         /// <summary>
-        /// Gets the smallest duration of all the component's packet buffers.
-        /// </summary>
-        public TimeSpan PacketBufferDuration
-        {
-            get
-            {
-                return All.Min(c => c.PacketBufferDuration);
-            }
-        }
-
-        /// <summary>
         /// Gets a value indicating whether this instance has a video component.
         /// </summary>
         public bool HasVideo { get { return Video != null; } }

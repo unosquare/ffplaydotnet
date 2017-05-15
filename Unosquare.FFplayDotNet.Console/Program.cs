@@ -41,7 +41,7 @@
 
         private static Dispatcher DecompressDispatcher = null;
 
-        private static string InputFile = TestInputs.BigBuckBunnyLocal;
+        private static string InputFile = TestInputs.MpegPart2LocalFile;
         private static double DecodeDurationLimit = 80;
         private static double StartTime = 0;
         private static bool IsBenchmarking = false;
@@ -59,15 +59,14 @@
         static void Main(string[] args)
         {
 
-            InputFile = TestInputs.MatroskaLocalFile;
+            InputFile = TestInputs.NetworkShareStream2;
             StartTime = 0;
-            DecodeDurationLimit = 10;
+            DecodeDurationLimit = 3;
             IsBenchmarking = false;
-            SaveWaveFile = true;
-            SaveSnapshots = true;
+            SaveWaveFile = false;
+            SaveSnapshots = false;
 
             Container = new MediaContainer(InputFile);
-            Container.MediaOptions.IsSubtitleDisabled = false;
             Container.Initialize();
 
             TestNormalDecoding();
@@ -75,7 +74,7 @@
 
             Container.Dispose();
 
-            Terminal.WriteLine("All Seeking Done!");
+            Terminal.WriteLine("All Tests Done!");
             Terminal.ReadKey(true, true);
 
         }
@@ -174,7 +173,7 @@
                                 while (Container.Components.PacketBufferCount < 48 && Container.IsAtEndOfStream == false && ReadCancel == false)
                                     Container.Read();
 
-                                ($"Buffer     | DUR: {Container.Components.PacketBufferDuration.TotalSeconds,10:0.000}"
+                                ($"Buffer    "
                                     + $" | LEN: {Container.Components.PacketBufferLength / 1024d,9:0.00}K"
                                     + $" | CNT: {Container.Components.PacketBufferCount,12}" + $" | POS: {Container.StreamPosition / 2014d,10:0.00}K")
                                     .Warn(typeof(Program));
@@ -277,10 +276,34 @@
 
         }
 
+        private static void PrintFrameInfo(Frame e)
+        {
+            {
+                var a = e as AudioFrame;
+                if (a != null)
+                {
+                    $"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | END: {e.EndTime.TotalSeconds,8:0.00000} | SMP: {a.SamplesPerChannel,6}".Trace(typeof(Program));
+                    return;
+                }
+            }
+
+            {
+                var v = e as VideoFrame;
+                if (v != null)
+                {
+                    $"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | END: {e.EndTime.TotalSeconds,8:0.00000} | DIM: {v.PixelWidth}x{v.PixelHeight}".Info(typeof(Program));
+                    return;
+                }
+            }
+
+
+
+        }
+
         private static void HandleAudioFrame(AudioFrame e)
         {
             TotalBytes += (ulong)e.BufferLength;
-            //$"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB".Info(typeof(Program));
+            PrintFrameInfo(e);
 
             if (IsBenchmarking) return;
             if (DecompressDispatcher == null) return;
@@ -298,14 +321,14 @@
 
         private static void HandleSubtitleFrame(SubtitleFrame e)
         {
-            ("Subtitle: " + string.Join(" ", e.Text)).Warn(typeof(Program));
+            PrintFrameInfo(e);
         }
 
         private static void HandleVideoFrame(VideoFrame e)
         {
             TotalBytes += (ulong)e.BufferLength;
             TotalDurationSeconds += e.Duration.TotalSeconds;
-            $"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | BUF: {e.BufferLength / (float)1024,10:0.00}KB".Info(typeof(Program));
+            PrintFrameInfo(e);
 
             if (IsBenchmarking) return;
             if (DecompressDispatcher == null) return;
@@ -418,6 +441,7 @@
                 $"    URL         : {Container.MediaUrl}\r\n" +
                 $"    Bitrate     : {Container.MediaBitrate,10} bps\r\n" +
                 $"    FPS         : {Container.Components.Video?.CurrentFrameRate,10:0.000}\r\n" +
+                $"    BFPS        : {Container.Components.Video?.BaseFrameRate,10:0.000}\r\n" +
                 $"    Rel Start   : {Container.MediaRelativeStartTime.TotalSeconds,10:0.000}\r\n" +
                 $"    Duration    : {Container.MediaDuration.TotalSeconds,10:0.000} secs\r\n" +
                 $"    Seekable    : {Container.IsStreamSeekable,10}\r\n" +

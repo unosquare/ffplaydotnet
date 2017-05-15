@@ -28,22 +28,12 @@
         /// Initializes a new instance of the <see cref="FrameSource" /> class.
         /// </summary>
         /// <param name="pointer">The pointer.</param>
-        /// <param name="timeBase">The time base.</param>
-        internal FrameSource(void* pointer, AVPacket* packet, MediaComponent component)
+        /// <param name="component">The component.</param>
+        internal FrameSource(void* pointer, MediaComponent component)
         {
             InternalPointer = pointer;
             StreamTimeBase = component.Stream->time_base;
             StreamStartTime = component.Stream->start_time.ToTimeSpan(StreamTimeBase);
-            
-            // Set packet properties
-            if (packet != null)
-            {
-                PacketDecodingTime = packet->dts.ToTimeSpan(StreamTimeBase);
-                PacketDuration = packet->duration.ToTimeSpan(StreamTimeBase);
-                PacketPosition = packet->pos;
-                PacketSize = packet->size;
-                PacketStartTime = packet->pts.ToTimeSpan(StreamTimeBase);
-            }
         }
 
         #endregion
@@ -74,7 +64,7 @@
 
         /// <summary>
         /// Gets the absolute start time by removing the component stream's start time offset.
-        /// This represents the zero-based start presentation timestamp.
+        /// This represents the zero-based, absolute start presentation timestamp.
         /// </summary>
         public TimeSpan StartTime
         {
@@ -87,7 +77,7 @@
 
         /// <summary>
         /// Gets the absolute end time by removing the component stream's start time offset.
-        /// This represents the zero-based end presentation timestamp.
+        /// This represents the zero-based, absolute end presentation timestamp.
         /// </summary>
         public TimeSpan EndTime
         {
@@ -113,34 +103,6 @@
         /// Gets the amount of time this data has to be presented
         /// </summary>
         public TimeSpan Duration { get; protected set; }
-
-        /// <summary>
-        /// Gets the source packet PTS.
-        /// The real pts is the StartTime of the frame as some muxers
-        /// don't set the PTS correctly.
-        /// </summary>
-        public TimeSpan PacketStartTime { get; protected set; }
-
-        /// <summary>
-        /// Gets the packet DTS. Some muxers don't set this correctly.
-        /// </summary>
-        public TimeSpan PacketDecodingTime { get; protected set; }
-
-        /// <summary>
-        /// Gets the packet duration. Some muxers don't set this correctly.
-        /// </summary>
-        public TimeSpan PacketDuration { get; protected set; }
-
-        /// <summary>
-        /// Gets the size of the packet that triggered the creation of this frame.
-        /// </summary>
-        public int PacketSize { get; protected set; }
-
-        /// <summary>
-        /// Gets the bye position at which the packet triggering the
-        /// creation of this frame was found.
-        /// </summary>
-        public long PacketPosition { get; protected set; }
 
         /// <summary>
         /// When the unmanaged frame is released (freed from unmanaged memory)
@@ -220,22 +182,11 @@
         /// Initializes a new instance of the <see cref="VideoFrameSource" /> class.
         /// </summary>
         /// <param name="frame">The frame.</param>
-        /// <param name="packet">The packet.</param>
         /// <param name="component">The component.</param>
-        internal VideoFrameSource(AVFrame* frame, AVPacket* packet, MediaComponent component)
-            : base(frame, packet, component)
+        internal VideoFrameSource(AVFrame* frame, MediaComponent component)
+            : base(frame, component)
         {
             m_Pointer = (AVFrame*)InternalPointer;
-
-            // Set packet properties
-            if (packet == null)
-            {
-                PacketDecodingTime = frame->pkt_dts.ToTimeSpan(StreamTimeBase);
-                PacketDuration = frame->pkt_duration.ToTimeSpan(StreamTimeBase);
-                PacketPosition = frame->pkt_pos;
-                PacketSize = frame->pkt_size;
-                PacketStartTime = frame->pkt_pts.ToTimeSpan(StreamTimeBase);
-            }
 
             // for vide frames, we always get the best effort timestamp as dts and pts might
             // contain different times.
@@ -300,22 +251,11 @@
         /// Initializes a new instance of the <see cref="AudioFrameSource" /> class.
         /// </summary>
         /// <param name="frame">The frame.</param>
-        /// <param name="packet">The packet.</param>
         /// <param name="component">The component.</param>
-        internal AudioFrameSource(AVFrame* frame, AVPacket* packet, MediaComponent component)
-            : base(frame, packet, component)
+        internal AudioFrameSource(AVFrame* frame, MediaComponent component)
+            : base(frame, component)
         {
             m_Pointer = (AVFrame*)InternalPointer;
-
-            // Set packet properties
-            if (packet == null)
-            {
-                PacketDecodingTime = frame->pkt_dts.ToTimeSpan(StreamTimeBase);
-                PacketDuration = frame->pkt_duration.ToTimeSpan(StreamTimeBase);
-                PacketPosition = frame->pkt_pos;
-                PacketSize = frame->pkt_size;
-                PacketStartTime = frame->pkt_pts.ToTimeSpan(StreamTimeBase);
-            }
 
             // Compute the timespans
             frame->pts = ffmpeg.av_frame_get_best_effort_timestamp(frame);
@@ -377,10 +317,9 @@
         /// Initializes a new instance of the <see cref="SubtitleFrameSource" /> class.
         /// </summary>
         /// <param name="frame">The frame.</param>
-        /// <param name="packet">The packet.</param>
         /// <param name="component">The component.</param>
-        internal SubtitleFrameSource(AVSubtitle* frame, AVPacket* packet, MediaComponent component)
-            : base(frame, packet, component)
+        internal SubtitleFrameSource(AVSubtitle* frame, MediaComponent component)
+            : base(frame, component)
         {
             m_Pointer = (AVSubtitle*)InternalPointer;
 

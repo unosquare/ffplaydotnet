@@ -898,7 +898,7 @@
                 if (outputPacketStats && outputFrames[mediaType].Count > 0)
                 {
                     var firstFrame = outputFrames[mediaType][0];
-                    $"SEEK P: Elapsed: {startTime.DebugElapsedUtc()} | PKT: {firstFrame.PacketStartTime.Debug()} | FR: {firstFrame.StartTime.Debug()} | P0: {startPos.Debug(1024)} | P1: {StreamPosition.Debug(1024)} ".Trace(typeof(MediaContainer));
+                    $"SEEK P: Elapsed: {startTime.DebugElapsedUtc()} | FR: {firstFrame.StartTime.Debug()} | P0: {startPos.Debug(1024)} | P1: {StreamPosition.Debug(1024)} ".Trace(typeof(MediaContainer));
                     outputPacketStats = false;
                 }
 

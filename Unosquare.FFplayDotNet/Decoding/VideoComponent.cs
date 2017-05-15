@@ -96,11 +96,10 @@
         /// Creates a frame source object given the raw FFmpeg frame reference.
         /// </summary>
         /// <param name="frame">The raw FFmpeg frame pointer.</param>
-        /// <param name="packet">The packet.</param>
         /// <returns></returns>
-        protected override unsafe FrameSource CreateFrameSource(AVFrame* frame, AVPacket* packet)
+        protected override unsafe FrameSource CreateFrameSource(AVFrame* frame)
         {
-            var frameHolder = new VideoFrameSource(frame, packet, this);
+            var frameHolder = new VideoFrameSource(frame, this);
             CurrentFrameRate = ffmpeg.av_guess_frame_rate(Container.InputContext, Stream, frame).ToDouble();
             return frameHolder;
         }
@@ -158,8 +157,6 @@
             target.EndTime = source.EndTime;
             target.StartTime = source.StartTime;
             target.BufferStride = targetStride[0];
-            target.CodedPictureNumber = source.Pointer->coded_picture_number;
-            target.DisplayPictureNumber = source.Pointer->display_picture_number;
             target.Duration = source.Duration;
             target.PixelHeight = source.Pointer->height;
             target.PixelWidth = source.Pointer->width;

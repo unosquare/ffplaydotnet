@@ -313,7 +313,10 @@
         /// <returns></returns>
         internal static string Debug(this TimeSpan ts)
         {
-            return $"{ts.TotalSeconds,10:0.000}";
+            if (ts == TimeSpan.MinValue)
+                return $"{"N/A",10}";
+            else
+                return $"{ts.TotalSeconds,10:0.000}";
         }
 
         internal static string Debug(this Stopwatch sw)

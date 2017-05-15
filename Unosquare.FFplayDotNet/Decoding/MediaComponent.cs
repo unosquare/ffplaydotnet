@@ -86,7 +86,7 @@
         /// Always rturn 0 as an absolute timestamp always starts in zero.
         /// </summary>
         public TimeSpan StartTime { get { return TimeSpan.Zero; } }
-        
+
         /// <summary>
         /// Gets the duration of this stream component.
         /// If there is no such information it will return TimeSpan.MinValue
@@ -101,8 +101,9 @@
 
         /// <summary>
         /// Returns the absolute, 0-based end time of the component's stream.
+        /// If there is no such information it will return TimeSpan.MinValue
         /// </summary>
-        public TimeSpan EndTime { get { return TimeSpan.FromTicks(RelativeEndTime.Ticks - RelativeStartTime.Ticks); } }
+        public TimeSpan EndTime { get; }
 
         /// <summary>
         /// Gets the number of frames that have been decoded by this component
@@ -117,17 +118,14 @@
 
         /// <summary>
         /// Gets the current length in bytes of the 
-        /// packet buffer.
+        /// packet buffer. Limit your Reads to something reasonable before
+        /// this becomes too large.
         /// </summary>
         public int PacketBufferLength { get { return Packets.BufferLength; } }
 
         /// <summary>
-        /// Gets the current duration of the packet buffer.
-        /// </summary>
-        public TimeSpan PacketBufferDuration { get { return Packets.Duration.ToTimeSpan(Stream->time_base); } }
-
-        /// <summary>
         /// Gets the number of packets in the queue.
+        /// Decode packets until this number becomes 0.
         /// </summary>
         public int PacketBufferCount { get { return Packets.Count; } }
 
@@ -226,11 +224,19 @@
 
             // compute the end time
             if (RelativeStartTime != TimeSpan.MinValue && Duration != TimeSpan.MinValue)
+            {
                 RelativeEndTime = RelativeStartTime + Duration;
-            else
-                RelativeEndTime = TimeSpan.MinValue;
+                EndTime = TimeSpan.FromTicks(RelativeEndTime.Ticks - RelativeStartTime.Ticks);
+            }
 
-            $"{MediaType}: Relative Start Time: {RelativeStartTime}; Relative End Time: {RelativeEndTime}; Duration: {Duration}".Trace(typeof(MediaContainer));
+            else
+            {
+                RelativeEndTime = TimeSpan.MinValue;
+                EndTime = TimeSpan.MinValue;
+            }
+
+
+            $"{MediaType}: Rel. Start: {RelativeStartTime.Debug()}; Rel. End: {RelativeEndTime.Debug()}; Duration: {Duration.Debug()}".Trace(typeof(MediaContainer));
 
         }
 
@@ -346,7 +352,7 @@
                         if (receiveFrameResult == 0)
                         {
                             // Send the frame to processing
-                            var managedFrame = CreateFrameSource(outputFrame, IsEmptyPacket(packet) ? null : packet);
+                            var managedFrame = CreateFrameSource(outputFrame);
                             if (managedFrame == null)
                                 throw new MediaContainerException($"{MediaType} Component does not implement {nameof(CreateFrameSource)}");
                             result.Add(managedFrame);
@@ -384,7 +390,7 @@
                         try
                         {
                             // Send the frame to processing
-                            var managedFrame = CreateFrameSource(&outputFrame, packet);
+                            var managedFrame = CreateFrameSource(&outputFrame);
                             if (managedFrame == null)
                                 throw new MediaContainerException($"{MediaType} Component does not implement {nameof(CreateFrameSource)}");
                             result.Add(managedFrame);
@@ -415,7 +421,7 @@
                             if (gotFrame != 0 && receiveFrameResult > 0)
                             {
                                 // Send the subtitle to processing
-                                var managedFrame = CreateFrameSource(&outputFrame, emptyPacket);
+                                var managedFrame = CreateFrameSource(&outputFrame);
                                 if (managedFrame == null)
                                     throw new MediaContainerException($"{MediaType} Component does not implement {nameof(CreateFrameSource)}");
                                 result.Add(managedFrame);
@@ -466,17 +472,15 @@
         /// Creates a frame source object given the raw FFmpeg frame reference.
         /// </summary>
         /// <param name="frame">The raw FFmpeg frame pointer.</param>
-        /// <param name="packet">The packet.</param>
         /// <returns></returns>
-        protected virtual FrameSource CreateFrameSource(AVFrame* frame, AVPacket* packet) { return null; }
+        protected virtual FrameSource CreateFrameSource(AVFrame* frame) { return null; }
 
         /// <summary>
         /// Creates a frame source object given the raw FFmpeg subtitle reference.
         /// </summary>
         /// <param name="frame">The raw FFmpeg subtitle pointer.</param>
-        /// <param name="packet">The packet.</param>
         /// <returns></returns>
-        protected virtual FrameSource CreateFrameSource(AVSubtitle* frame, AVPacket* packet) { return null; }
+        protected virtual FrameSource CreateFrameSource(AVSubtitle* frame) { return null; }
 
         #endregion
 

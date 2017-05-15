@@ -47,11 +47,10 @@
         /// Creates a frame source object given the raw FFmpeg frame reference.
         /// </summary>
         /// <param name="frame">The raw FFmpeg frame pointer.</param>
-        /// <param name="packet">The packet.</param>
         /// <returns></returns>
-        protected override unsafe FrameSource CreateFrameSource(AVFrame* frame, AVPacket* packet)
+        protected override unsafe FrameSource CreateFrameSource(AVFrame* frame)
         {
-            var frameHolder = new AudioFrameSource(frame, packet, this);
+            var frameHolder = new AudioFrameSource(frame, this);
             return frameHolder;
         }
 

@@ -83,7 +83,7 @@
             lock (SyncRoot)
             {
                 Frames.Add(frame);
-                Duration += frame.Duration;
+                Duration = TimeSpan.FromTicks(Duration.Ticks + frame.Duration.Ticks);
             }
 
         }
@@ -100,7 +100,7 @@
                 var frame = Frames[0];
                 Frames.RemoveAt(0);
 
-                Duration -= frame.Duration;
+                Duration = TimeSpan.FromTicks(Duration.Ticks - frame.Duration.Ticks);
                 return frame;
             }
         }

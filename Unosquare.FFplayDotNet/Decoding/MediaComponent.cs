@@ -225,7 +225,7 @@
             // compute the end time
             if (RelativeStartTime != TimeSpan.MinValue && Duration != TimeSpan.MinValue)
             {
-                RelativeEndTime = RelativeStartTime + Duration;
+                RelativeEndTime = TimeSpan.FromTicks(RelativeStartTime.Ticks + Duration.Ticks);
                 EndTime = TimeSpan.FromTicks(RelativeEndTime.Ticks - RelativeStartTime.Ticks);
             }
 

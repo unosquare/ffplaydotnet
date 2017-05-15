@@ -59,7 +59,7 @@
         static void Main(string[] args)
         {
 
-            InputFile = TestInputs.MatroskaLocalFile;
+            InputFile = TestInputs.RtspStream;
             StartTime = 0;
             DecodeDurationLimit = 30;
             IsBenchmarking = false;

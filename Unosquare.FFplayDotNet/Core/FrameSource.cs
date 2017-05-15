@@ -195,7 +195,7 @@
             var repeatFactor = 1d + (0.5d * frame->repeat_pict);
             var timeBase = ffmpeg.av_guess_frame_rate(component.Container.InputContext, component.Stream, frame);
             Duration = repeatFactor.ToTimeSpan(new AVRational { num = timeBase.den, den = timeBase.num });
-            RelativeEndTime = RelativeStartTime + Duration;
+            RelativeEndTime =  TimeSpan.FromTicks(RelativeStartTime.Ticks + Duration.Ticks);
         }
 
         #endregion
@@ -261,7 +261,7 @@
             frame->pts = ffmpeg.av_frame_get_best_effort_timestamp(frame);
             RelativeStartTime = frame->pts.ToTimeSpan(StreamTimeBase);
             Duration = TimeSpan.FromTicks((long)Math.Round(TimeSpan.TicksPerMillisecond * 1000d * (double)frame->nb_samples / frame->sample_rate, 0));
-            RelativeEndTime = RelativeStartTime + Duration;
+            RelativeEndTime = TimeSpan.FromTicks(RelativeStartTime.Ticks + Duration.Ticks);
         }
 
         #endregion
@@ -325,9 +325,9 @@
 
             // Extract timing information
             var timeOffset = frame->pts.ToTimeSpan();
-            RelativeStartTime = timeOffset + ((long)frame->start_display_time).ToTimeSpan(StreamTimeBase);
-            RelativeEndTime = timeOffset + ((long)frame->end_display_time).ToTimeSpan(StreamTimeBase);
-            Duration = RelativeEndTime - RelativeStartTime;
+            RelativeStartTime = TimeSpan.FromTicks(timeOffset.Ticks + ((long)frame->start_display_time).ToTimeSpan(StreamTimeBase).Ticks);
+            RelativeEndTime = TimeSpan.FromTicks(timeOffset.Ticks + ((long)frame->end_display_time).ToTimeSpan(StreamTimeBase).Ticks);
+            Duration = TimeSpan.FromTicks(RelativeEndTime.Ticks - RelativeStartTime.Ticks);
 
             // Extract text strings
             for (var i = 0; i < frame->num_rects; i++)

@@ -111,15 +111,16 @@
         public string MediaTitle { get; private set; }
 
         /// <summary>
-        /// Gets the media start time. It could be something other than 0.
-        /// If this start time is not available (i.e. realtime media) it will
+        /// Gets the media start time by which all component streams arew offset. 
+        /// Typically 0 but it could be something other than 0.
+        /// If this start time is not available (i.e. some realtime media) it will
         /// be set to TimeSpan.MinValue
         /// </summary>
         public TimeSpan MediaRelativeStartTime { get; private set; }
 
         /// <summary>
         /// Gets the absolute start time of the media.
-        /// Returns 0 when this information is available. Returns
+        /// Returns TimeSpan.Zero when this information is available. Returns
         /// TimeSapn.MinValue wehn this information is not available.
         /// </summary>
         public TimeSpan MediaStartTime { get; private set; }
@@ -853,7 +854,7 @@
             var startTime = DateTime.UtcNow;
             var relativeTargetTime = MediaSeeksByBytes ?
                 targetTime :
-                TimeSpan.FromTicks(targetTime.Ticks - main.RelativeStartTime.Ticks);
+                TimeSpan.FromTicks(targetTime.Ticks - main.StartTime.Ticks);
 
             // Perform long seeks until we end up with a relative target time where decoding
             // of frames before or on target time is possible.

@@ -59,16 +59,16 @@
         static void Main(string[] args)
         {
 
-            InputFile = TestInputs.UdpStream;
+            InputFile = TestInputs.BigBuckBunnyLocal;
             StartTime = 0;
-            DecodeDurationLimit = 5;
+            DecodeDurationLimit = 1;
             IsBenchmarking = false;
             SaveWaveFile = true;
             SaveSnapshots = true;
 
             Container = new MediaContainer(InputFile);
             Container.Initialize();
-
+            
             TestNormalDecoding();
             //TestMultipleSeeks();
 

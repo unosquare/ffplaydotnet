@@ -77,33 +77,24 @@
         public int StreamIndex { get; }
 
         /// <summary>
-        /// Gets the start time of this stream component.
-        /// If there is no such information it will return TimeSpan.MinValue
+        /// Returns the absolute start time of the stream
+        /// in relation to the container start time. For example,
+        /// if this component starts at t1 and the input starts at t0
+        /// this will return the difference t1 - t0
         /// </summary>
-        public TimeSpan RelativeStartTime { get; }
+        public TimeSpan StartTime { get; }
 
         /// <summary>
-        /// Always rturn 0 as an absolute timestamp always starts in zero.
+        /// Returns the absolute, start-time-based end time of the component's stream.
+        /// If there is no such information it will return TimeSpan.MinValue
         /// </summary>
-        public TimeSpan StartTime { get { return TimeSpan.Zero; } }
+        public TimeSpan EndTime { get; }
 
         /// <summary>
         /// Gets the duration of this stream component.
         /// If there is no such information it will return TimeSpan.MinValue
         /// </summary>
         public TimeSpan Duration { get; }
-
-        /// <summary>
-        /// Gets the end time of this stream component.
-        /// If there is no such information it will return TimeSpan.MinValue
-        /// </summary>
-        public TimeSpan RelativeEndTime { get; }
-
-        /// <summary>
-        /// Returns the absolute, 0-based end time of the component's stream.
-        /// If there is no such information it will return TimeSpan.MinValue
-        /// </summary>
-        public TimeSpan EndTime { get; }
 
         /// <summary>
         /// Gets the number of frames that have been decoded by this component
@@ -212,9 +203,14 @@
 
             // Compute the start time
             if (Stream->start_time == ffmpeg.AV_NOPTS)
-                RelativeStartTime = Container.InputContext->start_time.ToTimeSpan();
+            {
+                StartTime = Container.MediaRelativeStartTime;
+            }
             else
-                RelativeStartTime = Stream->start_time.ToTimeSpan(Stream->time_base);
+            {
+                var streamStartTime = Stream->start_time.ToTimeSpan(Stream->time_base);
+                StartTime = TimeSpan.FromTicks(streamStartTime.Ticks - Container.MediaRelativeStartTime.Ticks);
+            }
 
             // compute the duration
             if (Stream->duration == ffmpeg.AV_NOPTS || Stream->duration == 0)
@@ -223,20 +219,13 @@
                 Duration = Stream->duration.ToTimeSpan(Stream->time_base);
 
             // compute the end time
-            if (RelativeStartTime != TimeSpan.MinValue && Duration != TimeSpan.MinValue)
-            {
-                RelativeEndTime = TimeSpan.FromTicks(RelativeStartTime.Ticks + Duration.Ticks);
-                EndTime = TimeSpan.FromTicks(RelativeEndTime.Ticks - RelativeStartTime.Ticks);
-            }
-
+            if (StartTime != TimeSpan.MinValue && Duration != TimeSpan.MinValue && Duration != TimeSpan.Zero)
+                EndTime = TimeSpan.FromTicks(StartTime.Ticks + Duration.Ticks);
             else
-            {
-                RelativeEndTime = TimeSpan.MinValue;
                 EndTime = TimeSpan.MinValue;
-            }
 
 
-            $"{MediaType}: Rel. Start: {RelativeStartTime.Debug()}; Rel. End: {RelativeEndTime.Debug()}; Duration: {Duration.Debug()}".Trace(typeof(MediaContainer));
+            $"{MediaType}: Start: {StartTime.Debug()}; End: {EndTime.Debug()}; Duration: {Duration.Debug()}".Trace(typeof(MediaContainer));
 
         }
 

@@ -17,8 +17,6 @@
 
         protected void* InternalPointer;
         private bool IsDisposed = false;
-        private TimeSpan? m_AbsoluteStartTime = null;
-        private TimeSpan? m_AbsoluteEndTime = null;
 
         #endregion
 
@@ -49,44 +47,16 @@
         public abstract MediaType MediaType { get; }
 
         /// <summary>
-        /// Gets the time at which this data should be presented (PTS)
-        /// This timestamp has an offset of component stream's start time
-        /// </summary>
-        public TimeSpan RelativeStartTime { get; protected set; }
-
-
-        /// <summary>
-        /// Gets the end time (start pts time + duration)
-        /// This timestamp has an offset of the compontnet stream's start time
-        /// </summary>
-        public TimeSpan RelativeEndTime { get; protected set; }
-
-
-        /// <summary>
         /// Gets the absolute start time by removing the component stream's start time offset.
         /// This represents the zero-based, absolute start presentation timestamp.
         /// </summary>
-        public TimeSpan StartTime
-        {
-            get
-            {
-                if (m_AbsoluteStartTime == null) m_AbsoluteStartTime = TimeSpan.FromTicks(RelativeStartTime.Ticks - StreamStartTime.Ticks);
-                return m_AbsoluteStartTime.Value;
-            }
-        }
+        public TimeSpan StartTime { get; protected set; }
 
         /// <summary>
         /// Gets the absolute end time by removing the component stream's start time offset.
         /// This represents the zero-based, absolute end presentation timestamp.
         /// </summary>
-        public TimeSpan EndTime
-        {
-            get
-            {
-                if (m_AbsoluteEndTime == null) m_AbsoluteEndTime = TimeSpan.FromTicks(RelativeEndTime.Ticks - StreamStartTime.Ticks);
-                return m_AbsoluteEndTime.Value;
-            }
-        }
+        public TimeSpan EndTime { get; protected set; }
 
         /// <summary>
         /// Gets the time base of the stream that generated this frame.
@@ -128,7 +98,7 @@
         /// </returns>
         public int CompareTo(FrameSource other)
         {
-            return RelativeStartTime.CompareTo(other.RelativeStartTime);
+            return StartTime.CompareTo(other.StartTime);
         }
 
         #endregion
@@ -191,11 +161,11 @@
             // for vide frames, we always get the best effort timestamp as dts and pts might
             // contain different times.
             frame->pts = ffmpeg.av_frame_get_best_effort_timestamp(frame);
-            RelativeStartTime = frame->pts.ToTimeSpan(StreamTimeBase);
+            StartTime = frame->pts.ToTimeSpan(StreamTimeBase);
             var repeatFactor = 1d + (0.5d * frame->repeat_pict);
             var timeBase = ffmpeg.av_guess_frame_rate(component.Container.InputContext, component.Stream, frame);
             Duration = repeatFactor.ToTimeSpan(new AVRational { num = timeBase.den, den = timeBase.num });
-            RelativeEndTime =  TimeSpan.FromTicks(RelativeStartTime.Ticks + Duration.Ticks);
+            EndTime =  TimeSpan.FromTicks(StartTime.Ticks + Duration.Ticks);
         }
 
         #endregion
@@ -259,7 +229,7 @@
 
             // Compute the timespans
             frame->pts = ffmpeg.av_frame_get_best_effort_timestamp(frame);
-            RelativeStartTime = frame->pts.ToTimeSpan(StreamTimeBase);
+            StartTime = frame->pts.ToTimeSpan(StreamTimeBase);
 
             // Compute the audio frame duration
             if (frame->pkt_duration != 0)
@@ -267,7 +237,7 @@
             else
                 Duration = TimeSpan.FromTicks((long)Math.Round(TimeSpan.TicksPerMillisecond * 1000d * frame->nb_samples / frame->sample_rate, 0));
 
-            RelativeEndTime = TimeSpan.FromTicks(RelativeStartTime.Ticks + Duration.Ticks);
+            EndTime = TimeSpan.FromTicks(StartTime.Ticks + Duration.Ticks);
         }
 
         #endregion
@@ -331,9 +301,9 @@
 
             // Extract timing information
             var timeOffset = frame->pts.ToTimeSpan();
-            RelativeStartTime = TimeSpan.FromTicks(timeOffset.Ticks + ((long)frame->start_display_time).ToTimeSpan(StreamTimeBase).Ticks);
-            RelativeEndTime = TimeSpan.FromTicks(timeOffset.Ticks + ((long)frame->end_display_time).ToTimeSpan(StreamTimeBase).Ticks);
-            Duration = TimeSpan.FromTicks(RelativeEndTime.Ticks - RelativeStartTime.Ticks);
+            StartTime = TimeSpan.FromTicks(timeOffset.Ticks + ((long)frame->start_display_time).ToTimeSpan(StreamTimeBase).Ticks);
+            EndTime = TimeSpan.FromTicks(timeOffset.Ticks + ((long)frame->end_display_time).ToTimeSpan(StreamTimeBase).Ticks);
+            Duration = TimeSpan.FromTicks(EndTime.Ticks - StartTime.Ticks);
 
             // Extract text strings
             for (var i = 0; i < frame->num_rects; i++)

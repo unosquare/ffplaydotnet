@@ -35,6 +35,8 @@
 
         public static string PngTestLocalFile = $"{InputBasePath}\\pngtest.png";
 
+        public static string MusicLocalFile = $"{InputBasePath}\\music.mp3";
+
         #endregion
 
         #region Network Files

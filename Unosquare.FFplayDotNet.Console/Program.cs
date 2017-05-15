@@ -59,12 +59,12 @@
         static void Main(string[] args)
         {
 
-            InputFile = TestInputs.NetworkShareStream2;
+            InputFile = TestInputs.MusicLocalFile;
             StartTime = 0;
-            DecodeDurationLimit = 3;
+            DecodeDurationLimit = 30;
             IsBenchmarking = false;
-            SaveWaveFile = false;
-            SaveSnapshots = false;
+            SaveWaveFile = true;
+            SaveSnapshots = true;
 
             Container = new MediaContainer(InputFile);
             Container.Initialize();

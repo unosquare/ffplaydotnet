@@ -100,7 +100,7 @@
         /// <returns></returns>
         protected override unsafe FrameSource CreateFrameSource(AVFrame* frame, AVPacket* packet)
         {
-            var frameHolder = new VideoFrameSource(frame, packet, Stream);
+            var frameHolder = new VideoFrameSource(frame, packet, this);
             CurrentFrameRate = ffmpeg.av_guess_frame_rate(Container.InputContext, Stream, frame).ToDouble();
             return frameHolder;
         }

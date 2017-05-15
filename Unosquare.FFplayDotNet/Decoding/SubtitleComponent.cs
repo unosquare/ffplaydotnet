@@ -29,7 +29,7 @@
         /// <returns></returns>
         protected override unsafe FrameSource CreateFrameSource(AVSubtitle* frame, AVPacket* packet)
         {
-            var frameHolder = new SubtitleFrameSource(frame, packet, Stream);
+            var frameHolder = new SubtitleFrameSource(frame, packet, this);
             return frameHolder;
         }
 

@@ -128,7 +128,7 @@
         /// <summary>
         /// Gets a timespan given a timestamp and a timebase.
         /// </summary>
-        /// <param name="pts">The PTS.</param>
+        /// <param name="pts">The PTS in seconds.</param>
         /// <param name="timeBase">The time base.</param>
         /// <returns></returns>
         public static TimeSpan ToTimeSpan(this double pts, double timeBase)

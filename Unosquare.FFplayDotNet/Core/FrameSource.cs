@@ -3,6 +3,7 @@
     using FFmpeg.AutoGen;
     using System;
     using System.Collections.Generic;
+    using Unosquare.FFplayDotNet.Decoding;
 
     /// <summary>
     /// Represents a wrapper for an unmanaged frame.
@@ -28,11 +29,12 @@
         /// </summary>
         /// <param name="pointer">The pointer.</param>
         /// <param name="timeBase">The time base.</param>
-        internal FrameSource(void* pointer, AVPacket* packet, AVStream* stream)
+        internal FrameSource(void* pointer, AVPacket* packet, MediaComponent component)
         {
             InternalPointer = pointer;
-            StreamTimeBase = stream->time_base;
-            StreamStartTime = stream->start_time.ToTimeSpan(StreamTimeBase);
+            StreamTimeBase = component.Stream->time_base;
+            StreamStartTime = component.Stream->start_time.ToTimeSpan(StreamTimeBase);
+            
             // Set packet properties
             if (packet != null)
             {
@@ -91,7 +93,7 @@
         {
             get
             {
-                if (m_AbsoluteEndTime == null) m_AbsoluteEndTime = TimeSpan.FromTicks(RelativeStartTime.Ticks - StreamStartTime.Ticks);
+                if (m_AbsoluteEndTime == null) m_AbsoluteEndTime = TimeSpan.FromTicks(RelativeEndTime.Ticks - StreamStartTime.Ticks);
                 return m_AbsoluteEndTime.Value;
             }
         }
@@ -219,9 +221,9 @@
         /// </summary>
         /// <param name="frame">The frame.</param>
         /// <param name="packet">The packet.</param>
-        /// <param name="stream">The stream.</param>
-        internal VideoFrameSource(AVFrame* frame, AVPacket* packet, AVStream* stream)
-            : base(frame, packet, stream)
+        /// <param name="component">The component.</param>
+        internal VideoFrameSource(AVFrame* frame, AVPacket* packet, MediaComponent component)
+            : base(frame, packet, component)
         {
             m_Pointer = (AVFrame*)InternalPointer;
 
@@ -239,7 +241,9 @@
             // contain different times.
             frame->pts = ffmpeg.av_frame_get_best_effort_timestamp(frame);
             RelativeStartTime = frame->pts.ToTimeSpan(StreamTimeBase);
-            Duration = ffmpeg.av_frame_get_pkt_duration(frame).ToTimeSpan(StreamTimeBase);
+            var repeatFactor = 1d + (0.5d * frame->repeat_pict);
+            var timeBase = ffmpeg.av_guess_frame_rate(component.Container.InputContext, component.Stream, frame);
+            Duration = repeatFactor.ToTimeSpan(new AVRational { num = timeBase.den, den = timeBase.num });
             RelativeEndTime = RelativeStartTime + Duration;
         }
 
@@ -297,9 +301,9 @@
         /// </summary>
         /// <param name="frame">The frame.</param>
         /// <param name="packet">The packet.</param>
-        /// <param name="stream">The stream.</param>
-        internal AudioFrameSource(AVFrame* frame, AVPacket* packet, AVStream* stream)
-            : base(frame, packet, stream)
+        /// <param name="component">The component.</param>
+        internal AudioFrameSource(AVFrame* frame, AVPacket* packet, MediaComponent component)
+            : base(frame, packet, component)
         {
             m_Pointer = (AVFrame*)InternalPointer;
 
@@ -314,8 +318,9 @@
             }
 
             // Compute the timespans
-            RelativeStartTime = ffmpeg.av_frame_get_best_effort_timestamp(frame).ToTimeSpan(StreamTimeBase);
-            Duration = ffmpeg.av_frame_get_pkt_duration(frame).ToTimeSpan(StreamTimeBase);
+            frame->pts = ffmpeg.av_frame_get_best_effort_timestamp(frame);
+            RelativeStartTime = frame->pts.ToTimeSpan(StreamTimeBase);
+            Duration = TimeSpan.FromTicks((long)Math.Round(TimeSpan.TicksPerMillisecond * 1000d * (double)frame->nb_samples / frame->sample_rate, 0));
             RelativeEndTime = RelativeStartTime + Duration;
         }
 
@@ -373,9 +378,9 @@
         /// </summary>
         /// <param name="frame">The frame.</param>
         /// <param name="packet">The packet.</param>
-        /// <param name="stream">The stream.</param>
-        internal SubtitleFrameSource(AVSubtitle* frame, AVPacket* packet, AVStream* stream)
-            : base(frame, packet, stream)
+        /// <param name="component">The component.</param>
+        internal SubtitleFrameSource(AVSubtitle* frame, AVPacket* packet, MediaComponent component)
+            : base(frame, packet, component)
         {
             m_Pointer = (AVSubtitle*)InternalPointer;
 

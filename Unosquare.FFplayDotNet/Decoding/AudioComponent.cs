@@ -51,7 +51,7 @@
         /// <returns></returns>
         protected override unsafe FrameSource CreateFrameSource(AVFrame* frame, AVPacket* packet)
         {
-            var frameHolder = new AudioFrameSource(frame, packet, Stream);
+            var frameHolder = new AudioFrameSource(frame, packet, this);
             return frameHolder;
         }
 

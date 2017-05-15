@@ -59,42 +59,47 @@
         static void Main(string[] args)
         {
 
-            InputFile = TestInputs.MpegPart2LocalFile;
-            StartTime = 10;
+            InputFile = TestInputs.MatroskaLocalFile;
+            StartTime = 0;
             DecodeDurationLimit = 10;
             IsBenchmarking = false;
-            SaveWaveFile = false;
+            SaveWaveFile = true;
             SaveSnapshots = true;
 
             Container = new MediaContainer(InputFile);
-            Container.MediaOptions.IsSubtitleDisabled = true;
+            Container.MediaOptions.IsSubtitleDisabled = false;
             Container.Initialize();
-            
-            //TestNormalDecoding();
+
+            TestNormalDecoding();
+            //TestMultipleSeeks();
+
+            Container.Dispose();
+
+            Terminal.WriteLine("All Seeking Done!");
+            Terminal.ReadKey(true, true);
+
+        }
+
+        private static void TestMultipleSeeks()
+        {
             var seekTimes = 0;
             var seekIncrement = Container.MediaDuration.TotalSeconds / 10d;
 
             for (var i = seekIncrement; i < Container.MediaDuration.TotalSeconds; i += seekIncrement)
             {
-                TestSeeking(TimeSpan.FromSeconds(i));
+                HandleSeek(TimeSpan.FromSeconds(i));
                 seekTimes++;
                 //if (seekTimes >= 5) break;
             }
 
-            Container.StreamSeek(TimeSpan.Zero, true);
-
-            Container.Dispose();
-
-            Terminal.WriteLine("All Done!");
-            Terminal.ReadKey(true, true);
-
+            Container.Seek(TimeSpan.Zero);
         }
 
-        private static void TestSeeking(TimeSpan target)
+        private static void HandleSeek(TimeSpan target)
         {
             $"".Warn(typeof(Program));
             $"Target Time: {target.TotalSeconds,10:0.000}".Warn(typeof(Program));
-            var decodedFrames = Container.StreamSeek(target, true);
+            var decodedFrames = Container.Seek(target);
 
             var videoFrame = decodedFrames.FirstOrDefault(f => f.MediaType == MediaType.Video);
             var audioFrame = decodedFrames.FirstOrDefault(f => f.MediaType == MediaType.Audio);
@@ -140,7 +145,7 @@
             foreach (var frame in decodedFrames)
             {
                 var frameResult = Outputs[frame.MediaType];
-                Container.MaterializeFrame(frame, ref frameResult, true);
+                Container.Convert(frame, ref frameResult, true);
                 if (IsBenchmarking == false)
                     HandleFrame(frameResult);
             }
@@ -150,7 +155,7 @@
         {
             if (StartTime != 0)
             {
-                var decodedFrames = Container.StreamSeek(TimeSpan.FromSeconds(StartTime), true);
+                var decodedFrames = Container.Seek(TimeSpan.FromSeconds(StartTime));
                 HandleDecoding(decodedFrames);
             }
 
@@ -167,7 +172,7 @@
                             {
                                 // buffer at least 60 packets
                                 while (Container.Components.PacketBufferCount < 48 && Container.IsAtEndOfStream == false && ReadCancel == false)
-                                    Container.ReadNext();
+                                    Container.Read();
 
                                 ($"Buffer     | DUR: {Container.Components.PacketBufferDuration.TotalSeconds,10:0.000}"
                                     + $" | LEN: {Container.Components.PacketBufferLength / 1024d,9:0.00}K"
@@ -203,7 +208,7 @@
 
                     try
                     {
-                        var decodedFrames = Container.DecodeNext(sortFrames: true);
+                        var decodedFrames = Container.Decode();
                         HandleDecoding(decodedFrames);
 
                         if (decodedFrames.Count == 0)

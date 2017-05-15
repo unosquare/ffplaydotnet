@@ -58,6 +58,13 @@
         /// </summary>
         private bool m_RequiresPictureAttachments = true;
 
+
+        private readonly object ReadSyncRoot = new object();
+
+        private readonly object DecodeSyncRoot = new object();
+
+        private readonly object ConvertSyncRoot = new object();
+
         #endregion
 
         #region Properties
@@ -71,7 +78,7 @@
         /// <summary>
         /// The media initialization options.
         /// Options are applied when calling the Initialize method.
-        /// After nitialization, changing the options has no effect.
+        /// After initialization, changing the options has no effect.
         /// </summary>
         public MediaOptions MediaOptions { get; } = new MediaOptions();
 
@@ -137,7 +144,6 @@
         /// </summary>
         public TimeSpan MediaEndTime { get; private set; }
 
-
         /// <summary>
         /// Will be set to true whenever an End Of File situation is reached.
         /// </summary>
@@ -145,6 +151,7 @@
 
         /// <summary>
         /// Gets the byte position at which the stream is being read.
+        /// Please note that this property gets updated after every Read.
         /// </summary>
         public long StreamPosition
         {
@@ -231,7 +238,7 @@
 
         #endregion
 
-        #region Constructor and Initialization
+        #region Constructor
 
         /// <summary>
         /// Initializes a new instance of the <see cref="MediaContainer"/> class.
@@ -251,12 +258,176 @@
             MediaUrl = mediaUrl;
         }
 
+        #endregion
+
+        #region Public API
+
+        /// <summary>
+        /// Initializes the input context in order to start reading from the Media URL.
+        /// Any Media Options must be set before this method is called.
+        /// </summary>
+        public void Initialize()
+        {
+            lock (ReadSyncRoot)
+            {
+                StreamInitialize();
+            }
+        }
+
+        /// <summary>
+        /// Seeks to the specified position in the stream. This method attempts to do so as
+        /// precisely as possible, returning decoded frames of all available media type components
+        /// just before or right on the requested position. The position must be given in 0-based time,
+        /// so it converts component stream start time offset to absolute, 0-based time.
+        /// Pass TimeSpan.Zero to seek to the beginning of the stream.
+        /// </summary>
+        /// <param name="position">The position.</param>
+        /// <returns></returns>
+        public List<FrameSource> Seek(TimeSpan position)
+        {
+            lock (ReadSyncRoot)
+            {
+                if (IsDisposed || InputContext == null) throw new InvalidOperationException("No input context initialized");
+                return StreamSeek(targetTime: position, doPreciseSeek: true);
+            }
+        }
+
+        /// <summary>
+        /// Reads the next available packet, sending the packet to the corresponding
+        /// internal media component. It also sets IsAtEndOfStream property.
+        /// Returns true if the packet was accepted by any of the media components.
+        /// Returns false if the packet was not accepted by any of the media components
+        /// or if reading failed (i.e. End of stream already or read error).
+        /// Packets are queued internally. To dequeue them you can call the DocodeNext
+        /// method until the packet buffer count becomes 0.
+        /// </summary>
+        /// <exception cref="MediaContainerException"></exception>
+        public MediaType Read()
+        {
+            lock (ReadSyncRoot)
+            {
+                if (IsDisposed || InputContext == null) throw new InvalidOperationException("No input context initialized");
+                return StreamRead();
+            }
+        }
+
+        /// <summary>
+        /// Decodes the next available packet in the packet queue for each of the components.
+        /// Returns the list of decoded frames. You can call this method until the Components.PacketBufferCount
+        /// becomes 0; The list of 0 or more decoded frames is returned in ascending StartTime order.
+        /// A Packet may contain 0 or more frames. Once the frame source objects are returned, you
+        /// are responsible for calling the Dispose method on them to free the underlying FFmpeg frame.
+        /// Note that even after releasing them you can still use the managed properties.
+        /// If you intend on Converting the frames to usable media frames (with Convert) you must not
+        /// release the frame. Specify the release input argument as true and the frame will be automatically
+        /// freed from memory.
+        /// </summary>
+        /// <returns></returns>
+        public List<FrameSource> Decode()
+        {
+            lock (DecodeSyncRoot)
+            {
+                var result = new List<FrameSource>(64);
+                foreach (var component in Components.All)
+                    result.AddRange(component.DecodeNextPacket());
+
+                result.Sort();
+                return result;
+            }
+        }
+
+        /// <summary>
+        /// Performs audio, video and subtitle conversions on the decoded input frame so data
+        /// can be used as a Frame. Please note that if the output is passed as a reference. 
+        /// This works as follows: if the output reference is null it will be automatically instantiated 
+        /// and returned by this function. This enables to  either instantiate or reuse a previously allocated Frame. 
+        /// This is important because buffer allocations are exepnsive operations and this allows you 
+        /// to perform the allocation once and continue reusing thae same buffer.
+        /// </summary>
+        /// <param name="input">The raw frame source. Has to be compatiable with the target. (e.g. use VideoFrameSource to conver to VideoFrame)</param>
+        /// <param name="output">The target frame. Has to be compatible with the source.</param>
+        /// <param name="releaseInput">if set to <c>true</c> releases the raw frame source from unmanaged memory.</param>
+        /// <returns></returns>
+        /// <exception cref="System.ArgumentNullException">input</exception>
+        /// <exception cref="System.ArgumentException">
+        /// input
+        /// or
+        /// input
+        /// </exception>
+        /// <exception cref="MediaContainerException">MediaType</exception>
+        public Frame Convert(FrameSource input, ref Frame output, bool releaseInput = true)
+        {
+            lock (ConvertSyncRoot)
+            {
+                if (IsDisposed || InputContext == null) throw new InvalidOperationException("No input context initialized");
+
+                // Check the input parameters
+                if (input == null)
+                    throw new ArgumentNullException($"{nameof(input)} cannot be null.");
+
+                try
+                {
+                    switch (input.MediaType)
+                    {
+                        case MediaType.Video:
+                            if (input.IsStale) throw new ArgumentException(
+                                $"The {nameof(input)} {nameof(FrameSource)} has already been released (it's stale).");
+
+                            if (Components.HasVideo) Components.Video.MaterializeFrame(input, ref output);
+                            return output;
+
+                        case MediaType.Audio:
+                            if (input.IsStale) throw new ArgumentException(
+                                $"The {nameof(input)} {nameof(FrameSource)} has already been released (it's stale).");
+
+                            if (Components.HasAudio) Components.Audio.MaterializeFrame(input, ref output);
+                            return output;
+
+                        case MediaType.Subtitle:
+                            // We don't need to heck if subtitles are stale because they are immediately released
+                            // upon decoding. This is because there is no unmanaged allocator for AVSubtitle.
+
+                            if (Components.HasSubtitles) Components.Subtitles.MaterializeFrame(input, ref output);
+                            return output;
+
+                        default:
+                            throw new MediaContainerException($"Unable to materialize {nameof(MediaType)} {(int)input.MediaType}");
+                    }
+                }
+                finally
+                {
+                    if (releaseInput)
+                        input.Dispose();
+                }
+            }
+        }
+
+        /// <summary>
+        /// Closes the input context immediately releasing all resources.
+        /// This method is equivalent to calling the dispose method.
+        /// </summary>
+        public void Close()
+        {
+            lock (ReadSyncRoot)
+            {
+                lock (DecodeSyncRoot)
+                {
+                    if (IsDisposed || InputContext == null) throw new InvalidOperationException("No input context initialized");
+                    Dispose();
+                }
+            }
+        }
+
+        #endregion
+
+        #region Private Stream Methods
+
         /// <summary>
         /// Initializes the input context to start read operations.
         /// </summary>
         /// <exception cref="System.InvalidOperationException">The input context has already been initialized.</exception>
         /// <exception cref="MediaContainerException"></exception>
-        private void InitializeInputContext()
+        private void StreamInitialize()
         {
             if (IsInitialized)
                 throw new InvalidOperationException("The input context has already been initialized.");
@@ -337,7 +508,7 @@
                 }
 
                 // Open the best suitable streams. Throw if no audio and/or video streams are found
-                CreateStreamComponents();
+                StreamCreateComponents();
 
                 // For network streams, figure out if reads can be paused and then start them.
                 CanReadSuspend = ffmpeg.av_read_pause(InputContext) == 0;
@@ -366,7 +537,7 @@
         /// </summary>
         /// <returns></returns>
         /// <exception cref="Unosquare.FFplayDotNet.MediaContainerException"></exception>
-        private void CreateStreamComponents()
+        private void StreamCreateComponents()
         {
             // Display stream information in the console if we are debugging
             if (Debugger.IsAttached)
@@ -449,28 +620,13 @@
 
         }
 
-        #endregion
-
-        #region Public API
-
         /// <summary>
-        /// Initializes the input context in order to start reading from the Media URL.
-        /// Any Media Options must be set before this method is called.
+        /// Reads the next packet in the underlying stream and enqueues in the corresponding media component
         /// </summary>
-        public void Initialize()
-        {
-            InitializeInputContext();
-        }
-
-        /// <summary>
-        /// Reads the next available packet, sending the packet to the corresponding
-        /// internal media component. It also sets IsAtEndOfStream property.
-        /// Returns true if the packet was accepted by any of the media components.
-        /// Returns false if the packet was not accepted by any of the media components
-        /// or if reading failed (i.e. End of stream or read error)
-        /// </summary>
+        /// <returns></returns>
+        /// <exception cref="System.InvalidOperationException">Initialize</exception>
         /// <exception cref="MediaContainerException"></exception>
-        public MediaType ReadNext()
+        private MediaType StreamRead()
         {
             // Check the context has been initialized
             if (IsInitialized == false)
@@ -550,132 +706,9 @@
         }
 
         /// <summary>
-        /// Decodes the next available packet in the packet queue for each of the components.
-        /// Returns the list of decoded frames.
-        /// A Packet may contain 0 or more frames.
+        /// Suspends / pauses network streams
+        /// This should only be called upon Dispose
         /// </summary>
-        /// <param name="sortFrames">if set to <c>true</c> the resulting list of frames will be sorted by StartTime ascending</param>
-        /// <returns></returns>
-        public List<FrameSource> DecodeNext(bool sortFrames = false)
-        {
-            var result = new List<FrameSource>(64);
-            foreach (var component in Components.All)
-                result.AddRange(component.DecodeNextPacket());
-
-            if (sortFrames)
-                result.Sort();
-
-            return result;
-        }
-
-        /// <summary>
-        /// Decodes the next available packet for the given frame source type.
-        /// </summary>
-        /// <typeparam name="T">Video Audio or Subtitle Frame Source</typeparam>
-        /// <returns></returns>
-        public List<T> DecodeNext<T>(bool sortFrames = false)
-            where T : FrameSource
-        {
-            List<T> result = null;
-
-            if (Components.HasVideo && typeof(T) == typeof(VideoFrameSource))
-                result = Components.Video.DecodeNextPacket().Cast<T>().ToList();
-
-            else if (Components.HasAudio && typeof(T) == typeof(AudioFrameSource))
-                return Components.Audio.DecodeNextPacket().Cast<T>().ToList();
-
-            else if (Components.HasSubtitles && typeof(T) == typeof(SubtitleFrameSource))
-                return Components.Subtitles.DecodeNextPacket().Cast<T>().ToList();
-
-            if (result == null) return new List<T>(0);
-            if (sortFrames) result.Sort();
-
-            return result;
-
-        }
-
-        /// <summary>
-        /// Performs audio, video and subtitle conversions on the decoded input frame so data
-        /// can be used as a Frame. Pleasde note that if the output is passed as a reference. 
-        /// This works as follows: if the output reference is null it will be automatically instantiated 
-        /// and returned by this function. This enables to  either intantiate or reuse a Frame. 
-        /// This is important because buffer allocations are exepnsive operations and this allows you 
-        /// to perform the allocation once and continue reusing thae same buffer.
-        /// </summary>
-        /// <param name="input">The raw frame source.</param>
-        /// <param name="output">The target frame.</param>
-        /// <param name="releaseInput">if set to <c>true</c> releases the raw frame source from unmanaged memory.</param>
-        /// <returns></returns>
-        /// <exception cref="System.ArgumentNullException">input</exception>
-        /// <exception cref="System.ArgumentException">
-        /// input
-        /// or
-        /// input
-        /// </exception>
-        /// <exception cref="MediaContainerException">MediaType</exception>
-        public Frame MaterializeFrame(FrameSource input, ref Frame output, bool releaseInput = true)
-        {
-            // Check the input parameters
-            if (input == null)
-                throw new ArgumentNullException($"{nameof(input)} cannot be null.");
-
-            try
-            {
-                switch (input.MediaType)
-                {
-                    case MediaType.Video:
-                        if (input.IsStale) throw new ArgumentException(
-                            $"The {nameof(input)} {nameof(FrameSource)} has already been released (it's stale).");
-
-                        if (Components.HasVideo) Components.Video.MaterializeFrame(input, ref output);
-                        return output;
-
-                    case MediaType.Audio:
-                        if (input.IsStale) throw new ArgumentException(
-                            $"The {nameof(input)} {nameof(FrameSource)} has already been released (it's stale).");
-
-                        if (Components.HasAudio) Components.Audio.MaterializeFrame(input, ref output);
-                        return output;
-
-                    case MediaType.Subtitle:
-                        // We don't need to heck if subtitles are stale because they are immediately released
-                        // upon decoding. This is because there is no unmanaged allocator for AVSubtitle.
-
-                        if (Components.HasSubtitles) Components.Subtitles.MaterializeFrame(input, ref output);
-                        return output;
-
-                    default:
-                        throw new MediaContainerException($"Unable to materialize {nameof(MediaType)} {(int)input.MediaType}");
-                }
-            }
-            finally
-            {
-                if (releaseInput)
-                    input.Dispose();
-            }
-
-        }
-
-        /// <summary>
-        /// A specialized version of the Materialize Frame function. For additional info, look at the
-        /// general version of this method.
-        /// </summary>
-        /// <typeparam name="T"></typeparam>
-        /// <param name="input">The raw frame source.</param>
-        /// <param name="output">The target frame.</param>
-        /// <param name="releaseInput">if set to <c>true</c> releases the raw frame source from unmanaged memory.</param>
-        /// <returns></returns>
-        public T MaterializeFrame<T>(FrameSource input, ref T output, bool releaseInput = true)
-            where T : Frame
-        {
-            var outputFrame = output as Frame;
-            return MaterializeFrame(input, ref outputFrame, releaseInput) as T;
-        }
-
-        #endregion
-
-        #region Private Stream Methods
-
         private void StreamReadSuspend()
         {
             if (InputContext == null || CanReadSuspend == false || IsReadSuspended) return;
@@ -683,6 +716,9 @@
             IsReadSuspended = true;
         }
 
+        /// <summary>
+        /// Resumes the reads of network streams
+        /// </summary>
         private void StreamReadResume()
         {
             if (InputContext == null || CanReadSuspend == false || IsReadSuspended == false) return;
@@ -732,8 +768,9 @@
             return result;
         }
 
-
-
+        /// <summary>
+        /// Seeks to the position at the start of the stream.
+        /// </summary>
         private void StreamSeekToStart()
         {
             if (MediaRelativeStartTime == TimeSpan.MinValue) return;
@@ -748,7 +785,14 @@
             IsAtEndOfStream = false;
         }
 
-        public List<FrameSource> StreamSeek(TimeSpan targetTime, bool doPreciseSeek)
+        /// <summary>
+        /// Seeks to the exact or prior frame of the main stream.
+        /// Supports byte seeking.
+        /// </summary>
+        /// <param name="targetTime">The target time.</param>
+        /// <param name="doPreciseSeek">if set to <c>true</c> [do precise seek].</param>
+        /// <returns></returns>
+        private List<FrameSource> StreamSeek(TimeSpan targetTime, bool doPreciseSeek = true)
         {
             // This method is still WIP
             var result = new List<FrameSource>();
@@ -789,12 +833,12 @@
             var timeBase = mainComp.Stream->time_base;
 
             // The seek target is computed by using the absolute, 0-based target time and adding the component stream's start time
-            var relativeTargetTime = TimeSpan.FromTicks(targetTime.Ticks + mainComp.RelativeStartTime.Ticks);
-            var seekTarget = (long)Math.Round(relativeTargetTime.TotalSeconds * timeBase.den / timeBase.num, 0) - 2;
+            var relativeTargetTime = TimeSpan.FromTicks(targetTime.Ticks - mainComp.RelativeStartTime.Ticks);
+            var seekTarget = (long)Math.Round((relativeTargetTime.TotalSeconds - 1d) * timeBase.den / timeBase.num, 0);
 
             if (MediaSeeksByBytes)
             {
-                seekTarget = (long)(MediaBitrate * targetTime.TotalSeconds / 8d);
+                seekTarget = (long)(MediaBitrate * (targetTime.TotalSeconds - 1d) / 8d);
                 seekFlags = ffmpeg.AVSEEK_FLAG_BYTE;
                 streamIndex = -1;
             }
@@ -845,7 +889,7 @@
             while (IsAtEndOfStream == false && doPreciseSeek)
             {
                 shortSeekCycles++;
-                var mediaType = ReadNext();
+                var mediaType = Read();
                 if (outputFrames.ContainsKey(mediaType) == false)
                     continue;
 

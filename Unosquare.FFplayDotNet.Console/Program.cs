@@ -59,9 +59,9 @@
         static void Main(string[] args)
         {
 
-            InputFile = TestInputs.RtspStream;
+            InputFile = TestInputs.UdpStream;
             StartTime = 0;
-            DecodeDurationLimit = 30;
+            DecodeDurationLimit = 5;
             IsBenchmarking = false;
             SaveWaveFile = true;
             SaveSnapshots = true;
@@ -69,8 +69,8 @@
             Container = new MediaContainer(InputFile);
             Container.Initialize();
 
-            //TestNormalDecoding();
-            TestMultipleSeeks();
+            TestNormalDecoding();
+            //TestMultipleSeeks();
 
             Container.Dispose();
 
@@ -181,6 +181,7 @@
                         }
 
                     }
+                    catch { }
                     finally
                     {
                         DecodingDone.Wait();

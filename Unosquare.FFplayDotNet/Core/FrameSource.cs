@@ -260,7 +260,11 @@
             // Compute the timespans
             frame->pts = ffmpeg.av_frame_get_best_effort_timestamp(frame);
             RelativeStartTime = frame->pts.ToTimeSpan(StreamTimeBase);
-            Duration = TimeSpan.FromTicks((long)Math.Round(TimeSpan.TicksPerMillisecond * 1000d * (double)frame->nb_samples / frame->sample_rate, 0));
+
+            var computedDuration = TimeSpan.FromTicks((long)Math.Round(TimeSpan.TicksPerMillisecond * 1000d * frame->nb_samples / frame->sample_rate, 0));
+            var packetDuration = frame->pkt_duration.ToTimeSpan(StreamTimeBase);
+
+            Duration = packetDuration != TimeSpan.Zero ? packetDuration : computedDuration;
             RelativeEndTime = TimeSpan.FromTicks(RelativeStartTime.Ticks + Duration.Ticks);
         }
 

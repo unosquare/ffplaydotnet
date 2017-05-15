@@ -854,7 +854,7 @@
             var startTime = DateTime.UtcNow;
             var relativeTargetTime = MediaSeeksByBytes ?
                 targetTime :
-                TimeSpan.FromTicks(targetTime.Ticks - main.StartTime.Ticks);
+                TimeSpan.FromTicks(targetTime.Ticks - main.StartTime.Ticks); // TODO: check this calculation
 
             // Perform long seeks until we end up with a relative target time where decoding
             // of frames before or on target time is possible.

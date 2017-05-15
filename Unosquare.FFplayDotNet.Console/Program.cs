@@ -41,8 +41,8 @@
 
         private static Dispatcher DecompressDispatcher = null;
 
-        private static string InputFile = TestInputs.MpegPart2LocalFile;
-        private static double DecodeDurationLimit = 80;
+        private static string InputFile = string.Empty;
+        private static double DecodeDurationLimit = 1;
         private static double StartTime = 0;
         private static bool IsBenchmarking = false;
         private static bool SaveWaveFile = false;
@@ -59,7 +59,7 @@
         static void Main(string[] args)
         {
 
-            InputFile = TestInputs.BigBuckBunnyLocal;
+            InputFile = TestInputs.TransportLocalFile;
             StartTime = 0;
             DecodeDurationLimit = 1;
             IsBenchmarking = false;

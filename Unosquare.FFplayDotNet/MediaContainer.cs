@@ -288,7 +288,7 @@
             lock (ReadSyncRoot)
             {
                 if (IsDisposed || InputContext == null) throw new InvalidOperationException("No input context initialized");
-                return StreamSeek(targetTime: position, doPreciseSeek: true);
+                return StreamSeek(position);
             }
         }
 
@@ -762,9 +762,6 @@
                 result++;
             }
 
-            if (result > 0)
-                $"Dropped {result,5} decoded {frameType,10} frames in seek operation.".Trace(typeof(MediaContainer));
-
             return result;
         }
 
@@ -792,7 +789,7 @@
         /// <param name="targetTime">The target time.</param>
         /// <param name="doPreciseSeek">if set to <c>true</c> [do precise seek].</param>
         /// <returns></returns>
-        private List<FrameSource> StreamSeek(TimeSpan targetTime, bool doPreciseSeek = true)
+        private List<FrameSource> StreamSeek(TimeSpan targetTime)
         {
             // This method is still WIP
             var result = new List<FrameSource>();
@@ -812,33 +809,30 @@
             }
 
             // Select the main component
-            var mainComp = Components.Main;
-            if (mainComp == null) return result;
+            var main = Components.Main;
+            if (main == null) return result;
 
-            var videoComponent = mainComp as VideoComponent;
-            if (videoComponent != null)
-                targetTime = TimeSpan.FromSeconds(targetTime.TotalSeconds.ToMultipleOf(1d / videoComponent.CurrentFrameRate));
+            var video = main as VideoComponent;
+            if (video != null)
+                targetTime = TimeSpan.FromSeconds(targetTime.TotalSeconds.ToMultipleOf(1d / video.CurrentFrameRate));
 
             // clamp the target time to the component's bounds
+            // TODO: Check bounds of byte-based seeking
             if (MediaSeeksByBytes == false)
             {
-                if (targetTime > mainComp.EndTime) targetTime = mainComp.EndTime;
-                if (targetTime < mainComp.StartTime) targetTime = mainComp.StartTime;
+                if (targetTime > main.EndTime) targetTime = main.EndTime;
+                if (targetTime < main.StartTime) targetTime = main.StartTime;
             }
 
             // Stream seeking by main component
             // The backward flag means that we want to seek to at MOST the target position
             var seekFlags = ffmpeg.AVSEEK_FLAG_BACKWARD;
-            var streamIndex = mainComp.StreamIndex;
-            var timeBase = mainComp.Stream->time_base;
+            var streamIndex = main.StreamIndex;
+            var timeBase = main.Stream->time_base;
 
             // The seek target is computed by using the absolute, 0-based target time and adding the component stream's start time
-            var relativeTargetTime = TimeSpan.FromTicks(targetTime.Ticks - mainComp.RelativeStartTime.Ticks);
-            var seekTarget = (long)Math.Round((relativeTargetTime.TotalSeconds - 1d) * timeBase.den / timeBase.num, 0);
-
             if (MediaSeeksByBytes)
             {
-                seekTarget = (long)(MediaBitrate * (targetTime.TotalSeconds - 1d) / 8d);
                 seekFlags = ffmpeg.AVSEEK_FLAG_BYTE;
                 streamIndex = -1;
             }
@@ -851,34 +845,71 @@
 
             #region Perform Long Seek
 
+            // The relative target time keeps track of where to seek.
+            // if the seeking is not successful we decrement this time and try the seek
+            // again by subtracting 1 second from it.
             var startTime = DateTime.UtcNow;
-            //seekResult = ffmpeg.avformat_seek_file(InputContext, streamIndex, long.MinValue, seekTarget, seekTarget, seekFlags);
-            seekResult = ffmpeg.av_seek_frame(InputContext, streamIndex, seekTarget, seekFlags);
-            $"SEEK L: Elapsed: {startTime.DebugElapsedUtc()} | Target: {targetTime.Debug()} | Seek: {seekTarget.Debug()} | P0: {startPos.Debug(1024)} | P1: {StreamPosition.Debug(1024)} ".Trace(typeof(MediaContainer));
+            var relativeTargetTime = MediaSeeksByBytes ?
+                targetTime :
+                TimeSpan.FromTicks(targetTime.Ticks - main.RelativeStartTime.Ticks);
 
-            // Flush the buffered packets and codec
-            Components.ClearPacketQueues();
-            RequiresPictureAttachments = true;
-            IsAtEndOfStream = false;
-
-            // Ensure we had a successful seek operation
-            if (seekResult < 0)
+            // Perform long seeks until we end up with a relative target time where decoding
+            // of frames before or on target time is possible.
+            while (IsAtEndOfStream == false)
             {
-                $"Seek operation failed. Error code {seekResult}, {ffmpeg.ErrorMessage(seekResult)}".Warn(typeof(MediaContainer));
-                return result;
+                // Compute the seek target, mostly based on the relative Target Time
+                var seekTarget = MediaSeeksByBytes ?
+                    (long)(MediaBitrate * relativeTargetTime.TotalSeconds / 8d) :
+                    (long)Math.Round((relativeTargetTime.TotalSeconds) * timeBase.den / timeBase.num, 0);
+
+                //Perofrm the seek. There is also avformat_seek_file which is the older version of av_seek_frame
+                seekResult = ffmpeg.av_seek_frame(InputContext, streamIndex, seekTarget, seekFlags);
+                $"SEEK L: Elapsed: {startTime.DebugElapsedUtc()} | Target: {relativeTargetTime.Debug()} | Seek: {seekTarget.Debug()} | P0: {startPos.Debug(1024)} | P1: {StreamPosition.Debug(1024)} ".Trace(typeof(MediaContainer));
+
+                // Flush the buffered packets and codec on every seek.
+                Components.ClearPacketQueues();
+                RequiresPictureAttachments = true;
+                IsAtEndOfStream = false;
+
+                // Ensure we had a successful seek operation
+                if (seekResult < 0)
+                {
+                    $"SEEK R: Elapsed: {startTime.DebugElapsedUtc()} | Seek operation failed. Error code {seekResult}, {ffmpeg.ErrorMessage(seekResult)}".Warn(typeof(MediaContainer));
+                    break;
+                }
+
+                StreamSeekPrecise(result, targetTime);
+                var firstAudioFrame = result.FirstOrDefault(f => f.MediaType == MediaType.Audio && f.StartTime <= targetTime);
+                var firstVideoFrame = result.FirstOrDefault(f => f.MediaType == MediaType.Video && f.StartTime <= targetTime);
+
+                var isAudioSeekInRange = Components.HasAudio == false || (firstAudioFrame != null && firstAudioFrame.StartTime <= targetTime);
+                var isVideoSeekInRange = Components.HasVideo == false || (firstVideoFrame != null && firstVideoFrame.StartTime <= targetTime);
+
+                if (isAudioSeekInRange && isVideoSeekInRange)
+                    break;
+
+                // At this point the result is useless. Siply discard the decoded frames
+                foreach (var frame in result) frame.Dispose();
+                result.Clear();
+
+                // Subtract 1 second from the relative target time.
+                // a new seek target will be computed and we will do a long seek again.
+                relativeTargetTime = relativeTargetTime.Subtract(TimeSpan.FromSeconds(1));
+
             }
+
+            $"SEEK R: Elapsed: {startTime.DebugElapsedUtc()} | Target: {relativeTargetTime.Debug()} | Seek: {default(long).Debug()} | P0: {startPos.Debug(1024)} | P1: {StreamPosition.Debug(1024)} ".Trace(typeof(MediaContainer));
+            return result;
 
             #endregion
 
-            #region Precise Seek
+        }
 
-            // If precise seek not requested simply return.
-            if (doPreciseSeek == false) return result;
-
-            // Perform frame based seek. Packet seek is not good enough
-            var outputPacketStats = true;
+        private void StreamSeekPrecise(List<FrameSource> result, TimeSpan targetTime)
+        {
+            var startTime = DateTime.UtcNow;
+            var startPos = StreamPosition;
             var shortSeekCycles = 0;
-            startPos = StreamPosition;
 
             // Create a holder of frame lists; one for each type of media
             var outputFrames = new Dictionary<MediaType, List<FrameSource>>();
@@ -886,21 +917,17 @@
                 outputFrames[c.MediaType] = new List<FrameSource>();
 
             // Start reading and decoding util we reach the target
-            while (IsAtEndOfStream == false && doPreciseSeek)
+            while (IsAtEndOfStream == false)
             {
                 shortSeekCycles++;
                 var mediaType = Read();
                 if (outputFrames.ContainsKey(mediaType) == false)
                     continue;
 
-                // Output statistics on the frame that was first decoded.
+                // Add the frames to the corresponding output
                 outputFrames[mediaType].AddRange(Components[mediaType].DecodeNextPacket());
-                if (outputPacketStats && outputFrames[mediaType].Count > 0)
-                {
-                    var firstFrame = outputFrames[mediaType][0];
-                    $"SEEK P: Elapsed: {startTime.DebugElapsedUtc()} | FR: {firstFrame.StartTime.Debug()} | P0: {startPos.Debug(1024)} | P1: {StreamPosition.Debug(1024)} ".Trace(typeof(MediaContainer));
-                    outputPacketStats = false;
-                }
+
+                // Output statistics on the frame that was first decoded.
 
                 // check if we are done with precise seeking
                 // all streams must have at least 1 frame in the range
@@ -935,13 +962,6 @@
             }
 
             result.Sort();
-
-            $"SEEK F: Elapsed: {startTime.DebugElapsedUtc()} | CY: {shortSeekCycles} | FR: {result.Count} | P0: {startPos.Debug(1024)} | P1: {StreamPosition.Debug(1024)} ".Trace(typeof(MediaContainer));
-
-            #endregion
-
-            return result;
-
         }
 
         #endregion

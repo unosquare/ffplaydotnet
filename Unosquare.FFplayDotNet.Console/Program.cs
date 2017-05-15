@@ -59,7 +59,7 @@
         static void Main(string[] args)
         {
 
-            InputFile = TestInputs.MusicLocalFile;
+            InputFile = TestInputs.YoutubeLocalFile;
             StartTime = 0;
             DecodeDurationLimit = 30;
             IsBenchmarking = false;
@@ -69,8 +69,8 @@
             Container = new MediaContainer(InputFile);
             Container.Initialize();
 
-            TestNormalDecoding();
-            //TestMultipleSeeks();
+            //TestNormalDecoding();
+            TestMultipleSeeks();
 
             Container.Dispose();
 

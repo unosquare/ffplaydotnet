@@ -59,9 +59,9 @@
         static void Main(string[] args)
         {
 
-            InputFile = TestInputs.MpegPart2LocalFile;
+            InputFile = TestInputs.MatroskaLocalFile;
             StartTime = 0;
-            DecodeDurationLimit = 1;
+            DecodeDurationLimit = 20;
             IsBenchmarking = false;
             SaveWaveFile = true;
             SaveSnapshots = true;
@@ -443,7 +443,6 @@
                 $"    Bitrate     : {Container.MediaBitrate,10} bps\r\n" +
                 $"    FPS         : {Container.Components.Video?.CurrentFrameRate,10:0.000}\r\n" +
                 $"    BFPS        : {Container.Components.Video?.BaseFrameRate,10:0.000}\r\n" +
-                $"    Rel Start   : {Container.MediaRelativeStartTime.TotalSeconds,10:0.000}\r\n" +
                 $"    Duration    : {Container.MediaDuration.TotalSeconds,10:0.000} secs\r\n" +
                 $"    Seekable    : {Container.IsStreamSeekable,10}\r\n" +
                 $"    Is Realtime : {Container.IsStreamRealtime,10}\r\n" +

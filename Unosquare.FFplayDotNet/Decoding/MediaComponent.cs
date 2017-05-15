@@ -77,18 +77,10 @@
         public int StreamIndex { get; }
 
         /// <summary>
-        /// Returns the absolute start time of the stream
-        /// in relation to the container start time. For example,
-        /// if this component starts at t1 and the input starts at t0
-        /// this will return the difference t1 - t0
+        /// Returns the component's stream start timestamp as reported 
+        /// by the start time of the stream.
         /// </summary>
-        public TimeSpan StartTime { get; }
-
-        /// <summary>
-        /// Returns the absolute, start-time-based end time of the component's stream.
-        /// If there is no such information it will return TimeSpan.MinValue
-        /// </summary>
-        public TimeSpan EndTime { get; }
+        public TimeSpan StartTimeOffset { get; }
 
         /// <summary>
         /// Gets the duration of this stream component.
@@ -203,14 +195,9 @@
 
             // Compute the start time
             if (Stream->start_time == ffmpeg.AV_NOPTS)
-            {
-                StartTime = Container.MediaRelativeStartTime;
-            }
+                StartTimeOffset = Container.MediaStartTimeOffset;
             else
-            {
-                var streamStartTime = Stream->start_time.ToTimeSpan(Stream->time_base);
-                StartTime = TimeSpan.FromTicks(streamStartTime.Ticks - Container.MediaRelativeStartTime.Ticks);
-            }
+                StartTimeOffset = Stream->start_time.ToTimeSpan(Stream->time_base);
 
             // compute the duration
             if (Stream->duration == ffmpeg.AV_NOPTS || Stream->duration == 0)
@@ -218,14 +205,8 @@
             else
                 Duration = Stream->duration.ToTimeSpan(Stream->time_base);
 
-            // compute the end time
-            if (StartTime != TimeSpan.MinValue && Duration != TimeSpan.MinValue && Duration != TimeSpan.Zero)
-                EndTime = TimeSpan.FromTicks(StartTime.Ticks + Duration.Ticks);
-            else
-                EndTime = TimeSpan.MinValue;
 
-
-            $"{MediaType}: Start: {StartTime.Debug()}; End: {EndTime.Debug()}; Duration: {Duration.Debug()}".Trace(typeof(MediaContainer));
+            $"{MediaType}: Start Offset: {StartTimeOffset.Debug()}; Duration: {Duration.Debug()}".Trace(typeof(MediaContainer));
 
         }
 

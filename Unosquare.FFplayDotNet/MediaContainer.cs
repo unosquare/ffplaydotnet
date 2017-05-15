@@ -111,19 +111,10 @@
         public string MediaTitle { get; private set; }
 
         /// <summary>
-        /// Gets the media start time by which all component streams arew offset. 
+        /// Gets the media start time by which all component streams are offset. 
         /// Typically 0 but it could be something other than 0.
-        /// If this start time is not available (i.e. some realtime media) it will
-        /// be set to TimeSpan.MinValue
         /// </summary>
-        public TimeSpan MediaRelativeStartTime { get; private set; }
-
-        /// <summary>
-        /// Gets the absolute start time of the media.
-        /// Returns TimeSpan.Zero when this information is available. Returns
-        /// TimeSapn.MinValue wehn this information is not available.
-        /// </summary>
-        public TimeSpan MediaStartTime { get; private set; }
+        internal TimeSpan MediaStartTimeOffset { get; private set; }
 
         /// <summary>
         /// Gets the duration of the media.
@@ -131,19 +122,6 @@
         /// be set to TimeSpan.MinValue
         /// </summary>
         public TimeSpan MediaDuration { get; private set; }
-
-        /// <summary>
-        /// Gets the end time of the media including any offsets of the input URL.
-        /// If this information is not available (i.e. realtime streams) it will
-        /// be set to TimeSpan.MinValue
-        /// </summary>
-        public TimeSpan MediaRelativeEndTime { get; private set; }
-
-        /// <summary>
-        /// Gets the absolute end time of the media by substracting the relative start time.
-        /// TimeSapn.MinValue when this information is not available.
-        /// </summary>
-        public TimeSpan MediaEndTime { get; private set; }
 
         /// <summary>
         /// Will be set to true whenever an End Of File situation is reached.
@@ -492,24 +470,26 @@
                 MediaSeeksByBytes = inputAllowsDiscontinuities && (MediaFormatName.Equals("ogg") == false);
                 MediaSeeksByBytes = MediaSeeksByBytes && MediaBitrate > 0;
 
-                // Compute timespans
-                MediaRelativeStartTime = InputContext->start_time.ToTimeSpan();
+                // Compute start time and duration (if possible)
+                MediaStartTimeOffset = InputContext->start_time.ToTimeSpan();
+                if (MediaStartTimeOffset == TimeSpan.MinValue)
+                {
+                    $"Unable to determine the media start time offset. Media start time offset will be set to zero.".Warn(typeof(MediaContainer));
+                    MediaStartTimeOffset = TimeSpan.Zero;
+                }
+                    
                 MediaDuration = InputContext->duration.ToTimeSpan();
-                MediaEndTime = MediaDuration;
-
-                if (MediaRelativeStartTime != TimeSpan.MinValue && MediaDuration != TimeSpan.MinValue)
-                {
-                    MediaStartTime = TimeSpan.Zero;
-                    MediaRelativeEndTime = TimeSpan.FromTicks(MediaRelativeStartTime.Ticks + MediaDuration.Ticks);
-                }
-                else
-                {
-                    MediaStartTime = TimeSpan.MinValue;
-                    MediaRelativeEndTime = TimeSpan.MinValue;
-                }
 
                 // Open the best suitable streams. Throw if no audio and/or video streams are found
                 StreamCreateComponents();
+
+                // Verify the stream input start offset. This is the zero measure for all sub-streams.
+                var minOffset = Components.All.Count > 0 ? Components.All.Min(c => c.StartTimeOffset) : MediaStartTimeOffset;
+                if (minOffset != MediaStartTimeOffset)
+                {
+                    $"Input Start: {MediaStartTimeOffset.Debug()} Comp. Start: {minOffset.Debug()}. Input start will be updated.".Warn(typeof(MediaContainer));
+                    MediaStartTimeOffset = minOffset;
+                }
 
                 // For network streams, figure out if reads can be paused and then start them.
                 CanReadSuspend = ffmpeg.av_read_pause(InputContext) == 0;
@@ -771,8 +751,8 @@
         /// </summary>
         private void StreamSeekToStart()
         {
-            if (MediaRelativeStartTime == TimeSpan.MinValue) return;
-            var startSeekTime = (long)(MediaRelativeStartTime.TotalSeconds * ffmpeg.AV_TIME_BASE);
+            if (MediaStartTimeOffset == TimeSpan.MinValue) return;
+            var startSeekTime = (long)(MediaStartTimeOffset.TotalSeconds * ffmpeg.AV_TIME_BASE);
             if (MediaSeeksByBytes) startSeekTime = 0;
 
             var seekResult = ffmpeg.av_seek_frame(InputContext, -1,
@@ -815,16 +795,11 @@
             var main = Components.Main;
             if (main == null) return result;
 
-            var video = main as VideoComponent;
-            if (video != null)
-                targetTime = TimeSpan.FromSeconds(targetTime.TotalSeconds.ToMultipleOf(1d / video.CurrentFrameRate));
-
             // clamp the target time to the component's bounds
-            // TODO: Check bounds of byte-based seeking
+            // TODO: Check bounds of byte-based seeking and bounds of end time
             if (MediaSeeksByBytes == false)
             {
-                if (targetTime > main.EndTime) targetTime = main.EndTime;
-                if (targetTime < main.StartTime) targetTime = main.StartTime;
+                if (targetTime < main.StartTimeOffset) targetTime = main.StartTimeOffset;
             }
 
             // Stream seeking by main component
@@ -854,7 +829,7 @@
             var startTime = DateTime.UtcNow;
             var relativeTargetTime = MediaSeeksByBytes ?
                 targetTime :
-                TimeSpan.FromTicks(targetTime.Ticks - main.StartTime.Ticks); // TODO: check this calculation
+                TimeSpan.FromTicks(targetTime.Ticks + main.StartTimeOffset.Ticks); // TODO: check this calculation
 
             // Perform long seeks until we end up with a relative target time where decoding
             // of frames before or on target time is possible.

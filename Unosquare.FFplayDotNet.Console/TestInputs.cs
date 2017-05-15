@@ -21,6 +21,10 @@
         /// </summary>
         public static string TransportLocalFile = $"{InputBasePath}\\transport.ts";
 
+        public static string Transport1LocalFile = $"{InputBasePath}\\transport1.ts";
+
+        public static string Transport2LocalFile = $"{InputBasePath}\\transport2.ts";
+
         /// <summary>
         /// Downloaded From: https://www.dropbox.com/sh/vggf640iniwxwyu/AABSeLJfAZeApEoJAY3N34Y2a?dl=0
         /// </summary>

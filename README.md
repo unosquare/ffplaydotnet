@@ -19,3 +19,12 @@ Media Containers represent an input context, stream operations and decoding logi
  - Dequeue the raw frame from the component's frame queue
  - Materialize the frame into a Media Frame (this converts the raw frame data into usable media)
  - Release (Dispose) the materialized frame
+
+
+Basic Test Cases:
+ - Audio and Video times both start at 0
+ - Video frames match end times with the following Video frame's start time
+ - Audio frames match end times with the following Audio frame's start time
+ - Video frame duration matches framerate
+ - Audio frame duration matches start time and end time comparted to the following audio frame
+ 

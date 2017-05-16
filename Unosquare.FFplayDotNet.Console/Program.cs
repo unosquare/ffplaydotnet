@@ -68,15 +68,23 @@
 
             Container = new MediaContainer(InputFile);
             Container.Initialize();
-            
-            TestNormalDecoding();
+
+
+            //TestNormalDecoding();
             //TestMultipleSeeks();
+            TestPlaybackController();
 
             Container.Dispose();
 
             Terminal.WriteLine("All Tests Done!");
             Terminal.ReadKey(true, true);
 
+        }
+
+        private static void TestPlaybackController()
+        {
+            var controller = new PlaybackManager(Container);
+            controller.Test();
         }
 
         private static void TestMultipleSeeks()
@@ -273,8 +281,6 @@
                     HandleSubtitleFrame(e as SubtitleFrame);
                     return;
             }
-
-
         }
 
         private static void PrintFrameInfo(Frame e)
@@ -296,9 +302,6 @@
                     return;
                 }
             }
-
-
-
         }
 
         private static void HandleAudioFrame(AudioFrame e)

@@ -9,7 +9,7 @@
     public class Clock
     {
         private readonly Stopwatch Chrono = new Stopwatch();
-        private long OffsetTicks = 0;
+        private double OffsetMilliseconds = 0;
         private readonly object SyncLock = new object();
 
         /// <summary>
@@ -29,7 +29,7 @@
             get
             {
                 lock (SyncLock)
-                    return TimeSpan.FromTicks(OffsetTicks + Chrono.ElapsedTicks);
+                    return TimeSpan.FromMilliseconds(OffsetMilliseconds + Chrono.ElapsedMilliseconds);
             }
             set
             {
@@ -37,7 +37,7 @@
                 {
                     var resume = Chrono.IsRunning;
                     Chrono.Reset();
-                    OffsetTicks = value.Ticks;
+                    OffsetMilliseconds = value.TotalMilliseconds;
                     if (resume) Chrono.Start();
                 }
 
@@ -77,7 +77,7 @@
         {
             lock (SyncLock)
             {
-                OffsetTicks = 0;
+                OffsetMilliseconds = 0;
                 Chrono.Reset();
             }
 

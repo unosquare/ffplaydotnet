@@ -60,7 +60,7 @@
     <Compile Include="Core\Enums.cs" />
     <Compile Include="Core\Exceptions.cs" />
     <Compile Include="Core\FrameSource.cs" />
-    <Compile Include="Core\FrameQueue.cs" />
+    <Compile Include="Core\FrameSourceQueue.cs" />
     <Compile Include="Core\Frame.cs" />
     <Compile Include="Decoding\MediaComponent.cs" />
     <Compile Include="Decoding\MediaComponentSet.cs" />

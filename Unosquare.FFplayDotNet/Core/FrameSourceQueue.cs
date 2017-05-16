@@ -3,7 +3,7 @@
     using System;
     using System.Collections.Generic;
 
-    public class FrameQueue
+    public class FrameSourceQueue
     {
         #region Private Declarations
 

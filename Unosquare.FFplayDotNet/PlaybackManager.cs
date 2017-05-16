@@ -6,6 +6,7 @@
     using System.Runtime.CompilerServices;
     using System.Threading;
     using System.Threading.Tasks;
+    using System.Windows.Threading;
     using Unosquare.Swan;
 
     public class DecodedFrameList<T>
@@ -26,7 +27,7 @@
 
         internal string Debug()
         {
-            return $"{typeof(T).Name} Frames - Capacity: {Capacity,4} | Pool: {FramePool.Count,4} | Play: {PlaybackFrames.Count,4} | Range: {RangeStartTime.Debug(),8} to {RangeEndTime.Debug(),8}";
+            return $"{typeof(T).Name} Frames - Capacity: {Capacity,4} | Pool: {FramePool.Count,4} | Play: {PlaybackFrames.Count,4} | Range: {RangeStartTime.Debug(),8} to {RangeEndTime.Debug()}";
         }
 
         public void Add(FrameSource source, MediaContainer container)
@@ -64,12 +65,21 @@
             return renderTime.Ticks >= RangeStartTime.Ticks && renderTime.Ticks <= RangeEndTime.Ticks;
         }
 
+        public double RangePosition(TimeSpan renderTime)
+        {
+            if (IsInRange(renderTime) == false) return -1;
+
+            var absRenderTime = renderTime.Ticks - RangeStartTime.Ticks;
+            return (double)absRenderTime / RangeDuration.Ticks;
+        }
+
         public int IndexOf(TimeSpan renderTime)
         {
             var frameCount = PlaybackFrames.Count;
 
             // fast condition checking
             if (frameCount <= 0) return -1;
+            if (IsInRange(renderTime) == false) return -1;
             if (frameCount == 1) return 0;
 
             // variable setup
@@ -128,6 +138,7 @@
 
         public int Capacity { get; private set; }
 
+        public double CapacityPercent { get { return (double)Count / Capacity; } }
     }
 
     public class PlaybackManager
@@ -135,8 +146,9 @@
         private const int MaxPacketQueueSize = 24;
 
         private readonly DecodedFrameList<VideoFrame> VideoFrames = new DecodedFrameList<VideoFrame>(25);
-        private readonly DecodedFrameList<AudioFrame> AudioFrames = new DecodedFrameList<AudioFrame>(60);
-        private readonly DecodedFrameList<SubtitleFrame> SubtitleFrames = new DecodedFrameList<SubtitleFrame>(4);
+        //private readonly FrameSourceQueue
+        //private readonly DecodedFrameList<AudioFrame> AudioFrames = new DecodedFrameList<AudioFrame>(60);
+        //private readonly DecodedFrameList<SubtitleFrame> SubtitleFrames = new DecodedFrameList<SubtitleFrame>(4);
 
         private readonly Clock Clock = new Clock();
 
@@ -147,71 +159,186 @@
         private readonly ManualResetEventSlim ReadTaskDone = new ManualResetEventSlim(false);
         private readonly CancellationTokenSource ReadTaskCancel = new CancellationTokenSource();
 
+        private ConfiguredTaskAwaitable DecodeTask;
+        private readonly CancellationTokenSource DecodeTaskCancel = new CancellationTokenSource();
+
         private readonly ManualResetEventSlim SeekOperationDone = new ManualResetEventSlim(true);
 
         public PlaybackManager(MediaContainer container)
         {
             Container = container;
-            //ReadTask = RunReadTask();
+
         }
 
         public void Test()
         {
+            //var c = new Clock();
+
+            //c.Play();
+            //while (c.Position.TotalSeconds < 10)
+            //{
+            //    $"{c.Position.Debug()}".Warn();
+            //    Thread.Sleep(1000);
+            //}
+            //return;
+
+
             ReadTask = RunReadTask();
+            DecodeTask = RunDecodeTask();
 
-            var clock = new Clock();
-            var lastRenderTime = TimeSpan.Zero;
-
-            while (Container.IsAtEndOfStream == false || Container.Components.PacketBufferCount > 0)
+            var startTime = DateTime.Now;
+            while (Clock.Position.TotalSeconds < Container.MediaDuration.TotalSeconds)
             {
-                var clockPosition = clock.Position;
-
-                if (VideoFrames.IsFull == false || VideoFrames.IsInRange(clockPosition) == false)
-                {
-                    var sources = Container.Decode();
-                    foreach (var source in sources)
-                    {
-                        if (source.MediaType == MediaType.Video)
-                        {
-                            VideoFrames.Add(source, Container);
-                            VideoFrames.Debug().Trace(typeof(MediaContainer));
-                        }
-                        else
-                            source.Dispose();
-                    }
-                }
-
-                if (clock.IsRunning == false && VideoFrames.Count >= 6)
-                {
-                    clock.Position = VideoFrames[0].StartTime;
-                    $"Clock started at {clock.Position.Debug()}".Trace(typeof(MediaContainer));
-                    clock.Play();
-                }
-
-                var renderIndex = VideoFrames.IndexOf(clockPosition);
-                if (renderIndex < 0)
-                    continue;
-
-                var frame = VideoFrames[renderIndex];
-                var timeDifference = TimeSpan.FromTicks(clockPosition.Ticks - lastRenderTime.Ticks);
-                if (timeDifference.TotalMilliseconds < 40)
-                    Thread.Sleep(40 - (int)timeDifference.TotalMilliseconds);
-
-                lastRenderTime = clockPosition;
-                $"Render - Clock: {clockPosition.Debug(),12} | Frame: {frame.StartTime.Debug(),12} | Index: {renderIndex}".Warn(typeof(MediaContainer));
-
+                Thread.Sleep(1);
             }
 
+            $"Task Finished in {DateTime.Now.Subtract(startTime).Debug()}".Info();
+
+            DecodeTaskCancel.Cancel(false);
+            ReadTaskCancel.Cancel(false);
+
+            DecodeTask.GetAwaiter().GetResult();
+            ReadTask.GetAwaiter().GetResult();
         }
 
-        public void Play()
+
+        private bool CanReadMorePackets
         {
+            get
+            {
+                return Container.IsAtEndOfStream == false
+                  && ReadTaskCancel.IsCancellationRequested == false
+                  && Container.Components.PacketBufferCount < MaxPacketQueueSize;
+            }
+        }
+
+        private int DecodeAddFrames()
+        {
+            var addedFrames = 0;
+
+            while (Container.Components.PacketBufferCount > 0 && addedFrames <= 0)
+            {
+                ReadTaskCycleDone.Wait(1);
+                var sources = Container.Decode();
+                foreach (var source in sources)
+                {
+                    if (source.MediaType == MediaType.Video)
+                    {
+                        VideoFrames.Add(source, Container);
+                        VideoFrames.Debug().Trace(typeof(MediaContainer));
+                        addedFrames += 1;
+                    }
+                    else
+                        source.Dispose();
+                }
+            }
+
+            return addedFrames;
 
         }
 
-        private bool IsPacketQueueFull
+        private void BufferFrames()
         {
-            get { return Container.Components.PacketBufferCount >= MaxPacketQueueSize; }
+            // Wait for enough packets to arrive
+            while (CanReadMorePackets)
+                ReadTaskCycleDone.Wait();
+
+            // Fill some frames until we are in range
+            while (VideoFrames.CapacityPercent < 0.5d && Container.IsAtEndOfStream == false)
+            {
+                // Wait fro packets if we have drained them all
+                while (Container.Components.PacketBufferCount <= 0)
+                    ReadTaskCycleDone.Wait(1);
+
+                DecodeAddFrames();
+            }
+
+            if (VideoFrames.Count <= 0) throw new MediaContainerException("Buffering of frames produced no results!");
+
+            $"Buffered {VideoFrames.Count} Frames".Info(typeof(MediaContainer));
+
+            Clock.Reset();
+            Clock.Position = VideoFrames.RangeStartTime;
+            Clock.Play();
+        }
+
+        private void RenderFrame(Frame frame)
+        {
+            //$"Render Frame {frame.StartTime.Debug()} called".Info(typeof(MediaContainer));
+        }
+
+        private ConfiguredTaskAwaitable RunDecodeTask()
+        {
+
+            return Task.Run(() =>
+            {
+                var clockPosition = Clock.Position;
+                var lastFrameTime = TimeSpan.MinValue;
+
+
+
+                BufferFrames();
+
+                while (!DecodeTaskCancel.IsCancellationRequested)
+                {
+                    clockPosition = Clock.Position;
+
+                    // Check if we have a valid render index
+                    var renderIndex = VideoFrames.IndexOf(clockPosition);
+                    if (renderIndex < 0)
+                    {
+                        if (VideoFrames.Count > 0)
+                        {
+                            Clock.Reset();
+                            Clock.Position = VideoFrames.RangeStartTime;
+                            $"Clock position {clockPosition.Debug()} was not available. Clock was updated to {Clock.Position.Debug()}".Error(typeof(MediaContainer));
+                            clockPosition = Clock.Position;
+                            renderIndex = 0;
+                            Clock.Play();
+                        }
+                        else
+                        {
+                            BufferFrames();
+                            continue;
+                        }
+                    }
+
+                    var frame = VideoFrames[renderIndex];
+                    var rendered = false;
+                    // Check if we need to render
+                    if (lastFrameTime != frame.StartTime)
+                    {
+                        lastFrameTime = frame.StartTime;
+                        $"Render - Clock: {clockPosition.Debug(),12} | Frame: {frame.StartTime.Debug(),12} | Index: {renderIndex}".Warn(typeof(MediaContainer));
+                        RenderFrame(frame);
+                        rendered = true;
+                        // We just rendered the frame, make room for a new one
+                        //DecodeAddFrame();
+                        //continue;
+                    }
+
+                    // We neeed to decode a new frame if:
+                    // we have rendered a frame or we are running low
+                    // AND if there are packets to decode
+
+                    var needsMoreFrames = true;
+                    while (needsMoreFrames)
+                    {
+                        ReadTaskCycleDone.Wait(10);
+                        needsMoreFrames = (rendered || renderIndex > (VideoFrames.Count / 2)) && Container.Components.PacketBufferCount > 0;
+                        if (!needsMoreFrames)
+                            break;
+                        renderIndex = VideoFrames.IndexOf(clockPosition);
+                        rendered = false;
+                        
+                        var addedFrames = DecodeAddFrames();
+                        $"DEC {addedFrames}".Info();
+                    }
+
+                    if (!DecodeTaskCancel.IsCancellationRequested)
+                        Thread.Sleep(1);
+                }
+            }, DecodeTaskCancel.Token).ConfigureAwait(false);
         }
 
         /// <summary>
@@ -229,18 +356,15 @@
                     ReadTaskCycleDone.Reset();
 
                     // If we are at the end of the stream or the buffer is full, then we need to pause a bit.
-                    if (Container.IsAtEndOfStream || IsPacketQueueFull)
+                    if (CanReadMorePackets == false)
                     {
                         ReadTaskCycleDone.Set();
-                        if (!ReadTaskCancel.IsCancellationRequested)
-                            Thread.Sleep(1);
-
                         continue;
                     }
 
                     try
                     {
-                        while (!IsPacketQueueFull && !Container.IsAtEndOfStream && !ReadTaskCancel.IsCancellationRequested)
+                        while (CanReadMorePackets)
                             Container.Read();
                     }
                     catch { }

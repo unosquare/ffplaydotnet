@@ -26,6 +26,18 @@
         public static string Transport2LocalFile = $"{InputBasePath}\\transport2.ts";
 
         /// <summary>
+        /// The small MP4 local file
+        /// http://techslides.com/sample-webm-ogg-and-mp4-video-files-for-html5
+        /// </summary>
+        public static string SmallMp4LocalFile = $"{InputBasePath}\\small.mp4";
+
+        /// <summary>
+        /// The small web m local file
+        /// http://techslides.com/sample-webm-ogg-and-mp4-video-files-for-html5
+        /// </summary>
+        public static string SmallWebMLocalFile = $"{InputBasePath}\\small.webm";
+
+        /// <summary>
         /// Downloaded From: https://www.dropbox.com/sh/vggf640iniwxwyu/AABSeLJfAZeApEoJAY3N34Y2a?dl=0
         /// </summary>
         public static string BigBuckBunnyLocal = $"{InputBasePath}\\bigbuckbunny.mp4";

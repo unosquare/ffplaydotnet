@@ -193,11 +193,13 @@
                 if (renderIndex < 0) continue;
 
                 var frame = VideoFrames[renderIndex];
-                $"Render - Clock: {clockPosition.Debug(),12} | Frame: {frame.StartTime.Debug(),12} | Index: {renderIndex}".Warn(typeof(MediaContainer));
-
                 var timeDifference = TimeSpan.FromTicks(clockPosition.Ticks - lastRenderTime.Ticks);
                 if (timeDifference.TotalMilliseconds < 40)
                     Thread.Sleep(40 - (int)timeDifference.TotalMilliseconds);
+
+                lastRenderTime = clockPosition;
+                $"Render - Clock: {clockPosition.Debug(),12} | Frame: {frame.StartTime.Debug(),12} | Index: {renderIndex}".Warn(typeof(MediaContainer));
+
 
             }
 

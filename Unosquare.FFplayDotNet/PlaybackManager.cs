@@ -58,6 +58,12 @@
             PlaybackFrames.Clear();
         }
 
+        public bool IsInRange(TimeSpan renderTime)
+        {
+            if (PlaybackFrames.Count == 0) return false;
+            return renderTime.Ticks >= RangeStartTime.Ticks && renderTime.Ticks <= RangeEndTime.Ticks;
+        }
+
         public int IndexOf(TimeSpan renderTime)
         {
             var frameCount = PlaybackFrames.Count;
@@ -158,39 +164,33 @@
 
             while (Container.IsAtEndOfStream == false || Container.Components.PacketBufferCount > 0)
             {
-                var sources = Container.Decode();
-                foreach (var source in sources)
+                var clockPosition = clock.Position;
+
+                if (VideoFrames.IsFull == false || VideoFrames.IsInRange(clockPosition) == false)
                 {
-                    if (source.MediaType == MediaType.Video)
+                    var sources = Container.Decode();
+                    foreach (var source in sources)
                     {
-                        VideoFrames.Add(source, Container);
-                        VideoFrames.Debug().Trace(typeof(MediaContainer));
+                        if (source.MediaType == MediaType.Video)
+                        {
+                            VideoFrames.Add(source, Container);
+                            VideoFrames.Debug().Trace(typeof(MediaContainer));
+                        }
+                        else
+                            source.Dispose();
                     }
-                    else if (source.MediaType == MediaType.Audio)
-                    {
-                        AudioFrames.Add(source, Container);
-                        AudioFrames.Debug().Trace(typeof(MediaContainer));
-                    }
-                    else if (source.MediaType == MediaType.Subtitle)
-                    {
-                        SubtitleFrames.Add(source, Container);
-                        SubtitleFrames.Debug().Trace(typeof(MediaContainer));
-                    }
-                    else
-                        source.Dispose();
                 }
 
-                if (clock.IsRunning == false && VideoFrames.Count > 6)
+                if (clock.IsRunning == false && VideoFrames.Count >= 6)
                 {
                     clock.Position = VideoFrames[0].StartTime;
                     $"Clock started at {clock.Position.Debug()}".Trace(typeof(MediaContainer));
                     clock.Play();
                 }
 
-                var clockPosition = clock.Position;
-
                 var renderIndex = VideoFrames.IndexOf(clockPosition);
-                if (renderIndex < 0) continue;
+                if (renderIndex < 0)
+                    continue;
 
                 var frame = VideoFrames[renderIndex];
                 var timeDifference = TimeSpan.FromTicks(clockPosition.Ticks - lastRenderTime.Ticks);
@@ -199,7 +199,6 @@
 
                 lastRenderTime = clockPosition;
                 $"Render - Clock: {clockPosition.Debug(),12} | Frame: {frame.StartTime.Debug(),12} | Index: {renderIndex}".Warn(typeof(MediaContainer));
-
 
             }
 

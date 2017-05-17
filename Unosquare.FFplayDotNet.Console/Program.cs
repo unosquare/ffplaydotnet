@@ -59,7 +59,7 @@
         static void Main(string[] args)
         {
 
-            InputFile = TestInputs.SmallMp4LocalFile;
+            InputFile = TestInputs.HlsStream;
             StartTime = 0;
             DecodeDurationLimit = 20;
             IsBenchmarking = false;

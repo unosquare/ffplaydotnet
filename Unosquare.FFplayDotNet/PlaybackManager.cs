@@ -136,7 +136,7 @@
     {
         private const int MaxPacketQueueSize = 48;
 
-        private readonly DecodedFrameList<VideoFrame> VideoFrames = new DecodedFrameList<VideoFrame>(25);
+        private readonly DecodedFrameList<VideoFrame> VideoFrames = new DecodedFrameList<VideoFrame>(100);
         private readonly FrameSourceQueue VideoSources = new FrameSourceQueue();
 
         //private readonly DecodedFrameList<AudioFrame> AudioFrames = new DecodedFrameList<AudioFrame>(60);
@@ -179,7 +179,7 @@
             DecodeTask = RunDecodeTask();
 
             var startTime = DateTime.Now;
-            while (Clock.Position.TotalSeconds < Container.MediaDuration.TotalSeconds)
+            while (Clock.Position.TotalSeconds < 60)
             {
                 Thread.Sleep(1);
             }
@@ -206,13 +206,15 @@
 
         private int DecodeAddNextFrame()
         {
+            var dequeuedFrames = 0;
             var addedFrames = 0;
 
             if (VideoSources.Count > 0)
             {
                 VideoFrames.Add(VideoSources.Dequeue(), Container);
                 VideoFrames.Debug().Trace(typeof(MediaContainer));
-                return addedFrames;
+                dequeuedFrames += 1;
+                //return addedFrames;
             }
 
             while (Container.Components.PacketBufferCount > 0 && addedFrames <= 0)
@@ -231,6 +233,13 @@
                 }
             }
 
+            if (dequeuedFrames <= 0 && VideoSources.Count > 0)
+            {
+                VideoFrames.Add(VideoSources.Dequeue(), Container);
+                VideoFrames.Debug().Trace(typeof(MediaContainer));
+                dequeuedFrames += 1;
+            }
+
             return addedFrames;
 
         }
@@ -244,7 +253,7 @@
             // Fill some frames until we are in range
             while (VideoFrames.CapacityPercent < 0.5d && Container.IsAtEndOfStream == false)
             {
-                // Wait fro packets if we have drained them all
+                // Wait for packets if we have drained them all
                 while (Container.Components.PacketBufferCount <= 0)
                     ReadTaskCycleDone.Wait(1);
 
@@ -282,19 +291,22 @@
 
                     if (VideoFrames.IsInRange(clockPosition) == false)
                     {
-                        if (VideoFrames.Count > 0)
-                        {
-                            Clock.Reset();
-                            Clock.Position = VideoFrames.RangeStartTime;
-                            $"SYNC - Missing Frame at {clockPosition.Debug()} | Source Queue: {VideoSources.Count} | New Clock: {Clock.Position.Debug()}".Error(typeof(MediaContainer));
-                            clockPosition = Clock.Position;
-                            Clock.Play();
-                        }
-                        else
-                        {
-                            BufferFrames();
-                            continue;
-                        }
+                        $"ERROR - No frame at {clockPosition}. Available Packets: {Container.Components.PacketBufferCount}, Queued Sources: {VideoSources.Count}".Error();
+                        //if (clockPosition > VideoFrames.RangeEndTime)
+
+                        //if (VideoFrames.Count > 0)
+                        //{
+                        //    Clock.Reset();
+                        //    Clock.Position = VideoFrames.RangeStartTime;
+                        //    $"SYNC - Missing Frame at {clockPosition.Debug()} | Source Queue: {VideoSources.Count} | New Clock: {Clock.Position.Debug()}".Error(typeof(MediaContainer));
+                        //    clockPosition = Clock.Position;
+                        //    Clock.Play();
+                        //}
+                        //else
+                        //{
+                        //    BufferFrames();
+                        //    continue;
+                        //}
                     }
 
                     // Retrieve the frame to render
@@ -329,19 +341,27 @@
                     while (needsMoreFrames)
                     {
                         ReadTaskCycleDone.Wait(10);
-                        needsMoreFrames = (rendered || renderIndex > (VideoFrames.Count / 2)) && Container.Components.PacketBufferCount > 0;
+                        needsMoreFrames = (rendered || renderIndex > (VideoFrames.Count / 2));
 
                         if (!needsMoreFrames)
                             break;
+
                         renderIndex = VideoFrames.IndexOf(clockPosition);
                         rendered = false;
 
+                        if (Container.Components.PacketBufferCount <= 0)
+                            ReadTaskCycleDone.Wait(10);
+
                         var addedFrames = DecodeAddNextFrame();
+
+                        if (Container.Components.PacketBufferCount <= 0 && Container.IsAtEndOfStream)
+                            break;
+
                         //$"DEC {addedFrames}".Info();
                     }
 
                     if (!DecodeTaskCancel.IsCancellationRequested)
-                        Thread.Sleep(10);
+                        Thread.Sleep(1);
                 }
             }, DecodeTaskCancel.Token).ConfigureAwait(false);
         }

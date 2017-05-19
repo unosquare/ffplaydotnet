@@ -26,9 +26,9 @@
         /// </summary>
         /// <param name="frame">The raw FFmpeg subtitle pointer.</param>
         /// <returns></returns>
-        protected override unsafe FrameSource CreateFrameSource(AVSubtitle* frame)
+        protected override unsafe MediaFrame CreateFrameSource(AVSubtitle* frame)
         {
-            var frameHolder = new SubtitleFrameSource(frame, this);
+            var frameHolder = new SubtitleFrame(frame, this);
             return frameHolder;
         }
 
@@ -43,11 +43,11 @@
         /// Return the updated output frame
         /// </returns>
         /// <exception cref="System.ArgumentNullException">input</exception>
-        internal override Frame MaterializeFrame(FrameSource input, ref Frame output)
+        internal override MediaBlock MaterializeFrame(MediaFrame input, ref MediaBlock output)
         {
-            if (output == null) output = new SubtitleFrame();
-            var source = input as SubtitleFrameSource;
-            var target = output as SubtitleFrame;
+            if (output == null) output = new SubtitleBlock();
+            var source = input as SubtitleFrame;
+            var target = output as SubtitleBlock;
 
             if (source == null || target == null)
                 throw new ArgumentNullException($"{nameof(input)} and {nameof(output)} are either null or not of a compatible media type '{MediaType}'");

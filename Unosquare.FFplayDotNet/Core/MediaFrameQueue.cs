@@ -3,13 +3,14 @@
     using System;
     using System.Collections.Generic;
 
-    public class FrameSourceQueue
+    public class MediaFrameQueue
     {
         #region Private Declarations
 
         private bool IsDisposed = false; // To detect redundant calls
-        private readonly List<FrameSource> Frames = new List<FrameSource>();
+        private readonly List<MediaFrame> Frames = new List<MediaFrame>();
         private readonly object SyncRoot = new object();
+        private TimeSpan m_Duration = TimeSpan.Zero;
 
         #endregion
 
@@ -17,14 +18,14 @@
 
 
         /// <summary>
-        /// Gets or sets the <see cref="FrameSource"/> at the specified index.
+        /// Gets or sets the <see cref="MediaFrame"/> at the specified index.
         /// </summary>
         /// <value>
-        /// The <see cref="FrameSource"/>.
+        /// The <see cref="MediaFrame"/>.
         /// </value>
         /// <param name="index">The index.</param>
         /// <returns></returns>
-        private FrameSource this[int index]
+        internal MediaFrame this[int index]
         {
             get
             {
@@ -53,7 +54,27 @@
         /// <summary>
         /// Gets the total duration of all the frames contained in this queue.
         /// </summary>
-        public TimeSpan Duration { get; private set; }
+        public TimeSpan Duration
+        {
+            get { lock (SyncRoot) return m_Duration; }
+            private set { lock (SyncRoot) m_Duration = value; }
+        }
+
+
+        public TimeSpan StartTime { get { lock (SyncRoot) return Frames.Count == 0 ? TimeSpan.Zero : Frames[0].StartTime; } }
+
+        public TimeSpan EndTime
+        {
+            get
+            {
+                lock (SyncRoot)
+                {
+                    if (Frames.Count == 0) return TimeSpan.Zero;
+                    var lastFrame = Frames[Frames.Count - 1];
+                    return TimeSpan.FromTicks(lastFrame.StartTime.Ticks + lastFrame.Duration.Ticks);
+                }
+            }
+        }
 
         #endregion
 
@@ -64,7 +85,7 @@
         /// If no frames are available, null is returned.
         /// </summary>
         /// <returns></returns>
-        public FrameSource Peek()
+        public MediaFrame Peek()
         {
             lock (SyncRoot)
             {
@@ -78,7 +99,7 @@
         /// In other words, enqueues the frame.
         /// </summary>
         /// <param name="frame">The frame.</param>
-        public void Push(FrameSource frame)
+        public void Push(MediaFrame frame)
         {
             lock (SyncRoot)
             {
@@ -92,7 +113,7 @@
         /// Dequeues a frame from this queue.
         /// </summary>
         /// <returns></returns>
-        public FrameSource Dequeue()
+        public MediaFrame Dequeue()
         {
             lock (SyncRoot)
             {

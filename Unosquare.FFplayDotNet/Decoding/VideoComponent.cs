@@ -97,9 +97,9 @@
         /// </summary>
         /// <param name="frame">The raw FFmpeg frame pointer.</param>
         /// <returns></returns>
-        protected override unsafe FrameSource CreateFrameSource(AVFrame* frame)
+        protected override unsafe MediaFrame CreateFrameSource(AVFrame* frame)
         {
-            var frameHolder = new VideoFrameSource(frame, this);
+            var frameHolder = new VideoFrame(frame, this);
             CurrentFrameRate = ffmpeg.av_guess_frame_rate(Container.InputContext, Stream, frame).ToDouble();
             return frameHolder;
         }
@@ -115,11 +115,11 @@
         /// Return the updated output frame
         /// </returns>
         /// <exception cref="System.ArgumentNullException">input</exception>
-        internal override Frame MaterializeFrame(FrameSource input, ref Frame output)
+        internal override MediaBlock MaterializeFrame(MediaFrame input, ref MediaBlock output)
         {
-            if (output == null) output = new VideoFrame();
-            var source = input as VideoFrameSource;
-            var target = output as VideoFrame;
+            if (output == null) output = new VideoBlock();
+            var source = input as VideoFrame;
+            var target = output as VideoBlock;
 
             if (source == null || target == null)
                 throw new ArgumentNullException($"{nameof(input)} and {nameof(output)} are either null or not of a compatible media type '{MediaType}'");

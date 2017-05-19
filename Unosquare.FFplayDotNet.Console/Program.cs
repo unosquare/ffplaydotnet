@@ -31,11 +31,11 @@
         private static double Elapsed = 0d;
         private static double DecodeSpeed = 0d;
 
-        private static Dictionary<MediaType, Frame> Outputs = new Dictionary<MediaType, Frame>
+        private static Dictionary<MediaType, MediaBlock> Outputs = new Dictionary<MediaType, MediaBlock>
         {
-            { MediaType.Video,  new VideoFrame() },
-            { MediaType.Audio,  new AudioFrame() },
-            { MediaType.Subtitle,  new SubtitleFrame() },
+            { MediaType.Video,  new VideoBlock() },
+            { MediaType.Audio,  new AudioBlock() },
+            { MediaType.Subtitle,  new SubtitleBlock() },
 
         };
 
@@ -59,7 +59,7 @@
         static void Main(string[] args)
         {
 
-            InputFile = TestInputs.HlsStream;
+            InputFile = TestInputs.MatroskaLocalFile;
             StartTime = 0;
             DecodeDurationLimit = 20;
             IsBenchmarking = false;
@@ -147,7 +147,7 @@
             PrintResults();
         }
 
-        private static void HandleDecoding(List<FrameSource> decodedFrames)
+        private static void HandleDecoding(List<MediaFrame> decodedFrames)
         {
             foreach (var frame in decodedFrames)
             {
@@ -267,26 +267,26 @@
 
         #region Frame Handlers
 
-        private static void HandleFrame(Frame e)
+        private static void HandleFrame(MediaBlock e)
         {
             switch (e.MediaType)
             {
                 case MediaType.Video:
-                    HandleVideoFrame(e as VideoFrame);
+                    HandleVideoFrame(e as VideoBlock);
                     return;
                 case MediaType.Audio:
-                    HandleAudioFrame(e as AudioFrame);
+                    HandleAudioFrame(e as AudioBlock);
                     return;
                 case MediaType.Subtitle:
-                    HandleSubtitleFrame(e as SubtitleFrame);
+                    HandleSubtitleFrame(e as SubtitleBlock);
                     return;
             }
         }
 
-        private static void PrintFrameInfo(Frame e)
+        private static void PrintFrameInfo(MediaBlock e)
         {
             {
-                var a = e as AudioFrame;
+                var a = e as AudioBlock;
                 if (a != null)
                 {
                     $"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | END: {e.EndTime.TotalSeconds,8:0.00000} | SMP: {a.SamplesPerChannel,6}".Trace(typeof(Program));
@@ -295,7 +295,7 @@
             }
 
             {
-                var v = e as VideoFrame;
+                var v = e as VideoBlock;
                 if (v != null)
                 {
                     $"{e.MediaType,-10} | PTS: {e.StartTime.TotalSeconds,8:0.00000} | DUR: {e.Duration.TotalSeconds,8:0.00000} | END: {e.EndTime.TotalSeconds,8:0.00000} | DIM: {v.PixelWidth}x{v.PixelHeight}".Info(typeof(Program));
@@ -304,7 +304,7 @@
             }
         }
 
-        private static void HandleAudioFrame(AudioFrame e)
+        private static void HandleAudioFrame(AudioBlock e)
         {
             TotalBytes += (ulong)e.BufferLength;
             PrintFrameInfo(e);
@@ -323,12 +323,12 @@
             }
         }
 
-        private static void HandleSubtitleFrame(SubtitleFrame e)
+        private static void HandleSubtitleFrame(SubtitleBlock e)
         {
             PrintFrameInfo(e);
         }
 
-        private static void HandleVideoFrame(VideoFrame e)
+        private static void HandleVideoFrame(VideoBlock e)
         {
             TotalBytes += (ulong)e.BufferLength;
             TotalDurationSeconds += e.Duration.TotalSeconds;
@@ -397,7 +397,7 @@
             using (var file = File.OpenWrite(audioFile))
             {
                 var bytesPerSample = 2;
-                var spec = Outputs[MediaType.Audio] as AudioFrame;
+                var spec = Outputs[MediaType.Audio] as AudioBlock;
                 using (var writer = new BinaryWriter(file))
                 {
                     writer.Write("RIFF".ToCharArray()); // Group Id

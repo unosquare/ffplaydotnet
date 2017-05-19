@@ -2,142 +2,17 @@
 {
     using Core;
     using System;
-    using System.Collections.Generic;
     using System.Runtime.CompilerServices;
     using System.Threading;
     using System.Threading.Tasks;
-    using System.Windows.Threading;
     using Unosquare.Swan;
-
-    public class DecodedFrameList<T>
-        where T : Frame, new()
-    {
-        private readonly Queue<T> FramePool = new Queue<T>();
-        private readonly List<T> PlaybackFrames = new List<T>();
-
-        public DecodedFrameList(int capacity)
-        {
-            Capacity = capacity;
-            // allocate the frames
-            for (var i = 0; i < capacity; i++)
-                FramePool.Enqueue(new T());
-        }
-
-        public bool IsFull { get { return FramePool.Count <= 0; } }
-
-        internal string Debug()
-        {
-            return $"{typeof(T).Name,-12} - CAP: {Capacity,10} | FRE: {FramePool.Count,7} | USD: {PlaybackFrames.Count,4} |  TM: {RangeStartTime.Debug(),8} to {RangeEndTime.Debug().Trim()}";
-        }
-
-        public void Add(FrameSource source, MediaContainer container)
-        {
-            // if there are no available frames, make room!
-            if (FramePool.Count <= 0)
-            {
-                var firstFrame = PlaybackFrames[0];
-                PlaybackFrames.RemoveAt(0);
-                FramePool.Enqueue(firstFrame);
-            }
-
-            var targetFrame = FramePool.Dequeue();
-            {
-                var target = targetFrame as Frame;
-                container.Convert(source, ref target, true);
-            }
-
-            PlaybackFrames.Add(targetFrame);
-            PlaybackFrames.Sort();
-        }
-
-        public void Clear()
-        {
-            // return all the frames to the frame pool
-            foreach (var frame in PlaybackFrames)
-                FramePool.Enqueue(frame);
-
-            PlaybackFrames.Clear();
-        }
-
-        public bool IsInRange(TimeSpan renderTime)
-        {
-            if (PlaybackFrames.Count == 0) return false;
-            return renderTime.Ticks >= RangeStartTime.Ticks && renderTime.Ticks <= RangeEndTime.Ticks;
-        }
-
-        public int IndexOf(TimeSpan renderTime)
-        {
-            var frameCount = PlaybackFrames.Count;
-
-            // fast condition checking
-            if (frameCount <= 0) return -1;
-            if (frameCount == 1) return 0;
-
-            // variable setup
-            var lowIndex = 0;
-            var highIndex = frameCount - 1;
-            var midIndex = 1 + lowIndex + (highIndex - lowIndex) / 2;
-
-            // edge condition cheching
-            if (PlaybackFrames[lowIndex].StartTime >= renderTime) return lowIndex;
-            if (PlaybackFrames[highIndex].StartTime <= renderTime) return highIndex;
-
-            // First guess, very low cost, very fast
-            if (midIndex < highIndex && renderTime >= PlaybackFrames[midIndex].StartTime && renderTime < PlaybackFrames[midIndex + 1].StartTime)
-                return midIndex;
-
-            // binary search
-            while (highIndex - lowIndex > 1)
-            {
-                midIndex = lowIndex + (highIndex - lowIndex) / 2;
-                if (renderTime < PlaybackFrames[midIndex].StartTime)
-                    highIndex = midIndex;
-                else
-                    lowIndex = midIndex;
-            }
-
-            // linear search
-            for (var i = highIndex; i >= lowIndex; i--)
-            {
-                if (PlaybackFrames[i].StartTime <= renderTime)
-                    return i;
-            }
-
-            return -1;
-        }
-
-        public TimeSpan RangeStartTime { get { return PlaybackFrames.Count == 0 ? TimeSpan.Zero : PlaybackFrames[0].StartTime; } }
-
-        public TimeSpan RangeEndTime
-        {
-            get
-            {
-                if (PlaybackFrames.Count == 0) return TimeSpan.Zero;
-                var lastFrame = PlaybackFrames[PlaybackFrames.Count - 1];
-                return TimeSpan.FromTicks(lastFrame.StartTime.Ticks + lastFrame.Duration.Ticks);
-            }
-        }
-
-        public TimeSpan RangeDuration { get { return TimeSpan.FromTicks(RangeEndTime.Ticks - RangeStartTime.Ticks); } }
-
-        public T this[int index]
-        {
-            get { return PlaybackFrames[index]; }
-        }
-
-        public int Count { get { return PlaybackFrames.Count; } }
-
-        public int Capacity { get; private set; }
-
-        public double CapacityPercent { get { return (double)Count / Capacity; } }
-    }
 
     public class PlaybackManager
     {
         private const int MaxPacketQueueSize = 48;
 
-        private readonly DecodedFrameList<VideoFrame> VideoFrames = new DecodedFrameList<VideoFrame>(100);
-        private readonly FrameSourceQueue VideoSources = new FrameSourceQueue();
+        private readonly MediaBlockBuffer VideoBlocks = new MediaBlockBuffer(100, MediaType.Video);
+        private readonly MediaFrameQueue VideoFrames = new MediaFrameQueue();
 
         //private readonly DecodedFrameList<AudioFrame> AudioFrames = new DecodedFrameList<AudioFrame>(60);
         //private readonly DecodedFrameList<SubtitleFrame> SubtitleFrames = new DecodedFrameList<SubtitleFrame>(4);
@@ -209,10 +84,10 @@
             var dequeuedFrames = 0;
             var addedFrames = 0;
 
-            if (VideoSources.Count > 0)
+            if (VideoFrames.Count > 0)
             {
-                VideoFrames.Add(VideoSources.Dequeue(), Container);
-                VideoFrames.Debug().Trace(typeof(MediaContainer));
+                VideoBlocks.Add(VideoFrames.Dequeue(), Container);
+                VideoBlocks.Debug().Trace(typeof(MediaContainer));
                 dequeuedFrames += 1;
                 //return addedFrames;
             }
@@ -225,7 +100,7 @@
                 {
                     if (source.MediaType == MediaType.Video)
                     {
-                        VideoSources.Push(source);
+                        VideoFrames.Push(source);
                         addedFrames += 1;
                     }
                     else
@@ -233,10 +108,10 @@
                 }
             }
 
-            if (dequeuedFrames <= 0 && VideoSources.Count > 0)
+            if (dequeuedFrames <= 0 && VideoFrames.Count > 0)
             {
-                VideoFrames.Add(VideoSources.Dequeue(), Container);
-                VideoFrames.Debug().Trace(typeof(MediaContainer));
+                VideoBlocks.Add(VideoFrames.Dequeue(), Container);
+                VideoBlocks.Debug().Trace(typeof(MediaContainer));
                 dequeuedFrames += 1;
             }
 
@@ -251,7 +126,7 @@
                 ReadTaskCycleDone.Wait();
 
             // Fill some frames until we are in range
-            while (VideoFrames.CapacityPercent < 0.5d && Container.IsAtEndOfStream == false)
+            while (VideoBlocks.CapacityPercent < 0.5d && Container.IsAtEndOfStream == false)
             {
                 // Wait for packets if we have drained them all
                 while (Container.Components.PacketBufferCount <= 0)
@@ -260,16 +135,16 @@
                 DecodeAddNextFrame();
             }
 
-            if (VideoFrames.Count <= 0) throw new MediaContainerException("Buffering of frames produced no results!");
+            if (VideoBlocks.Count <= 0) throw new MediaContainerException("Buffering of frames produced no results!");
 
-            $"Buffered {VideoFrames.Count} Frames".Info(typeof(MediaContainer));
+            $"Buffered {VideoBlocks.Count} Frames".Info(typeof(MediaContainer));
 
             Clock.Reset();
-            Clock.Position = VideoFrames.RangeStartTime;
+            Clock.Position = VideoBlocks.RangeStartTime;
             Clock.Play();
         }
 
-        private void RenderFrame(Frame frame)
+        private void RenderFrame(MediaBlock frame)
         {
             //$"Render Frame {frame.StartTime.Debug()} called".Info(typeof(MediaContainer));
         }
@@ -289,9 +164,9 @@
                     clockPosition = Clock.Position;
                     var renderIndex = 0;
 
-                    if (VideoFrames.IsInRange(clockPosition) == false)
+                    if (VideoBlocks.IsInRange(clockPosition) == false)
                     {
-                        $"ERROR - No frame at {clockPosition}. Available Packets: {Container.Components.PacketBufferCount}, Queued Sources: {VideoSources.Count}".Error();
+                        $"ERROR - No frame at {clockPosition}. Available Packets: {Container.Components.PacketBufferCount}, Queued Sources: {VideoFrames.Count}".Error();
                         //if (clockPosition > VideoFrames.RangeEndTime)
 
                         //if (VideoFrames.Count > 0)
@@ -310,20 +185,20 @@
                     }
 
                     // Retrieve the frame to render
-                    renderIndex = VideoFrames.IndexOf(clockPosition);
-                    var frame = VideoFrames[renderIndex];
+                    renderIndex = VideoBlocks.IndexOf(clockPosition);
+                    var frame = VideoBlocks[renderIndex];
                     var rendered = false;
                     // Check if we need to render
                     if (lastFrameTime != frame.StartTime)
                     {
                         lastFrameTime = frame.StartTime;
-                        $"{"Render",-12} - CLK: {clockPosition.Debug(),8} | IX: {renderIndex,8} | QUE: {VideoSources.Count,4} | FRM: {frame.StartTime.Debug(),8} to {frame.EndTime.Debug().Trim()}".Warn(typeof(MediaContainer));
+                        $"{"Render",-12} - CLK: {clockPosition.Debug(),8} | IX: {renderIndex,8} | QUE: {VideoFrames.Count,4} | FRM: {frame.StartTime.Debug(),8} to {frame.EndTime.Debug().Trim()}".Warn(typeof(MediaContainer));
                         RenderFrame(frame);
                         rendered = true;
                     }
 
                     // Check if we have reached the end of the stream
-                    if (rendered == true && Container.Components.PacketBufferCount <= 0 && Container.IsAtEndOfStream && VideoSources.Count == 0 && renderIndex == VideoFrames.Count - 1)
+                    if (rendered == true && Container.Components.PacketBufferCount <= 0 && Container.IsAtEndOfStream && VideoFrames.Count == 0 && renderIndex == VideoBlocks.Count - 1)
                     {
                         // Pause for the duration of the last frame
                         Thread.Sleep(frame.Duration);
@@ -341,12 +216,12 @@
                     while (needsMoreFrames)
                     {
                         ReadTaskCycleDone.Wait(10);
-                        needsMoreFrames = (rendered || renderIndex > (VideoFrames.Count / 2));
+                        needsMoreFrames = (rendered || renderIndex > (VideoBlocks.Count / 2));
 
                         if (!needsMoreFrames)
                             break;
 
-                        renderIndex = VideoFrames.IndexOf(clockPosition);
+                        renderIndex = VideoBlocks.IndexOf(clockPosition);
                         rendered = false;
 
                         if (Container.Components.PacketBufferCount <= 0)

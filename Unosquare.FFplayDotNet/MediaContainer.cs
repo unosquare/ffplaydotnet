@@ -262,7 +262,7 @@
         /// </summary>
         /// <param name="position">The position.</param>
         /// <returns></returns>
-        public List<FrameSource> Seek(TimeSpan position)
+        public List<MediaFrame> Seek(TimeSpan position)
         {
             lock (ReadSyncRoot)
             {
@@ -302,11 +302,11 @@
         /// freed from memory.
         /// </summary>
         /// <returns></returns>
-        public List<FrameSource> Decode()
+        public List<MediaFrame> Decode()
         {
             lock (DecodeSyncRoot)
             {
-                var result = new List<FrameSource>(64);
+                var result = new List<MediaFrame>(64);
                 foreach (var component in Components.All)
                     result.AddRange(component.DecodeNextPacket());
 
@@ -334,7 +334,7 @@
         /// input
         /// </exception>
         /// <exception cref="MediaContainerException">MediaType</exception>
-        public Frame Convert(FrameSource input, ref Frame output, bool releaseInput = true)
+        public MediaBlock Convert(MediaFrame input, ref MediaBlock output, bool releaseInput = true)
         {
             lock (ConvertSyncRoot)
             {
@@ -350,14 +350,14 @@
                     {
                         case MediaType.Video:
                             if (input.IsStale) throw new ArgumentException(
-                                $"The {nameof(input)} {nameof(FrameSource)} has already been released (it's stale).");
+                                $"The {nameof(input)} {nameof(MediaFrame)} has already been released (it's stale).");
 
                             if (Components.HasVideo) Components.Video.MaterializeFrame(input, ref output);
                             return output;
 
                         case MediaType.Audio:
                             if (input.IsStale) throw new ArgumentException(
-                                $"The {nameof(input)} {nameof(FrameSource)} has already been released (it's stale).");
+                                $"The {nameof(input)} {nameof(MediaFrame)} has already been released (it's stale).");
 
                             if (Components.HasAudio) Components.Audio.MaterializeFrame(input, ref output);
                             return output;
@@ -714,7 +714,7 @@
         /// <param name="frames">The frames.</param>
         /// <param name="targetTime">The target time.</param>
         /// <returns></returns>
-        private int DropSeekFrames(List<FrameSource> frames, TimeSpan targetTime)
+        private int DropSeekFrames(List<MediaFrame> frames, TimeSpan targetTime)
         {
             var result = 0;
             if (frames.Count < 2) return result;
@@ -770,10 +770,10 @@
         /// <param name="targetTime">The target time.</param>
         /// <param name="doPreciseSeek">if set to <c>true</c> [do precise seek].</param>
         /// <returns></returns>
-        private List<FrameSource> StreamSeek(TimeSpan targetTime)
+        private List<MediaFrame> StreamSeek(TimeSpan targetTime)
         {
             // Create the output result object
-            var result = new List<FrameSource>();
+            var result = new List<MediaFrame>();
 
             // A special kind of seek is the zero seek. Execute it if requested.
             if (targetTime <= TimeSpan.Zero)
@@ -892,14 +892,14 @@
         /// <param name="result">The list of frames that is currently being processed. Frames will be added here.</param>
         /// <param name="targetTime">The target time in absolute 0-based time.</param>
         /// <returns></returns>
-        private int StreamSeekDecode(List<FrameSource> result, TimeSpan targetTime)
+        private int StreamSeekDecode(List<MediaFrame> result, TimeSpan targetTime)
         {
             var readSeekCycles = 0;
 
             // Create a holder of frame lists; one for each type of media
-            var outputFrames = new Dictionary<MediaType, List<FrameSource>>();
+            var outputFrames = new Dictionary<MediaType, List<MediaFrame>>();
             foreach (var c in Components.All)
-                outputFrames[c.MediaType] = new List<FrameSource>();
+                outputFrames[c.MediaType] = new List<MediaFrame>();
 
             // Start reading and decoding util we reach the target
             while (IsAtEndOfStream == false)

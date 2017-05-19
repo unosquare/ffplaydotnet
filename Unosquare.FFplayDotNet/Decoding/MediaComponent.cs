@@ -273,9 +273,9 @@
         /// Decodes the next packet in the packet queue in this media component.
         /// Returns the decoded frames
         /// </summary>
-        internal List<FrameSource> DecodeNextPacket()
+        internal List<MediaFrame> DecodeNextPacket()
         {
-            if (PacketBufferCount <= 0) return new List<FrameSource>(0);
+            if (PacketBufferCount <= 0) return new List<MediaFrame>(0);
             var decodedFrames = DecodeNextPacketInternal();
             DecodedFrameCount += (ulong)decodedFrames.Count;
             return decodedFrames;
@@ -288,9 +288,9 @@
         /// ProcessFrame method.
         /// </summary>
         /// <returns></returns>
-        private List<FrameSource> DecodeNextPacketInternal()
+        private List<MediaFrame> DecodeNextPacketInternal()
         {
-            var result = new List<FrameSource>();
+            var result = new List<MediaFrame>();
 
             // Ensure there is at least one packet in the queue
             if (PacketBufferCount <= 0) return result;
@@ -436,21 +436,21 @@
         /// <param name="input">The source frame to use as an input.</param>
         /// <param name="output">The target frame that will be updated with the source frame. If null is passed the frame will be instantiated.</param>
         /// <returns>Return the updated output frame</returns>
-        internal abstract Frame MaterializeFrame(FrameSource input, ref Frame output);
+        internal abstract MediaBlock MaterializeFrame(MediaFrame input, ref MediaBlock output);
 
         /// <summary>
         /// Creates a frame source object given the raw FFmpeg frame reference.
         /// </summary>
         /// <param name="frame">The raw FFmpeg frame pointer.</param>
         /// <returns></returns>
-        protected virtual FrameSource CreateFrameSource(AVFrame* frame) { return null; }
+        protected virtual MediaFrame CreateFrameSource(AVFrame* frame) { return null; }
 
         /// <summary>
         /// Creates a frame source object given the raw FFmpeg subtitle reference.
         /// </summary>
         /// <param name="frame">The raw FFmpeg subtitle pointer.</param>
         /// <returns></returns>
-        protected virtual FrameSource CreateFrameSource(AVSubtitle* frame) { return null; }
+        protected virtual MediaFrame CreateFrameSource(AVSubtitle* frame) { return null; }
 
         #endregion
 

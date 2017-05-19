@@ -9,7 +9,7 @@
     /// Frame containers are uncompressed frame data that can be used for
     /// media rendering
     /// </summary>
-    public abstract class Frame : IComparable<Frame>
+    public abstract class MediaBlock : IComparable<MediaBlock>
     {
         /// <summary>
         /// Gets the media type of the data
@@ -38,7 +38,7 @@
         /// <returns>
         /// A value that indicates the relative order of the objects being compared. The return value has these meanings: Value Meaning Less than zero This instance precedes <paramref name="other" /> in the sort order.  Zero This instance occurs in the same position in the sort order as <paramref name="other" />. Greater than zero This instance follows <paramref name="other" /> in the sort order.
         /// </returns>
-        public int CompareTo(Frame other)
+        public int CompareTo(MediaBlock other)
         {
             return StartTime.CompareTo(other.StartTime);
         }
@@ -47,9 +47,9 @@
     /// <summary>
     /// A video frame container. The buffer is in BGR, 24-bit format
     /// </summary>
-    /// <seealso cref="Unosquare.FFplayDotNet.Core.Frame" />
+    /// <seealso cref="Unosquare.FFplayDotNet.Core.MediaBlock" />
     /// <seealso cref="System.IDisposable" />
-    public sealed class VideoFrame : Frame, IDisposable
+    public sealed class VideoBlock : MediaBlock, IDisposable
     {
         #region Private Members
 
@@ -140,9 +140,9 @@
     /// <summary>
     /// An audio frame container. The buffer is in 16-bit signed, interleaved sample data
     /// </summary>
-    /// <seealso cref="Unosquare.FFplayDotNet.Core.Frame" />
+    /// <seealso cref="Unosquare.FFplayDotNet.Core.MediaBlock" />
     /// <seealso cref="System.IDisposable" />
-    public sealed class AudioFrame : Frame, IDisposable
+    public sealed class AudioBlock : MediaBlock, IDisposable
     {
         #region Private Members
 
@@ -234,8 +234,8 @@
     /// <summary>
     /// A subtitle frame container. Simply contains text lines.
     /// </summary>
-    /// <seealso cref="Unosquare.FFplayDotNet.Core.Frame" />
-    public sealed class SubtitleFrame : Frame
+    /// <seealso cref="Unosquare.FFplayDotNet.Core.MediaBlock" />
+    public sealed class SubtitleBlock : MediaBlock
     {
         #region Properties
 

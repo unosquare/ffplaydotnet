@@ -48,9 +48,9 @@
         /// </summary>
         /// <param name="frame">The raw FFmpeg frame pointer.</param>
         /// <returns></returns>
-        protected override unsafe FrameSource CreateFrameSource(AVFrame* frame)
+        protected override unsafe MediaFrame CreateFrameSource(AVFrame* frame)
         {
-            var frameHolder = new AudioFrameSource(frame, this);
+            var frameHolder = new AudioFrame(frame, this);
             return frameHolder;
         }
 
@@ -65,11 +65,11 @@
         /// Return the updated output frame
         /// </returns>
         /// <exception cref="System.ArgumentNullException">input</exception>
-        internal override Frame MaterializeFrame(FrameSource input, ref Frame output)
+        internal override MediaBlock MaterializeFrame(MediaFrame input, ref MediaBlock output)
         {
-            if (output == null) output = new AudioFrame();
-            var source = input as AudioFrameSource;
-            var target = output as AudioFrame;
+            if (output == null) output = new AudioBlock();
+            var source = input as AudioFrame;
+            var target = output as AudioBlock;
 
             if (source == null || target == null)
                 throw new ArgumentNullException($"{nameof(input)} and {nameof(output)} are either null or not of a compatible media type '{MediaType}'");

@@ -54,14 +54,15 @@
   <ItemGroup>
     <Compile Include="Core\Clock.cs" />
     <Compile Include="Core\Constants.cs" />
+    <Compile Include="Core\MediaBlockBuffer.cs" />
     <Compile Include="Decoding\AudioComponent.cs" />
     <Compile Include="Core\AudioParams.cs" />
     <Compile Include="Core\CodecOptionItem.cs" />
     <Compile Include="Core\Enums.cs" />
     <Compile Include="Core\Exceptions.cs" />
-    <Compile Include="Core\FrameSource.cs" />
-    <Compile Include="Core\FrameSourceQueue.cs" />
-    <Compile Include="Core\Frame.cs" />
+    <Compile Include="Core\MediaFrame.cs" />
+    <Compile Include="Core\MediaFrameQueue.cs" />
+    <Compile Include="Core\MediaBlock.cs" />
     <Compile Include="Decoding\MediaComponent.cs" />
     <Compile Include="Decoding\MediaComponentSet.cs" />
     <Compile Include="MediaContainer.cs" />

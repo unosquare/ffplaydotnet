@@ -10,7 +10,7 @@
     /// Derived classes implement the specifics of each media type.
     /// </summary>
     /// <seealso cref="System.IDisposable" />
-    public unsafe abstract class FrameSource : IDisposable, IComparable<FrameSource>
+    public unsafe abstract class MediaFrame : IDisposable, IComparable<MediaFrame>
     {
 
         #region Private Members
@@ -23,11 +23,11 @@
         #region Constructor
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="FrameSource" /> class.
+        /// Initializes a new instance of the <see cref="MediaFrame" /> class.
         /// </summary>
         /// <param name="pointer">The pointer.</param>
         /// <param name="component">The component.</param>
-        internal FrameSource(void* pointer, MediaComponent component)
+        internal MediaFrame(void* pointer, MediaComponent component)
         {
             InternalPointer = pointer;
             StreamTimeBase = component.Stream->time_base;
@@ -87,7 +87,7 @@
         /// <returns>
         /// A value that indicates the relative order of the objects being compared. The return value has these meanings: Value Meaning Less than zero This instance precedes <paramref name="other" /> in the sort order.  Zero This instance occurs in the same position in the sort order as <paramref name="other" />. Greater than zero This instance follows <paramref name="other" /> in the sort order.
         /// </returns>
-        public int CompareTo(FrameSource other)
+        public int CompareTo(MediaFrame other)
         {
             return StartTime.CompareTo(other.StartTime);
         }
@@ -128,8 +128,8 @@
     /// <summary>
     /// Represents a wrapper for an unmanaged video frame.
     /// </summary>
-    /// <seealso cref="Unosquare.FFplayDotNet.Core.FrameSource" />
-    public unsafe sealed class VideoFrameSource : FrameSource
+    /// <seealso cref="Unosquare.FFplayDotNet.Core.MediaFrame" />
+    public unsafe sealed class VideoFrame : MediaFrame
     {
         #region Private Members
 
@@ -140,11 +140,11 @@
         #region Constructors
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="VideoFrameSource" /> class.
+        /// Initializes a new instance of the <see cref="VideoFrame" /> class.
         /// </summary>
         /// <param name="frame">The frame.</param>
         /// <param name="component">The component.</param>
-        internal VideoFrameSource(AVFrame* frame, MediaComponent component)
+        internal VideoFrame(AVFrame* frame, MediaComponent component)
             : base(frame, component)
         {
             m_Pointer = (AVFrame*)InternalPointer;
@@ -197,8 +197,8 @@
     /// <summary>
     /// Represents a wrapper from an unmanaged audio frame
     /// </summary>
-    /// <seealso cref="Unosquare.FFplayDotNet.Core.FrameSource" />
-    public unsafe sealed class AudioFrameSource : FrameSource
+    /// <seealso cref="Unosquare.FFplayDotNet.Core.MediaFrame" />
+    public unsafe sealed class AudioFrame : MediaFrame
     {
         #region Private Members
 
@@ -209,11 +209,11 @@
         #region Constructor
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="AudioFrameSource" /> class.
+        /// Initializes a new instance of the <see cref="AudioFrame" /> class.
         /// </summary>
         /// <param name="frame">The frame.</param>
         /// <param name="component">The component.</param>
-        internal AudioFrameSource(AVFrame* frame, MediaComponent component)
+        internal AudioFrame(AVFrame* frame, MediaComponent component)
             : base(frame, component)
         {
             m_Pointer = (AVFrame*)InternalPointer;
@@ -269,8 +269,8 @@
     /// Represents a wrapper for an unmanaged Subtitle frame.
     /// TODO: Only text subtitles are supported currently
     /// </summary>
-    /// <seealso cref="Unosquare.FFplayDotNet.Core.FrameSource" />
-    public unsafe sealed class SubtitleFrameSource : FrameSource
+    /// <seealso cref="Unosquare.FFplayDotNet.Core.MediaFrame" />
+    public unsafe sealed class SubtitleFrame : MediaFrame
     {
         #region Private Members
 
@@ -281,11 +281,11 @@
         #region Constructors
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="SubtitleFrameSource" /> class.
+        /// Initializes a new instance of the <see cref="SubtitleFrame" /> class.
         /// </summary>
         /// <param name="frame">The frame.</param>
         /// <param name="component">The component.</param>
-        internal SubtitleFrameSource(AVSubtitle* frame, MediaComponent component)
+        internal SubtitleFrame(AVSubtitle* frame, MediaComponent component)
             : base(frame, component)
         {
             m_Pointer = (AVSubtitle*)InternalPointer;

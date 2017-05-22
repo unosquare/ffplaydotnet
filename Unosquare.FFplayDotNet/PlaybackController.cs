@@ -124,23 +124,29 @@
 
         public void Seek(TimeSpan position)
         {
+            SeekingDone.Wait();
+            var startTime = DateTime.UtcNow;
+            var resumeClock = Clock.IsRunning;
+            Clock.Pause();
             SeekingDone.Reset();
             PacketReadingCycle.Wait();
             FrameDecodingCycle.Wait();
             BlockRenderingCycle.Wait();
 
+            // Clear both, frames and blocks
             Frames.Clear();
             foreach (var componentBuffer in BlockBuffers)
                 componentBuffer.Value.Clear();
-            
+
+            // Populate frame with after-seek operation
             var frames = Container.Seek(position);
             foreach (var frame in frames)
                 Frames.Push(frame);
 
-            while (MainBlockBuffer.CapacityPercent < 0.5d && Frames.Count() > 0)
-                AddNextBlock();
+            if (resumeClock)
+                Clock.Play();
 
-            Clock.Position = MainBlockBuffer.RangeStartTime;
+            $"SEEK D: Elapsed: {startTime.DebugElapsedUtc()}".Debug(typeof(MediaContainer));
 
             SeekingDone.Set();
         }
@@ -154,9 +160,9 @@
             // Test seeking
             while (true)
             {
-                if (Clock.Position.TotalSeconds >= 5)
+                if (Clock.Position.TotalSeconds >= 3)
                 {
-                    Seek(TimeSpan.FromSeconds(60));
+                    Seek(TimeSpan.FromSeconds(30));
                     break;
                 }
                 else
@@ -257,17 +263,22 @@
                     SeekingDone.Wait();
                     BlockRenderingCycle.Reset();
 
+                    // Capture current time and render index
                     clockPosition = Clock.Position;
                     renderIndex = MainBlockBuffer.IndexOf(clockPosition);
+
+                    // Check for out-of sync issues (i.e. after seeking)
+                    if (MainBlockBuffer.IsInRange(clockPosition) == false || renderIndex < 0)
+                    {
+                        BufferBlocks(MaxPacketBufferLength / 4, true);
+                        $"SYNC              CLK: {clockPosition.Debug()} | TGT: {MainBlockBuffer.RangeStartTime.Debug()}".Warn(typeof(MediaContainer));
+                        clockPosition = Clock.Position;
+                        renderIndex = MainBlockBuffer.IndexOf(clockPosition);
+                    }
+
+                    // Retrieve the render block
                     renderBlock = MainBlockBuffer[renderIndex];
                     hasRendered = false;
-
-                    // Check for out-of sync errors
-                    if (MainBlockBuffer.IsInRange(clockPosition) == false)
-                    {
-                        $"SYNC ERROR - Setting CLK from {Clock.Position.Debug()} to {MainBlockBuffer.RangeStartTime.Debug()}".Warn(typeof(MediaContainer));
-                        BufferBlocks(MaxPacketBufferLength / 4, true);
-                    }
 
                     // render the frame if we have not rendered
                     if (renderBlock.StartTime != lastRenderTime)

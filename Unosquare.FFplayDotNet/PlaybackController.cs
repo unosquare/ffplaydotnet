@@ -37,11 +37,16 @@
         private Task PacketReadingTask;
         private readonly CancellationTokenSource PacketReadingCancel = new CancellationTokenSource();
         private readonly ManualResetEventSlim PacketReadingCycle = new ManualResetEventSlim(false);
-        private readonly ManualResetEventSlim PacketReadingExit = new ManualResetEventSlim(false);
 
         private Task FrameDecodingTask;
+        private readonly CancellationTokenSource FrameDecodingCancel = new CancellationTokenSource();
+        private readonly ManualResetEventSlim FrameDecodingCycle = new ManualResetEventSlim(false);
 
         private Task BlockRenderingTask;
+        private readonly CancellationTokenSource BlockRenderingCancel = new CancellationTokenSource();
+        private readonly ManualResetEventSlim BlockRenderingCycle = new ManualResetEventSlim(false);
+
+        private readonly ManualResetEventSlim SeekingDone = new ManualResetEventSlim(true);
 
         #endregion
 
@@ -117,11 +122,48 @@
 
         #endregion
 
+        public void Seek(TimeSpan position)
+        {
+            SeekingDone.Reset();
+            PacketReadingCycle.Wait();
+            FrameDecodingCycle.Wait();
+            BlockRenderingCycle.Wait();
+
+            Frames.Clear();
+            foreach (var componentBuffer in BlockBuffers)
+                componentBuffer.Value.Clear();
+            
+            var frames = Container.Seek(position);
+            foreach (var frame in frames)
+                Frames.Push(frame);
+
+            while (MainBlockBuffer.CapacityPercent < 0.5d && Frames.Count() > 0)
+                AddNextBlock();
+
+            Clock.Position = MainBlockBuffer.RangeStartTime;
+
+            SeekingDone.Set();
+        }
+
         public void Test()
         {
             PacketReadingTask = RunPacketReadingTask();
             FrameDecodingTask = RunFrameDecodingTask();
             BlockRenderingTask = RunBlockRenderingTask();
+
+            // Test seeking
+            while (true)
+            {
+                if (Clock.Position.TotalSeconds >= 5)
+                {
+                    Seek(TimeSpan.FromSeconds(60));
+                    break;
+                }
+                else
+                {
+                    Thread.Sleep(1);
+                }
+            }
 
             BlockRenderingTask.Wait();
             $"Finished rendering everything!".Warn(typeof(MediaContainer));
@@ -137,12 +179,12 @@
         {
             return Task.Run(() =>
             {
-                PacketReadingExit.Reset();
                 var packetsRead = 0;
 
                 while (!PacketReadingCancel.IsCancellationRequested)
                 {
                     // Enter a read cycle
+                    SeekingDone.Wait();
                     PacketReadingCycle.Reset();
 
                     // Read a bunch of packets at a time
@@ -163,7 +205,6 @@
                 }
 
                 PacketReadingCycle.Set();
-                PacketReadingExit.Set();
 
             }, PacketReadingCancel.Token);
         }
@@ -172,8 +213,10 @@
         {
             return Task.Run(() =>
             {
-                while (true)
+                while (FrameDecodingCancel.IsCancellationRequested == false)
                 {
+                    SeekingDone.Wait();
+                    FrameDecodingCycle.Reset();
                     // Decode Frames if necessary
                     if (Frames.Count() < MaxFrameQueueCount && Container.Components.PacketBufferCount > 0)
                     {
@@ -181,14 +224,19 @@
                         var frames = Container.Decode();
                         foreach (var frame in frames)
                             Frames.Push(frame);
+
+                        FrameDecodingCycle.Set();
                     }
                     else
                     {
+                        FrameDecodingCycle.Set();
                         Thread.Sleep(1);
                     }
                 }
 
-            });
+                FrameDecodingCycle.Set();
+
+            }, FrameDecodingCancel.Token);
         }
 
         private Task RunBlockRenderingTask()
@@ -204,8 +252,11 @@
                 BufferBlocks(MaxPacketBufferLength / 8, true);
                 Clock.Play();
 
-                while (true)
+                while (BlockRenderingCancel.IsCancellationRequested == false)
                 {
+                    SeekingDone.Wait();
+                    BlockRenderingCycle.Reset();
+
                     clockPosition = Clock.Position;
                     renderIndex = MainBlockBuffer.IndexOf(clockPosition);
                     renderBlock = MainBlockBuffer[renderIndex];
@@ -247,9 +298,13 @@
                         break;
                     }
 
+                    BlockRenderingCycle.Set();
                     Thread.Sleep(2);
                 }
-            });
+
+                BlockRenderingCycle.Set();
+
+            }, BlockRenderingCancel.Token);
         }
 
         #endregion

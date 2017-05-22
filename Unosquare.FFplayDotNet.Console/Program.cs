@@ -1,5 +1,7 @@
 ﻿namespace Unosquare.FFplayDotNet.Console
 {
+    using Core;
+    using Swan;
     using System;
     using System.Collections.Generic;
     using System.Diagnostics;
@@ -13,8 +15,6 @@
     using System.Windows.Media;
     using System.Windows.Media.Imaging;
     using System.Windows.Threading;
-    using Unosquare.FFplayDotNet.Core;
-    using Unosquare.Swan;
 
     class Program
     {
@@ -59,7 +59,7 @@
         static void Main(string[] args)
         {
 
-            InputFile = TestInputs.MatroskaLocalFile;
+            InputFile = TestInputs.BigBuckBunnyLocal;
             StartTime = 0;
             DecodeDurationLimit = 20;
             IsBenchmarking = false;

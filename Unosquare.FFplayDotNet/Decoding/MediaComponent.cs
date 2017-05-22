@@ -125,8 +125,12 @@
         /// <exception cref="System.Exception"></exception>
         protected MediaComponent(MediaContainer container, int streamIndex)
         {
+
             // NOTE: code largely based on stream_component_open
-            Container = container ?? throw new ArgumentNullException(nameof(container));
+            if (container == null)
+                throw new ArgumentNullException(nameof(container));
+
+            Container = container;
             CodecContext = ffmpeg.avcodec_alloc_context3(null);
             StreamIndex = streamIndex;
             Stream = container.InputContext->streams[StreamIndex];

@@ -2,6 +2,7 @@
 {
     using System;
     using System.Collections.Generic;
+    using System.Linq;
 
     public class MediaFrameQueue
     {
@@ -10,7 +11,6 @@
         private bool IsDisposed = false; // To detect redundant calls
         private readonly List<MediaFrame> Frames = new List<MediaFrame>();
         private readonly object SyncRoot = new object();
-        private TimeSpan m_Duration = TimeSpan.Zero;
 
         #endregion
 
@@ -32,7 +32,7 @@
                 lock (SyncRoot)
                     return Frames[index];
             }
-            set
+            private set
             {
                 lock (SyncRoot)
                     Frames[index] = value;
@@ -42,40 +42,26 @@
         /// <summary>
         /// Gets the frame count.
         /// </summary>
-        public int Count
+        public int Count()
         {
-            get
-            {
                 lock (SyncRoot)
                     return Frames.Count;
-            }
+        }
+
+        public int Count(MediaType mediaType)
+        {
+            lock (SyncRoot)
+                return Frames.Count(f => f.MediaType == mediaType);
         }
 
         /// <summary>
         /// Gets the total duration of all the frames contained in this queue.
         /// </summary>
-        public TimeSpan Duration
-        {
-            get { lock (SyncRoot) return m_Duration; }
-            private set { lock (SyncRoot) m_Duration = value; }
-        }
+        public TimeSpan Duration { get { lock (SyncRoot) return TimeSpan.FromTicks(EndTime.Ticks - StartTime.Ticks); } }
 
+        public TimeSpan StartTime { get { lock (SyncRoot) return Frames.Count == 0 ? TimeSpan.Zero : Frames.Min(f => f.StartTime); } }
 
-        public TimeSpan StartTime { get { lock (SyncRoot) return Frames.Count == 0 ? TimeSpan.Zero : Frames[0].StartTime; } }
-
-        public TimeSpan EndTime
-        {
-            get
-            {
-                lock (SyncRoot)
-                {
-                    if (Frames.Count == 0) return TimeSpan.Zero;
-                    var lastFrame = Frames[Frames.Count - 1];
-                    return TimeSpan.FromTicks(lastFrame.StartTime.Ticks + lastFrame.Duration.Ticks);
-                }
-            }
-        }
-
+        public TimeSpan EndTime { get { lock (SyncRoot) return Frames.Count == 0 ? TimeSpan.Zero : Frames.Max(f => f.EndTime); } }
         #endregion
 
         #region Methods
@@ -102,11 +88,7 @@
         public void Push(MediaFrame frame)
         {
             lock (SyncRoot)
-            {
                 Frames.Add(frame);
-                Duration = TimeSpan.FromTicks(Duration.Ticks + frame.Duration.Ticks);
-            }
-
         }
 
         /// <summary>
@@ -120,8 +102,6 @@
                 if (Frames.Count <= 0) return null;
                 var frame = Frames[0];
                 Frames.RemoveAt(0);
-
-                Duration = TimeSpan.FromTicks(Duration.Ticks - frame.Duration.Ticks);
                 return frame;
             }
         }
@@ -139,8 +119,6 @@
                     frame.Dispose();
                     frame = null;
                 }
-
-                Duration = TimeSpan.Zero;
             }
         }
 

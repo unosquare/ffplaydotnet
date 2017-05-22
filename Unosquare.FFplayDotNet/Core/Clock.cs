@@ -29,7 +29,8 @@
             get
             {
                 lock (SyncLock)
-                    return TimeSpan.FromMilliseconds(OffsetMilliseconds + Chrono.ElapsedMilliseconds);
+                    return TimeSpan.FromTicks((long)Math.Round(
+                        (OffsetMilliseconds + Chrono.ElapsedMilliseconds) * (double)TimeSpan.TicksPerMillisecond, 0));
             }
             set
             {

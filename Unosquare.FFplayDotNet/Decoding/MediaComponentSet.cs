@@ -186,9 +186,10 @@
                 if (Items.ContainsKey(mediaType))
                     throw new ArgumentException($"A component for '{mediaType}' is already registered.");
 
-                Items[mediaType] = value ??
+                if (value == null)
                     throw new ArgumentNullException($"{nameof(MediaComponent)} {nameof(value)} must not be null.");
 
+                Items[mediaType] = value;
                 Main = HasVideo? Video as MediaComponent : Audio as MediaComponent;
             }
         }

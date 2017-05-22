@@ -81,7 +81,7 @@
     <Compile Include="Core\Paths.cs" />
     <Compile Include="FFmpeg.Autogen.Added\FFDictionaryEntry.cs" />
     <Compile Include="FFmpeg.Autogen.Added\FFDictionary.cs" />
-    <Compile Include="PlaybackManager.cs" />
+    <Compile Include="PlaybackController.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Core\StreamSpecifier.cs" />
     <Compile Include="Decoding\SubtitleComponent.cs" />

@@ -83,7 +83,7 @@
 
         private static void TestPlaybackController()
         {
-            var controller = new PlaybackManager(Container);
+            var controller = new PlaybackController(Container);
             controller.Test();
         }
 

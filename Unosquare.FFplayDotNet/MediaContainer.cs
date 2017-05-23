@@ -899,8 +899,8 @@
 
             // Create a holder of frame lists; one for each type of media
             var outputFrames = new Dictionary<MediaType, List<MediaFrame>>();
-            foreach (var c in Components.All)
-                outputFrames[c.MediaType] = new List<MediaFrame>();
+            foreach (var mediaType in Components.MediaTypes)
+                outputFrames[mediaType] = new List<MediaFrame>();
 
             // Start reading and decoding util we reach the target
             while (IsAtEndOfStream == false)

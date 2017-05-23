@@ -59,9 +59,9 @@
         public PlaybackController(MediaContainer container)
         {
             Container = container;
-            foreach (var component in Container.Components.All)
-                BlockBuffers[component.MediaType] =
-                    new MediaBlockBuffer(BlockBufferCounts[component.MediaType], component.MediaType);
+            foreach (var mediaType in Container.Components.MediaTypes)
+                BlockBuffers[mediaType] =
+                    new MediaBlockBuffer(BlockBufferCounts[mediaType], mediaType);
 
             MainBlockBuffer = BlockBuffers[Container.Components.Main.MediaType];
         }
@@ -117,7 +117,7 @@
         private void RenderBlock(MediaBlock block, TimeSpan clockPosition, int renderIndex)
         {
             var drift = TimeSpan.FromTicks(clockPosition.Ticks - block.StartTime.Ticks);
-            $"BLK: {block.StartTime.Debug()} | CLK: {clockPosition.Debug()} | DFT: {drift.Debug()} | RIX: {renderIndex,6} | FQ: {Frames.Count(),6} | PQ: {Container.Components.PacketBufferLength / 1024d,6:0.00} KB".Info(typeof(MediaContainer));
+            $"{block.MediaType.ToString().Substring(0,1)} BLK: {block.StartTime.Debug()} | CLK: {clockPosition.Debug()} | DFT: {drift.Debug()} | RIX: {renderIndex,4} | FQ: {Frames.Count(),4} | PQ: {Container.Components.PacketBufferLength / 1024d,6:0.00} KB".Info(typeof(MediaContainer));
         }
 
         #endregion

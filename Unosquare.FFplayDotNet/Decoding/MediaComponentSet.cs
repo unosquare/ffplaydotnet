@@ -50,6 +50,14 @@
         #region Properties
 
         /// <summary>
+        /// Gets the available component media types.
+        /// </summary>
+        public MediaType[] MediaTypes
+        {
+            get { return Items.Keys.ToArray(); }
+        }
+
+        /// <summary>
         /// Gets all the components in a read-only collection.
         /// </summary>
         public ReadOnlyCollection<MediaComponent> All

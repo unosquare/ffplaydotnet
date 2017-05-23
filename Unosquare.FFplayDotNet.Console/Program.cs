@@ -59,7 +59,7 @@
         static void Main(string[] args)
         {
 
-            InputFile = TestInputs.TransportLocalFile;
+            InputFile = TestInputs.MatroskaLocalFile;
             StartTime = 0;
             DecodeDurationLimit = 20;
             IsBenchmarking = false;

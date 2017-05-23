@@ -59,7 +59,7 @@
         static void Main(string[] args)
         {
 
-            InputFile = TestInputs.BigBuckBunnyLocal;
+            InputFile = TestInputs.TransportLocalFile;
             StartTime = 0;
             DecodeDurationLimit = 20;
             IsBenchmarking = false;

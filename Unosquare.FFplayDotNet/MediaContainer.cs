@@ -797,10 +797,11 @@
 
             // clamp the target time to the component's bounds
             // TODO: Check bounds of byte-based seeking and bounds of end time
-            if (MediaSeeksByBytes == false)
-            {
-                if (targetTime < main.StartTimeOffset) targetTime = main.StartTimeOffset;
-            }
+            if (targetTime.Ticks + main.StartTimeOffset.Ticks < main.StartTimeOffset.Ticks)
+                targetTime = TimeSpan.FromTicks(main.StartTimeOffset.Ticks);
+
+            if (targetTime.Ticks > main.Duration.Ticks)
+                targetTime = TimeSpan.FromTicks(main.Duration.Ticks);
 
             // Stream seeking by main component
             // The backward flag means that we want to seek to at MOST the target position
@@ -833,7 +834,7 @@
 
             // Perform long seeks until we end up with a relative target time where decoding
             // of frames before or on target time is possible.
-            while (IsAtEndOfStream == false)
+            while (relativeTargetTime.Ticks >= main.StartTimeOffset.Ticks)
             {
                 // Compute the seek target, mostly based on the relative Target Time
                 var seekTarget = MediaSeeksByBytes ?
@@ -865,7 +866,7 @@
                 var isAudioSeekInRange = Components.HasAudio == false || (firstAudioFrame != null && firstAudioFrame.StartTime <= targetTime);
                 var isVideoSeekInRange = Components.HasVideo == false || (firstVideoFrame != null && firstVideoFrame.StartTime <= targetTime);
 
-                // If we have the correct range, no firther processing is required.
+                // If we have the correct range, no further processing is required.
                 if (isAudioSeekInRange && isVideoSeekInRange)
                     break;
 

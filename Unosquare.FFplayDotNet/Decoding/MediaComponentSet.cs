@@ -64,8 +64,8 @@
         }
 
         /// <summary>
-        /// Gets the main media component of the stream.
-        /// By Main it is meant Video, then Audio.
+        /// Gets the main media component of the stream to which time is synchronized.
+        /// By order of priority, first Audio, then Video
         /// </summary>
         public MediaComponent Main { get; private set; }
 
@@ -190,7 +190,7 @@
                     throw new ArgumentNullException($"{nameof(MediaComponent)} {nameof(value)} must not be null.");
 
                 Items[mediaType] = value;
-                Main = HasVideo? Video as MediaComponent : Audio as MediaComponent;
+                Main = HasAudio ? Audio as MediaComponent : Video as MediaComponent;
             }
         }
 

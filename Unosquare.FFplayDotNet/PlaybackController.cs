@@ -116,15 +116,7 @@
         private void RenderBlock(MediaBlock block, TimeSpan clockPosition, int renderIndex)
         {
             var drift = TimeSpan.FromTicks(clockPosition.Ticks - block.StartTime.Ticks);
-            $"{block.MediaType.ToString().Substring(0, 1)} BLK: {block.StartTime.Debug()} | CLK: {clockPosition.Debug()} | DFT: {drift.Debug()} | RIX: {renderIndex,4} | FQ: {Frames.Sum(f => f.Value.Count),4} | PQ: {Container.Components.PacketBufferLength / 1024d,6:0.00} KB".Info(typeof(MediaContainer));
-
-            if (Blocks[MediaType.Video].IsInRange(clockPosition) == false)
-            {
-                var mts = new MediaType[] { MediaType.Video, MediaType.Audio };
-                foreach (var mt in mts)
-                    $"{mt} Blocks: {Blocks[mt].Count} / {Blocks[mt].Capacity} - {Blocks[mt].RangeStartTime.Debug()} to {Blocks[mt].RangeEndTime.Debug()}".Warn(typeof(MediaContainer));
-            }
-
+            $"{block.MediaType.ToString().Substring(0, 1)} BLK: {block.StartTime.Debug()} | CLK: {clockPosition.Debug()} | DFT: {drift.Debug()} | RIX: {renderIndex,4} | FQ: {Frames[block.MediaType].Count,4} | PQ: {Container.Components[block.MediaType].PacketBufferLength / 1024d,7:0.00} KB".Info(typeof(MediaContainer));
         }
 
         #endregion
@@ -167,7 +159,7 @@
             BlockRenderingTask = RunBlockRenderingTask();
 
             // Test seeking
-            while (false)
+            while (true)
             {
                 if (Clock.Position.TotalSeconds >= 3)
                 {

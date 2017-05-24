@@ -42,16 +42,10 @@
         /// <summary>
         /// Gets the frame count.
         /// </summary>
-        public int Count()
+        public int Count
         {
-                lock (SyncRoot)
-                    return Frames.Count;
-        }
+            get { lock (SyncRoot) return Frames.Count; }
 
-        public int Count(MediaType mediaType)
-        {
-            lock (SyncRoot)
-                return Frames.Count(f => f.MediaType == mediaType);
         }
 
         /// <summary>

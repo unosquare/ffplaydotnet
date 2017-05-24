@@ -24,8 +24,8 @@
         private MediaContainer Container;
         private Clock Clock = new Clock();
 
-        private MediaFrameQueue Frames = new MediaFrameQueue();
-        private readonly Dictionary<MediaType, MediaBlockBuffer> BlockBuffers = new Dictionary<MediaType, MediaBlockBuffer>();
+        private readonly Dictionary<MediaType, MediaFrameQueue> Frames = new Dictionary<MediaType, MediaFrameQueue>();
+        private readonly Dictionary<MediaType, MediaBlockBuffer> Blocks = new Dictionary<MediaType, MediaBlockBuffer>();
         private readonly Dictionary<MediaType, int> BlockBufferCounts = new Dictionary<MediaType, int>()
         {
             { MediaType.Video, MaxFrameQueueCount / 2 },
@@ -59,8 +59,13 @@
         {
             Container = container;
             foreach (var mediaType in Container.Components.MediaTypes)
-                BlockBuffers[mediaType] =
+            {
+                Blocks[mediaType] =
                     new MediaBlockBuffer(BlockBufferCounts[mediaType], mediaType);
+                Frames[mediaType] =
+                    new MediaFrameQueue();
+            }
+
         }
 
         #endregion
@@ -74,23 +79,20 @@
 
         private bool CanReadMoreFrames { get { return Container.Components.PacketBufferLength > 0 || CanReadMorePackets; } }
 
-        private bool CanReadMoreBlocks { get { return Frames.Count() > 0 || CanReadMoreFrames || CanReadMorePackets; } }
+        private bool CanReadMoreBlocks { get { return Frames.Any(f => f.Value.Count > 0) || CanReadMoreFrames || CanReadMorePackets; } }
+
+        private bool CanReadMoreBlocksOf(MediaType t) { return Frames[t].Count > 0 || CanReadMoreFrames || CanReadMorePackets; }
+
 
         #endregion
 
         #region Methods
 
-        private void AddNextBlock()
+        private void AddNextBlock(MediaType t)
         {
-            var frame = Frames.Dequeue();
+            var frame = Frames[t].Dequeue();
             if (frame == null) return;
-            if (BlockBuffers.ContainsKey(frame.MediaType))
-            {
-                BlockBuffers[frame.MediaType].Add(frame, Container);
-                return;
-            }
-
-            frame.Dispose();
+            Blocks[frame.MediaType].Add(frame, Container);
         }
 
         private void BufferBlocks(int packetBufferLength, bool setClock)
@@ -100,28 +102,29 @@
                 PacketReadingCycle.Wait(5);
 
             // Buffer some blocks
-            while (CanReadMoreBlocks && BlockBuffers.All(b => b.Value.CapacityPercent < 0.5d))
+            while (CanReadMoreBlocks && Blocks.All(b => b.Value.CapacityPercent < 0.5d))
             {
                 PacketReadingCycle.Wait(5);
-                AddNextBlock();
+                foreach (var t in Container.Components.MediaTypes)
+                    AddNextBlock(t);
             }
 
             if (setClock)
-                Clock.Position = BlockBuffers[Container.Components.Main.MediaType].RangeStartTime;
+                Clock.Position = Blocks[Container.Components.Main.MediaType].RangeStartTime;
         }
 
         private void RenderBlock(MediaBlock block, TimeSpan clockPosition, int renderIndex)
         {
             var drift = TimeSpan.FromTicks(clockPosition.Ticks - block.StartTime.Ticks);
-            $"{block.MediaType.ToString().Substring(0, 1)} BLK: {block.StartTime.Debug()} | CLK: {clockPosition.Debug()} | DFT: {drift.Debug()} | RIX: {renderIndex,4} | FQ: {Frames.Count(),4} | PQ: {Container.Components.PacketBufferLength / 1024d,6:0.00} KB".Info(typeof(MediaContainer));
+            $"{block.MediaType.ToString().Substring(0, 1)} BLK: {block.StartTime.Debug()} | CLK: {clockPosition.Debug()} | DFT: {drift.Debug()} | RIX: {renderIndex,4} | FQ: {Frames.Sum(f => f.Value.Count),4} | PQ: {Container.Components.PacketBufferLength / 1024d,6:0.00} KB".Info(typeof(MediaContainer));
 
-            if (BlockBuffers[MediaType.Video].IsInRange(clockPosition) == false)
+            if (Blocks[MediaType.Video].IsInRange(clockPosition) == false)
             {
-                var mts = new MediaType[] { MediaType.Video }; //, MediaType.Audio };
+                var mts = new MediaType[] { MediaType.Video, MediaType.Audio };
                 foreach (var mt in mts)
-                    $"{mt}: {BlockBuffers[mt].RangeStartTime.Debug()} to {BlockBuffers[mt].RangeEndTime.Debug()}".Warn(typeof(MediaContainer));
+                    $"{mt} Blocks: {Blocks[mt].Count} / {Blocks[mt].Capacity} - {Blocks[mt].RangeStartTime.Debug()} to {Blocks[mt].RangeEndTime.Debug()}".Warn(typeof(MediaContainer));
             }
-            
+
         }
 
         #endregion
@@ -138,14 +141,16 @@
             BlockRenderingCycle.Wait();
 
             // Clear both, frames and blocks
-            Frames.Clear();
-            foreach (var componentBuffer in BlockBuffers)
-                componentBuffer.Value.Clear();
+            foreach (var fr in Frames)
+                fr.Value.Clear();
+
+            foreach (var block in Blocks)
+                block.Value.Clear();
 
             // Populate frame with after-seek operation
             var frames = Container.Seek(position);
             foreach (var frame in frames)
-                Frames.Push(frame);
+                Frames[frame.MediaType].Push(frame);
 
             if (resumeClock)
                 Clock.Play();
@@ -162,7 +167,7 @@
             BlockRenderingTask = RunBlockRenderingTask();
 
             // Test seeking
-            while (true)
+            while (false)
             {
                 if (Clock.Position.TotalSeconds >= 3)
                 {
@@ -227,21 +232,30 @@
                 {
                     SeekingDone.Wait();
                     FrameDecodingCycle.Reset();
-                    // Decode Frames if necessary
-                    if (Frames.Count() < MaxFrameQueueCount && Container.Components.PacketBufferCount > 0)
-                    {
-                        // Decode an enqueue what is possible
-                        var frames = Container.Decode();
-                        foreach (var frame in frames)
-                            Frames.Push(frame);
 
-                        FrameDecodingCycle.Set();
-                    }
-                    else
+                    // Decode Frames if necessary
+                    var decodedFrames = 0;
+
+                    foreach (var component in Container.Components.All)
                     {
-                        FrameDecodingCycle.Set();
-                        Thread.Sleep(1);
+                        if (Frames[component.MediaType].Count >= MaxFrameQueueCount)
+                            continue;
+
+                        if (component.PacketBufferCount <= 0)
+                            continue;
+
+                        var frames = component.DecodeNextPacket();
+                        foreach (var frame in frames)
+                        {
+                            Frames[frame.MediaType].Push(frame);
+                            decodedFrames += 1;
+                        } 
                     }
+
+                    FrameDecodingCycle.Set();
+                    if (decodedFrames <= 0)
+                        Thread.Sleep(1);
+
                 }
 
                 FrameDecodingCycle.Set();
@@ -263,7 +277,7 @@
                 var renderIndex = new Dictionary<MediaType, int>(mediaTypeCount);
                 var renderBlock = new Dictionary<MediaType, MediaBlock>(mediaTypeCount);
 
-                foreach(var t in Container.Components.MediaTypes)
+                foreach (var t in Container.Components.MediaTypes)
                 {
                     lastRenderTime[t] = TimeSpan.MinValue;
                     hasRendered[t] = false;
@@ -281,44 +295,51 @@
 
                     // Capture current time and render index
                     clockPosition = Clock.Position;
-                    renderIndex[main] = BlockBuffers[main].IndexOf(clockPosition);
+                    renderIndex[main] = Blocks[main].IndexOf(clockPosition);
 
                     // Check for out-of sync issues (i.e. after seeking)
-                    if (BlockBuffers[main].IsInRange(clockPosition) == false || renderIndex[main] < 0)
+                    if (Blocks[main].IsInRange(clockPosition) == false || renderIndex[main] < 0)
                     {
                         BufferBlocks(MaxPacketBufferLength / 4, true);
-                        $"SYNC              CLK: {clockPosition.Debug()} | TGT: {BlockBuffers[main].RangeStartTime.Debug()}".Warn(typeof(MediaContainer));
+                        $"SYNC              CLK: {clockPosition.Debug()} | TGT: {Blocks[main].RangeStartTime.Debug()}".Warn(typeof(MediaContainer));
                         clockPosition = Clock.Position;
-                        renderIndex[main] = BlockBuffers[main].IndexOf(clockPosition);
+                        renderIndex[main] = Blocks[main].IndexOf(clockPosition);
                     }
 
-                    // Retrieve the render block
-                    renderBlock[main] = BlockBuffers[main][renderIndex[main]];
-                    hasRendered[main] = false;
-
-                    // render the frame if we have not rendered
-                    if (renderBlock[main].StartTime != lastRenderTime[main])
+                    foreach (var t in Container.Components.MediaTypes)
                     {
-                        lastRenderTime[main] = renderBlock[main].StartTime;
-                        hasRendered[main] = true;
-                        RenderBlock(renderBlock[main], clockPosition, renderIndex[main]);
-                    }
+                        var blocks = Blocks[t];
+                        renderIndex[t] = blocks.IndexOf(clockPosition);
 
-                    // Add the next block if the conditions require us to do so:
-                    // If rendered, then we need to discard the oldest and add the newest
-                    // If the render index is greater than half, the capacity, add a new block
-                    while (hasRendered[main] || renderIndex[main] + 1 > BlockBuffers[main].Capacity / 2)
-                    {
-                        hasRendered[main] = false;
-                        renderIndex[main] = BlockBuffers[main].IndexOf(clockPosition);
-                        AddNextBlock();
+                        // Retrieve the render block
+                        renderBlock[t] = blocks[renderIndex[t]];
+                        hasRendered[t] = false;
 
-                        // Stop the loop if we can't reach the conditions.
-                        if (Frames.Count() == 0) break;
+                        // render the frame if we have not rendered
+                        if (renderBlock[t].StartTime != lastRenderTime[t])
+                        {
+                            lastRenderTime[t] = renderBlock[t].StartTime;
+                            hasRendered[t] = true;
+                            RenderBlock(renderBlock[t], clockPosition, renderIndex[t]);
+                        }
+
+                        // Add the next block if the conditions require us to do so:
+                        // If rendered, then we need to discard the oldest and add the newest
+                        // If the render index is greater than half, the capacity, add a new block
+                        while (hasRendered[t] || renderIndex[t] + 1 > Blocks[t].Capacity / 2)
+                        {
+                            AddNextBlock(t);
+                            hasRendered[t] = false;
+                            renderIndex[t] = Blocks[t].IndexOf(clockPosition);
+
+                            // Stop the loop if we can't reach the conditions.
+                            if (Frames[t].Count == 0)
+                                break;
+                        }
                     }
 
                     // Detect end of block rendering
-                    if (CanReadMoreBlocks == false && renderIndex[main] == BlockBuffers[main].Count - 1)
+                    if (CanReadMoreBlocksOf(main) == false && renderIndex[main] == Blocks[main].Count - 1)
                     {
                         // Rendered all and nothing else to read
                         Clock.Pause();

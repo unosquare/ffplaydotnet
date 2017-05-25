@@ -3,15 +3,15 @@
     /// <summary>
     /// A single codec option along with a stream specifier.
     /// </summary>
-    internal class CodecOptionItem
+    internal class CodecOption
     {
         /// <summary>
-        /// Initializes a new instance of the <see cref="CodecOptionItem"/> class.
+        /// Initializes a new instance of the <see cref="CodecOption"/> class.
         /// </summary>
         /// <param name="spec">The spec.</param>
         /// <param name="key">The key.</param>
         /// <param name="value">The value.</param>
-        public CodecOptionItem(StreamSpecifier spec, string key, string value)
+        public CodecOption(StreamSpecifier spec, string key, string value)
         {
             StreamSpecifier = spec;
             Key = key;

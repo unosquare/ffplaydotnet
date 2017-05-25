@@ -41,7 +41,7 @@
         /// Codec options are documented here: https://www.ffmpeg.org/ffmpeg-codecs.html#Codec-Options
         /// Port of codec_opts
         /// </summary>
-        public CodecOptions CodecOptions { get; } = new CodecOptions();
+        public CodecOptionSet CodecOptions { get; } = new CodecOptionSet();
 
         /// <summary>
         /// Gets or sets a value indicating whether PTS are generated automatically and not read
@@ -68,7 +68,7 @@
         /// Subtitles are not yet first-class citizens in FFmpeg and 
         /// this is why they are disabled by default.
         /// </summary>
-        public bool IsSubtitleDisabled { get; set; } = true;
+        public bool IsSubtitleDisabled { get; set; } = false;
     }
 
 }

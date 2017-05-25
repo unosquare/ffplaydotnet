@@ -1,5 +1,6 @@
-﻿namespace Unosquare.FFplayDotNet.Core
+﻿namespace Unosquare.FFplayDotNet.Decoding
 {
+    using Core;
     using System;
     using System.Collections.Generic;
 

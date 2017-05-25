@@ -1,4 +1,4 @@
-﻿namespace Unosquare.FFplayDotNet.Core
+﻿namespace Unosquare.FFplayDotNet.Decoding
 {
     using FFmpeg.AutoGen;
     using System;

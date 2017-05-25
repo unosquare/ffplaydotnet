@@ -1,6 +1,7 @@
 ﻿namespace Unosquare.FFplayDotNet.Console
 {
     using Core;
+    using Decoding;
     using Swan;
     using System;
     using System.Collections.Generic;
@@ -59,7 +60,7 @@
         static void Main(string[] args)
         {
 
-            InputFile = TestInputs.MpegPart2LocalFile;
+            InputFile = TestInputs.MatroskaLocalFile;
             StartTime = 0;
             DecodeDurationLimit = 20;
             IsBenchmarking = false;

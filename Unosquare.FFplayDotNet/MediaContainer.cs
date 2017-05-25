@@ -652,7 +652,7 @@
                 ffmpeg.av_packet_free(&readPacket);
 
                 // Detect an end of file situation (makes the readers enter draining mode)
-                if ((readResult == ffmpeg.AVERROR_EOF || ffmpeg.avio_feof(InputContext->pb) != 0))
+                if ((readResult == Constants.AVERROR_EOF || ffmpeg.avio_feof(InputContext->pb) != 0))
                 {
                     // Force the decoders to enter draining mode (with empry packets)
                     if (IsAtEndOfStream == false)
@@ -664,7 +664,7 @@
                 else
                 {
                     if (InputContext->pb != null && InputContext->pb->error != 0)
-                        throw new MediaContainerException($"Input has produced an error. Error Code {readResult}, {ffmpeg.ErrorMessage(readResult)}");
+                        throw new MediaContainerException($"Input has produced an error. Error Code {readResult}, {Utils.FFErrorMessage(readResult)}");
                 }
             }
             else
@@ -854,7 +854,7 @@
                 // Ensure we had a successful seek operation
                 if (seekResult < 0)
                 {
-                    $"SEEK R: Elapsed: {startTime.DebugElapsedUtc()} | Seek operation failed. Error code {seekResult}, {ffmpeg.ErrorMessage(seekResult)}".Warn(typeof(MediaContainer));
+                    $"SEEK R: Elapsed: {startTime.DebugElapsedUtc()} | Seek operation failed. Error code {seekResult}, {Utils.FFErrorMessage(seekResult)}".Warn(typeof(MediaContainer));
                     break;
                 }
 

@@ -81,6 +81,23 @@
             return Encoding.UTF8.GetString(byteBuffer.ToArray());
         }
 
+        /// <summary>
+        /// Gets the FFmpeg error mesage based on the error code
+        /// </summary>
+        /// <param name="code">The code.</param>
+        /// <returns></returns>
+        public static unsafe string FFErrorMessage(int code)
+        {
+            var errorStrBytes = new byte[1024];
+            var errorStrPtr = Marshal.AllocHGlobal(Marshal.SizeOf(typeof(byte)) * errorStrBytes.Length);
+            ffmpeg.av_strerror(code, (byte*)errorStrPtr, (ulong)errorStrBytes.Length);
+            Marshal.Copy(errorStrPtr, errorStrBytes, 0, errorStrBytes.Length);
+            Marshal.FreeHGlobal(errorStrPtr);
+
+            var errorMessage = Encoding.GetEncoding(0).GetString(errorStrBytes).Split('\0').FirstOrDefault();
+            return errorMessage;
+        }
+
         #endregion
 
         #region Math 
@@ -105,7 +122,7 @@
         /// <returns></returns>
         public static TimeSpan ToTimeSpan(this double pts, AVRational timeBase)
         {
-            if (double.IsNaN(pts) || pts == ffmpeg.AV_NOPTS)
+            if (double.IsNaN(pts) || pts == Constants.AV_NOPTS)
                 return TimeSpan.MinValue;
 
             if (timeBase.den == 0)
@@ -133,7 +150,7 @@
         /// <returns></returns>
         public static TimeSpan ToTimeSpan(this double pts, double timeBase)
         {
-            if (double.IsNaN(pts) || pts == ffmpeg.AV_NOPTS)
+            if (double.IsNaN(pts) || pts == Constants.AV_NOPTS)
                 return TimeSpan.MinValue;
 
             return TimeSpan.FromTicks((long)(TimeSpan.TicksPerMillisecond * 1000 * pts / timeBase)); //pts / timeBase);
@@ -319,16 +336,34 @@
                 return $"{ts.TotalSeconds,10:0.000}";
         }
 
+        /// <summary>
+        /// Returns a formatted string fro elapsed stopwatch milliseconds
+        /// </summary>
+        /// <param name="sw">The sw.</param>
+        /// <returns></returns>
         internal static string Debug(this Stopwatch sw)
         {
             return $"{sw.ElapsedMilliseconds,5}";
         }
 
+        /// <summary>
+        /// Returns a formatted string with elapsed milliseconds between now and
+        /// the specified date.
+        /// </summary>
+        /// <param name="dt">The dt.</param>
+        /// <returns></returns>
         internal static string DebugElapsedUtc(this DateTime dt)
         {
             return $"{DateTime.UtcNow.Subtract(dt).TotalMilliseconds,6:0}";
         }
 
+        /// <summary>
+        /// Returns a fromatted string, dividing by the specified
+        /// factor. Useful for debugging longs with byte positions or sizes.
+        /// </summary>
+        /// <param name="ts">The ts.</param>
+        /// <param name="divideBy">The divide by.</param>
+        /// <returns></returns>
         internal static string Debug(this long ts, double divideBy = 1)
         {
             if (divideBy == 1)

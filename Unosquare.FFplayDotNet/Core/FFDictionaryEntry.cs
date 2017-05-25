@@ -1,6 +1,6 @@
-﻿namespace FFmpeg.AutoGen
+﻿namespace Unosquare.FFplayDotNet.Core
 {
-    using Unosquare.FFplayDotNet.Core;
+    using FFmpeg.AutoGen;
 
     /// <summary>
     /// An AVDictionaryEntry wrapper

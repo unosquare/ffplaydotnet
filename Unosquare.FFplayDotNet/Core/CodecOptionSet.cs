@@ -6,23 +6,23 @@
     /// <summary>
     /// Represents a set of codec options per 
     /// </summary>
-    public class CodecOptions
+    public class CodecOptionSet
     {
         #region Private Members
 
         /// <summary>
         /// Holds the internal list of option items
         /// </summary>
-        private readonly List<CodecOptionItem> Options = new List<CodecOptionItem>();
+        private readonly List<CodecOption> Options = new List<CodecOption>();
 
         #endregion
 
         #region Constructor
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="CodecOptions"/> class.
+        /// Initializes a new instance of the <see cref="CodecOptionSet"/> class.
         /// </summary>
-        public CodecOptions()
+        public CodecOptionSet()
         {
             // Placeholder
         }
@@ -39,7 +39,7 @@
         /// <param name="streamType">Type of the stream.</param>
         public void Add(string key, string value, MediaType streamType)
         {
-            var option = new CodecOptionItem(new StreamSpecifier(streamType), key, value);
+            var option = new CodecOption(new StreamSpecifier(streamType), key, value);
             Options.Add(option);
         }
 
@@ -51,7 +51,7 @@
         /// <param name="streamIndex">Index of the stream.</param>
         public void Add(string key, string value, int streamIndex)
         {
-            var option = new CodecOptionItem(new StreamSpecifier(streamIndex), key, value);
+            var option = new CodecOption(new StreamSpecifier(streamIndex), key, value);
             Options.Add(option);
         }
 
@@ -64,7 +64,7 @@
         /// <param name="streamIndex">Index of the stream.</param>
         public void Add(string key, string value, MediaType streamType, int streamIndex)
         {
-            var option = new CodecOptionItem(new StreamSpecifier(streamType, streamIndex), key, value);
+            var option = new CodecOption(new StreamSpecifier(streamType, streamIndex), key, value);
             Options.Add(option);
         }
 

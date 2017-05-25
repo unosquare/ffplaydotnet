@@ -152,11 +152,14 @@
             // for vide frames, we always get the best effort timestamp as dts and pts might
             // contain different times.
             frame->pts = ffmpeg.av_frame_get_best_effort_timestamp(frame);
-            StartTime = TimeSpan.FromTicks(frame->pts.ToTimeSpan(StreamTimeBase).Ticks - component.Container.MediaStartTimeOffset.Ticks);
+            StartTime = frame->pts == ffmpeg.AV_NOPTS ?
+                TimeSpan.FromTicks(component.Container.MediaStartTimeOffset.Ticks) :
+                TimeSpan.FromTicks(frame->pts.ToTimeSpan(StreamTimeBase).Ticks - component.Container.MediaStartTimeOffset.Ticks);
+
             var repeatFactor = 1d + (0.5d * frame->repeat_pict);
             var timeBase = ffmpeg.av_guess_frame_rate(component.Container.InputContext, component.Stream, frame);
             Duration = repeatFactor.ToTimeSpan(new AVRational { num = timeBase.den, den = timeBase.num });
-            EndTime =  TimeSpan.FromTicks(StartTime.Ticks + Duration.Ticks);
+            EndTime = TimeSpan.FromTicks(StartTime.Ticks + Duration.Ticks);
         }
 
         #endregion
@@ -220,7 +223,9 @@
 
             // Compute the timespans
             //frame->pts = ffmpeg.av_frame_get_best_effort_timestamp(frame);
-            StartTime = TimeSpan.FromTicks(frame->pts.ToTimeSpan(StreamTimeBase).Ticks - component.Container.MediaStartTimeOffset.Ticks);
+            StartTime = frame->pts == ffmpeg.AV_NOPTS ?
+                TimeSpan.FromTicks(component.Container.MediaStartTimeOffset.Ticks) :
+                TimeSpan.FromTicks(frame->pts.ToTimeSpan(StreamTimeBase).Ticks - component.Container.MediaStartTimeOffset.Ticks);
 
             // Compute the audio frame duration
             if (frame->pkt_duration != 0)

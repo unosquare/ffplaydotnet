@@ -19,6 +19,8 @@
 
         public static string FinlandiaOggLocalFile = $"{InputBasePath}\\finlandia.ogg";
 
+        public static string ElysiumLocalFile = $"{InputBasePath}\\elysium.mkv";
+
         /// <summary>
         /// The transport stream file
         /// From: https://github.com/unosquare/ffmediaelement/issues/16#issuecomment-299183167

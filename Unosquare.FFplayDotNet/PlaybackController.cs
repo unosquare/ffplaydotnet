@@ -102,15 +102,20 @@
         {
             // Buffer some packets
             while (CanReadMorePackets && Container.Components.PacketBufferLength < packetBufferLength)
-                PacketReadingCycle.Wait(5);
+                PacketReadingCycle.Wait(1);
+
+            FrameDecodingCycle.Wait(1000);
 
             // Buffer some blocks
             while (CanReadMoreBlocks && Blocks.All(b => b.Value.CapacityPercent < 0.5d))
             {
-                PacketReadingCycle.Wait(5);
+                PacketReadingCycle.Wait(1);
+                FrameDecodingCycle.Wait(1);
                 foreach (var t in Container.Components.MediaTypes)
                     AddNextBlock(t);
             }
+
+            
 
             if (setClock)
                 Clock.Position = Blocks[Container.Components.Main.MediaType].RangeStartTime;
@@ -312,6 +317,8 @@
                     {
                         var blocks = Blocks[t];
                         renderIndex[t] = blocks.IndexOf(clockPosition);
+                        if (renderIndex[t] < 0)
+                            continue;
 
                         // Retrieve the render block
                         renderBlock[t] = blocks[renderIndex[t]];

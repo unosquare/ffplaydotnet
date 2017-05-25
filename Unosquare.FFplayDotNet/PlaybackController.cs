@@ -13,28 +13,41 @@
     {
         #region Constants
 
-        private const int MaxPacketBufferLength = 1024 * 1024 * 4;
-        private const int PacketReadBatchCount = 10;
-        private const int MaxFrameQueueCount = 24; // TODO: have different maximums for each frame queue media type
+        private static readonly int StateDictionaryCapacity = Enum.GetValues(typeof(MediaType)).Length - 1;
+        private const int MaxPacketBufferLength = 1024 * 1024 * 8; // 8MB buffer
+        private const int PacketReadBatchCount = 10; // Read 10 packets at a time
+
+        private static readonly Dictionary<MediaType, int> MaxBlocks
+            = new Dictionary<MediaType, int>()
+        {
+            { MediaType.Video, 12 },
+            { MediaType.Audio, 24 },
+            { MediaType.Subtitle, 48 }
+        };
+
+        private static readonly Dictionary<MediaType, int> MaxFrames
+            = new Dictionary<MediaType, int>()
+        {
+            { MediaType.Video, 24 },
+            { MediaType.Audio, 48 },
+            { MediaType.Subtitle, 48 }
+        };
 
         #endregion
 
         #region Private Members
 
         private MediaContainer Container;
-        private Clock Clock = new Clock();
+        private readonly Clock Clock = new Clock();
 
         private readonly Dictionary<MediaType, MediaFrameQueue> Frames
-            = new Dictionary<MediaType, MediaFrameQueue>();
+            = new Dictionary<MediaType, MediaFrameQueue>(StateDictionaryCapacity);
+
         private readonly Dictionary<MediaType, MediaBlockBuffer> Blocks
-            = new Dictionary<MediaType, MediaBlockBuffer>();
-        private readonly Dictionary<MediaType, int> BlockBufferCounts
-            = new Dictionary<MediaType, int>()
-        {
-            { MediaType.Video, MaxFrameQueueCount / 2 },
-            { MediaType.Audio, MaxFrameQueueCount },
-            { MediaType.Subtitle, MaxFrameQueueCount }
-        };
+            = new Dictionary<MediaType, MediaBlockBuffer>(StateDictionaryCapacity);
+
+        private readonly Dictionary<MediaType, TimeSpan> LastRenderTime 
+            = new Dictionary<MediaType, TimeSpan>(StateDictionaryCapacity);
 
         private Task PacketReadingTask;
         private readonly CancellationTokenSource PacketReadingCancel = new CancellationTokenSource();
@@ -61,12 +74,11 @@
         public PlaybackController(MediaContainer container)
         {
             Container = container;
-            foreach (var mediaType in Container.Components.MediaTypes)
+            foreach (var t in Container.Components.MediaTypes)
             {
-                Blocks[mediaType] =
-                    new MediaBlockBuffer(BlockBufferCounts[mediaType], mediaType);
-                Frames[mediaType] =
-                    new MediaFrameQueue();
+                Blocks[t] = new MediaBlockBuffer(MaxBlocks[t], t);
+                Frames[t] = new MediaFrameQueue();
+                LastRenderTime[t] = TimeSpan.MinValue;
             }
 
         }
@@ -95,7 +107,7 @@
         {
             var frame = Frames[t].Dequeue();
             if (frame == null) return;
-            Blocks[frame.MediaType].Add(frame, Container);
+            Blocks[t].Add(frame, Container);
         }
 
         private void BufferBlocks(int packetBufferLength, bool setClock)
@@ -147,18 +159,20 @@
             FrameDecodingCycle.Wait();
             BlockRenderingCycle.Wait();
 
-            // Clear both, frames and blocks
-            foreach (var fr in Frames)
-                fr.Value.Clear();
-
-            foreach (var block in Blocks)
-                block.Value.Clear();
+            // Clear Blocks and frames, reset the render times
+            foreach (var t in Container.Components.MediaTypes)
+            {
+                Frames[t].Clear();
+                Blocks[t].Clear();
+                LastRenderTime[t] = TimeSpan.MinValue;
+            }
 
             // Populate frame with after-seek operation
             var frames = Container.Seek(position);
             foreach (var frame in frames)
                 Frames[frame.MediaType].Push(frame);
 
+            // Resume the clock if it was running before the seek operation
             if (resumeClock)
                 Clock.Play();
 
@@ -245,7 +259,7 @@
 
                     foreach (var component in Container.Components.All)
                     {
-                        if (Frames[component.MediaType].Count >= MaxFrameQueueCount)
+                        if (Frames[component.MediaType].Count >= MaxFrames[component.MediaType])
                             continue;
 
                         if (component.PacketBufferCount <= 0)
@@ -279,14 +293,12 @@
 
                 var clockPosition = Clock.Position;
 
-                var lastRenderTime = new Dictionary<MediaType, TimeSpan>(mediaTypeCount);
                 var hasRendered = new Dictionary<MediaType, bool>(mediaTypeCount);
                 var renderIndex = new Dictionary<MediaType, int>(mediaTypeCount);
                 var renderBlock = new Dictionary<MediaType, MediaBlock>(mediaTypeCount);
 
                 foreach (var t in Container.Components.MediaTypes)
                 {
-                    lastRenderTime[t] = TimeSpan.MinValue;
                     hasRendered[t] = false;
                     renderIndex[t] = -1;
                     renderBlock[t] = null;
@@ -325,10 +337,10 @@
                         hasRendered[t] = false;
 
                         // render the frame if we have not rendered
-                        if (renderBlock[t].StartTime != lastRenderTime[t]
+                        if (renderBlock[t].StartTime != LastRenderTime[t]
                             && renderBlock[t].StartTime.Ticks <= clockPosition.Ticks)
                         {
-                            lastRenderTime[t] = renderBlock[t].StartTime;
+                            LastRenderTime[t] = renderBlock[t].StartTime;
                             hasRendered[t] = true;
                             RenderBlock(renderBlock[t], clockPosition, renderIndex[t]);
                         }
@@ -357,7 +369,7 @@
                     }
 
                     BlockRenderingCycle.Set();
-                    Thread.Sleep(2);
+                    Thread.Sleep(1);
                 }
 
                 BlockRenderingCycle.Set();

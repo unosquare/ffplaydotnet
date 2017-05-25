@@ -115,7 +115,7 @@
                     AddNextBlock(t);
             }
 
-            
+
 
             if (setClock)
                 Clock.Position = Blocks[Container.Components.Main.MediaType].RangeStartTime;
@@ -125,11 +125,11 @@
         {
             var drift = TimeSpan.FromTicks(clockPosition.Ticks - block.StartTime.Ticks);
             ($"{block.MediaType.ToString().Substring(0, 1)} "
-                + $"BLK: {block.StartTime.Debug()} | " 
+                + $"BLK: {block.StartTime.Debug()} | "
                 + $"CLK: {clockPosition.Debug()} | "
-                + $"DFT: {drift.TotalMilliseconds,4:0} | " 
+                + $"DFT: {drift.TotalMilliseconds,4:0} | "
                 + $"IX: {renderIndex,3} | "
-                + $"FQ: {Frames[block.MediaType].Count,4} | " 
+                + $"FQ: {Frames[block.MediaType].Count,4} | "
                 + $"PQ: {Container.Components[block.MediaType].PacketBufferLength / 1024d,7:0.0}k | "
                 + $"TQ: {Container.Components.PacketBufferLength / 1024d,7:0.0}k").Info(typeof(MediaContainer));
         }
@@ -325,7 +325,8 @@
                         hasRendered[t] = false;
 
                         // render the frame if we have not rendered
-                        if (renderBlock[t].StartTime != lastRenderTime[t])
+                        if (renderBlock[t].StartTime != lastRenderTime[t]
+                            && renderBlock[t].StartTime.Ticks <= clockPosition.Ticks)
                         {
                             lastRenderTime[t] = renderBlock[t].StartTime;
                             hasRendered[t] = true;

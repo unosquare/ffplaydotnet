@@ -59,7 +59,7 @@
         static void Main(string[] args)
         {
 
-            InputFile = TestInputs.FinlandiaMp3LocalFile;
+            InputFile = TestInputs.MpegPart2LocalFile;
             StartTime = 0;
             DecodeDurationLimit = 20;
             IsBenchmarking = false;

@@ -30,8 +30,8 @@
         {
             m_Pointer = (AVSubtitle*)InternalPointer;
 
-            // Extract timing information
-            var timeOffset = TimeSpan.FromTicks(frame->pts.ToTimeSpan(StreamTimeBase).Ticks - component.Container.MediaStartTimeOffset.Ticks);
+            // Extract timing information (pts for Subtitles is always in AV_TIME_BASE units)
+            var timeOffset = TimeSpan.FromTicks(frame->pts.ToTimeSpan(ffmpeg.AV_TIME_BASE).Ticks - component.Container.MediaStartTimeOffset.Ticks);
             StartTime = TimeSpan.FromTicks(timeOffset.Ticks + ((long)frame->start_display_time).ToTimeSpan(StreamTimeBase).Ticks);
             EndTime = TimeSpan.FromTicks(timeOffset.Ticks + ((long)frame->end_display_time).ToTimeSpan(StreamTimeBase).Ticks);
             Duration = TimeSpan.FromTicks(EndTime.Ticks - StartTime.Ticks);

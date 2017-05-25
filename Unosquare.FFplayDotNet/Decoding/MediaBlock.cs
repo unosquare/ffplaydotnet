@@ -6,9 +6,11 @@
     using System.Runtime.InteropServices;
 
     /// <summary>
-    /// A base class for frame containers of various types
-    /// Frame containers are uncompressed frame data that can be used for
-    /// media rendering
+    /// A base class for blocks of the deifferent MediaTypes.
+    /// Blocks are the result of decoding and scaling a frame.
+    /// Blocks have preallocated buffers wich makes them memory and CPU efficient
+    /// Reue blocks as much as possible. Once you create a block from a frame,
+    /// you don't need the frame anymore so make sure you dispose the frame.
     /// </summary>
     public abstract class MediaBlock : IComparable<MediaBlock>
     {

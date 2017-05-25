@@ -5,7 +5,7 @@
     using System.Runtime.InteropServices;
 
     /// <summary>
-    /// A video frame container. The buffer is in BGR, 24-bit format
+    /// A pre-allocated, scaled video block. The buffer is in BGR, 24-bit format
     /// </summary>
     /// <seealso cref="Unosquare.FFplayDotNet.Core.MediaBlock" />
     /// <seealso cref="System.IDisposable" />

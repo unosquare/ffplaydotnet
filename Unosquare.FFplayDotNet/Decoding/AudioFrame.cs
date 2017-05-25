@@ -5,7 +5,7 @@
     using System;
 
     /// <summary>
-    /// Represents a wrapper from an unmanaged audio frame
+    /// Represents a wrapper from an unmanaged FFmpeg audio frame
     /// </summary>
     /// <seealso cref="Unosquare.FFplayDotNet.Core.MediaFrame" />
     public unsafe sealed class AudioFrame : MediaFrame

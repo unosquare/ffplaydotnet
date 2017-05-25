@@ -6,7 +6,7 @@
     using Unosquare.FFplayDotNet.Core;
 
     /// <summary>
-    /// Performs audio sample decoding, scaling and extraction logic.
+    /// Provides audio sample extraction, decoding and scaling functionality.
     /// </summary>
     /// <seealso cref="Unosquare.FFplayDotNet.MediaComponent" />
     public sealed unsafe class AudioComponent : MediaComponent

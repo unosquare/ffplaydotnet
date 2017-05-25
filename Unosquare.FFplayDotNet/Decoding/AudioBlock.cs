@@ -5,7 +5,8 @@
     using System.Runtime.InteropServices;
 
     /// <summary>
-    /// An audio frame container. The buffer is in 16-bit signed, interleaved sample data
+    /// A scaled, preallocated audio frame container. 
+    /// The buffer is in 16-bit signed, interleaved sample data
     /// </summary>
     /// <seealso cref="Unosquare.FFplayDotNet.Core.MediaBlock" />
     /// <seealso cref="System.IDisposable" />

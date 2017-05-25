@@ -53,8 +53,14 @@
         /// </summary>
         public TimeSpan Duration { get { lock (SyncRoot) return TimeSpan.FromTicks(EndTime.Ticks - StartTime.Ticks); } }
 
+        /// <summary>
+        /// Gets the minimum start time of the frames contained in this queue.
+        /// </summary>
         public TimeSpan StartTime { get { lock (SyncRoot) return Frames.Count == 0 ? TimeSpan.Zero : Frames.Min(f => f.StartTime); } }
 
+        /// <summary>
+        /// Gets the maximum end time of the frames contained in this queue.
+        /// </summary>
         public TimeSpan EndTime { get { lock (SyncRoot) return Frames.Count == 0 ? TimeSpan.Zero : Frames.Max(f => f.EndTime); } }
         #endregion
 

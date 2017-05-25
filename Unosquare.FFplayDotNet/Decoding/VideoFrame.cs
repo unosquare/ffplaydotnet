@@ -5,7 +5,7 @@
     using System;
 
     /// <summary>
-    /// Represents a wrapper for an unmanaged video frame.
+    /// Represents a wrapper for an unmanaged ffmpeg video frame.
     /// </summary>
     /// <seealso cref="Unosquare.FFplayDotNet.Core.MediaFrame" />
     public unsafe sealed class VideoFrame : MediaFrame

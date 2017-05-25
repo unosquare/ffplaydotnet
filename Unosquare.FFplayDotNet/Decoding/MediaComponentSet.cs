@@ -1,11 +1,11 @@
 ﻿namespace Unosquare.FFplayDotNet.Decoding
 {
+    using Core;
     using FFmpeg.AutoGen;
     using System;
     using System.Collections.Generic;
     using System.Collections.ObjectModel;
     using System.Linq;
-    using Unosquare.FFplayDotNet.Core;
 
     /// <summary>
     /// Represents a set of Audio, Video and Subtitle components.

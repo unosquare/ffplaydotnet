@@ -5,7 +5,7 @@
     using Unosquare.FFplayDotNet.Core;
 
     /// <summary>
-    /// Performs subtitle text decoding and extraction logic.
+    /// Performs subtitle stream extraction, decoding and text conversion.
     /// </summary>
     /// <seealso cref="Unosquare.FFplayDotNet.MediaComponent" />
     public sealed unsafe class SubtitleComponent : MediaComponent

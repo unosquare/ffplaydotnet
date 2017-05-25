@@ -15,6 +15,10 @@
         /// </summary>
         public static string MatroskaLocalFile = $"{InputBasePath}\\matroska.mkv";
 
+        public static string FinlandiaMp3LocalFile = $"{InputBasePath}\\finlandia.mp3";
+
+        public static string FinlandiaOggLocalFile = $"{InputBasePath}\\finlandia.ogg";
+
         /// <summary>
         /// The transport stream file
         /// From: https://github.com/unosquare/ffmediaelement/issues/16#issuecomment-299183167

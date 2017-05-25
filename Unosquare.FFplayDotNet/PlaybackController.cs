@@ -15,7 +15,7 @@
 
         private const int MaxPacketBufferLength = 1024 * 1024 * 4;
         private const int PacketReadBatchCount = 10;
-        private const int MaxFrameQueueCount = 24;
+        private const int MaxFrameQueueCount = 24; // TODO: have different maximums for each frame queue media type
 
         #endregion
 
@@ -24,9 +24,12 @@
         private MediaContainer Container;
         private Clock Clock = new Clock();
 
-        private readonly Dictionary<MediaType, MediaFrameQueue> Frames = new Dictionary<MediaType, MediaFrameQueue>();
-        private readonly Dictionary<MediaType, MediaBlockBuffer> Blocks = new Dictionary<MediaType, MediaBlockBuffer>();
-        private readonly Dictionary<MediaType, int> BlockBufferCounts = new Dictionary<MediaType, int>()
+        private readonly Dictionary<MediaType, MediaFrameQueue> Frames
+            = new Dictionary<MediaType, MediaFrameQueue>();
+        private readonly Dictionary<MediaType, MediaBlockBuffer> Blocks
+            = new Dictionary<MediaType, MediaBlockBuffer>();
+        private readonly Dictionary<MediaType, int> BlockBufferCounts
+            = new Dictionary<MediaType, int>()
         {
             { MediaType.Video, MaxFrameQueueCount / 2 },
             { MediaType.Audio, MaxFrameQueueCount },
@@ -116,7 +119,14 @@
         private void RenderBlock(MediaBlock block, TimeSpan clockPosition, int renderIndex)
         {
             var drift = TimeSpan.FromTicks(clockPosition.Ticks - block.StartTime.Ticks);
-            $"{block.MediaType.ToString().Substring(0, 1)} BLK: {block.StartTime.Debug()} | CLK: {clockPosition.Debug()} | DFT: {drift.Debug()} | RIX: {renderIndex,4} | FQ: {Frames[block.MediaType].Count,4} | PQ: {Container.Components[block.MediaType].PacketBufferLength / 1024d,7:0.00} KB".Info(typeof(MediaContainer));
+            ($"{block.MediaType.ToString().Substring(0, 1)} "
+                + $"BLK: {block.StartTime.Debug()} | " 
+                + $"CLK: {clockPosition.Debug()} | "
+                + $"DFT: {drift.TotalMilliseconds,4:0} | " 
+                + $"IX: {renderIndex,3} | "
+                + $"FQ: {Frames[block.MediaType].Count,4} | " 
+                + $"PQ: {Container.Components[block.MediaType].PacketBufferLength / 1024d,7:0.0}k | "
+                + $"TQ: {Container.Components.PacketBufferLength / 1024d,7:0.0}k").Info(typeof(MediaContainer));
         }
 
         #endregion
@@ -159,7 +169,7 @@
             BlockRenderingTask = RunBlockRenderingTask();
 
             // Test seeking
-            while (true)
+            while (false)
             {
                 if (Clock.Position.TotalSeconds >= 3)
                 {
@@ -241,7 +251,7 @@
                         {
                             Frames[frame.MediaType].Push(frame);
                             decodedFrames += 1;
-                        } 
+                        }
                     }
 
                     FrameDecodingCycle.Set();

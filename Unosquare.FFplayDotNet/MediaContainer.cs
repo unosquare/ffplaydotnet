@@ -642,6 +642,7 @@
 
             // Allocate the packet to read
             var readPacket = ffmpeg.av_packet_alloc();
+            // TODO: for network streams av_read_frame will sometimes block forever. We need a way to retry or timeout or exit.
             var readResult = ffmpeg.av_read_frame(InputContext, readPacket);
             StreamLastReadTimeUtc = DateTime.UtcNow;
 
@@ -863,8 +864,13 @@
                 var firstAudioFrame = result.FirstOrDefault(f => f.MediaType == MediaType.Audio && f.StartTime <= targetTime);
                 var firstVideoFrame = result.FirstOrDefault(f => f.MediaType == MediaType.Video && f.StartTime <= targetTime);
 
-                var isAudioSeekInRange = Components.HasAudio == false || (firstAudioFrame != null && firstAudioFrame.StartTime <= targetTime);
-                var isVideoSeekInRange = Components.HasVideo == false || (firstVideoFrame != null && firstVideoFrame.StartTime <= targetTime);
+                var isAudioSeekInRange = Components.HasAudio == false 
+                    || (firstAudioFrame == null && Components.Main.MediaType != MediaType.Audio) 
+                    || (firstAudioFrame != null && firstAudioFrame.StartTime <= targetTime);
+
+                var isVideoSeekInRange = Components.HasVideo == false
+                    || (firstVideoFrame == null && Components.Main.MediaType != MediaType.Video)
+                    || (firstVideoFrame != null && firstVideoFrame.StartTime <= targetTime);
 
                 // If we have the correct range, no further processing is required.
                 if (isAudioSeekInRange && isVideoSeekInRange)
@@ -923,6 +929,13 @@
                 foreach (var kvp in outputFrames)
                 {
                     var componentFrames = kvp.Value;
+
+                    // Ignore seek target requirement if we did not get 
+                    // frames from a non-primary component
+                    if (Components.All.Count > 1
+                        && Components.Main.MediaType != kvp.Key
+                        && componentFrames.Count == 0)
+                        continue;
 
                     // cleanup frames if the output becomes too big
                     if (componentFrames.Count >= 24)

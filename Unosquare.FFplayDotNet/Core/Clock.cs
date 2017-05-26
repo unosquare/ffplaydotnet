@@ -83,7 +83,7 @@
 
         /// <summary>
         /// Sets the clock position to 0 and stops it.
-        /// The pseed ratio is not modified.
+        /// The speed ratio is not modified.
         /// </summary>
         public void Reset()
         {

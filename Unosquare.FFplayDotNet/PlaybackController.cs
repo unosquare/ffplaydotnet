@@ -10,9 +10,12 @@
     using System.Runtime.CompilerServices;
     using System.Threading;
     using System.Threading.Tasks;
+    using System.Windows.Controls;
 
     public class PlaybackController : INotifyPropertyChanged
     {
+        // TODO: implement IDisposable to dispose of blocks and frames upon closing.
+
         #region Constants
 
         private static readonly int StateDictionaryCapacity = Constants.MediaTypes.Count - 1;
@@ -34,6 +37,20 @@
             { MediaType.Audio, 48 },
             { MediaType.Subtitle, 48 }
         };
+
+        #endregion
+
+        #region Events
+
+        // TODO: implement these event handlers
+        public event EventHandler BufferingEnded;
+        public event EventHandler BufferingStarted;
+
+        public event EventHandler<MediaOpeningEventArgs> MediaOpening;
+        public event EventHandler MediaOpened;
+        public event EventHandler<MediaFailedEventArgs> MediaFailed;
+        public event EventHandler<MediaBlockAvailableEventArgs> MediaBlockAvailable;
+        public event EventHandler MediaEnded;
 
         #endregion
 
@@ -81,7 +98,6 @@
 
         #region Private Members
 
-        private readonly MediaContainer Container;
         private readonly Clock Clock = new Clock();
 
         private readonly Dictionary<MediaType, MediaFrameQueue> Frames
@@ -107,31 +123,30 @@
 
         private readonly ManualResetEventSlim SeekingDone = new ManualResetEventSlim(true);
 
-        private TimeSpan m_Position = TimeSpan.Zero;
+        private MediaState m_MediaState = MediaState.Close;
+
+        private TimeSpan? RequestedSeekPosition = null;
 
         #endregion
 
         #region Constructors
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="PlaybackController"/> class.
+        /// Initializes a new instance of the <see cref="PlaybackController" /> class.
         /// </summary>
-        /// <param name="container">The container.</param>
-        public PlaybackController(MediaContainer container)
+        public PlaybackController()
         {
-            Container = container;
-            foreach (var t in Container.Components.MediaTypes)
-            {
-                Blocks[t] = new MediaBlockBuffer(MaxBlocks[t], t);
-                Frames[t] = new MediaFrameQueue();
-                LastRenderTime[t] = TimeSpan.MinValue;
-            }
-
+            // placeholder
         }
 
         #endregion
 
         #region Properties
+
+        /// <summary>
+        /// Provides access to the undelying media container.
+        /// </summary>
+        internal MediaContainer Container { get; private set; }
 
         /// <summary>
         /// Gets a value indicating whether more packets can be read from the stream.
@@ -180,6 +195,9 @@
         /// <param name="setClock">if set to <c>true</c> [set clock].</param>
         private void BufferBlocks(int packetBufferLength, bool setClock)
         {
+            // Raise the buffering started event.
+            BufferingStarted?.Invoke(this, EventArgs.Empty);
+
             // Pause the clock while we buffer blocks
             var wasClockRunning = Clock.IsRunning;
             if (setClock) Clock.Pause();
@@ -207,6 +225,9 @@
                 if (wasClockRunning) Clock.Play();
             }
 
+            // Raise the buffering started event.
+            BufferingEnded?.Invoke(this, EventArgs.Empty);
+
         }
 
         /// <summary>
@@ -217,6 +238,9 @@
         /// <param name="renderIndex">Index of the render.</param>
         private void RenderBlock(MediaBlock block, TimeSpan clockPosition, int renderIndex)
         {
+            MediaBlockAvailable?.Invoke(this, new MediaBlockAvailableEventArgs(block, clockPosition));
+            return;
+
             var drift = TimeSpan.FromTicks(clockPosition.Ticks - block.StartTime.Ticks);
             ($"{block.MediaType.ToString().Substring(0, 1)} "
                 + $"BLK: {block.StartTime.Debug()} | "
@@ -238,6 +262,7 @@
             var startTime = DateTime.UtcNow;
             var resumeClock = Clock.IsRunning;
             Clock.Pause();
+
             SeekingDone.Reset();
             PacketReadingCycle.Wait();
             FrameDecodingCycle.Wait();
@@ -257,11 +282,13 @@
                 Frames[frame.MediaType].Push(frame);
 
             // Resume the clock if it was running before the seek operation
+            OnPropertyChanged(nameof(Position));
             if (resumeClock)
                 Clock.Play();
 
             $"SEEK D: Elapsed: {startTime.DebugElapsedUtc()}".Debug(typeof(MediaContainer));
 
+            RequestedSeekPosition = null;
             SeekingDone.Set();
         }
 
@@ -271,40 +298,79 @@
 
         public TimeSpan Position
         {
-            get { return m_Position; }
-            private set { SetProperty(ref m_Position, value); }
+            get { return Clock.Position; }
+            set { RequestedSeekPosition = value; } // TODO: this is not ready yet. It needs a lot more logic.
+        }
+
+        public double SpeedRatio
+        {
+            get { return Clock.SpeedRatio; }
+            set { Clock.SpeedRatio = value; OnPropertyChanged(); }
+        }
+
+        public MediaState State
+        {
+            get { return m_MediaState; }
+            private set { SetProperty(ref m_MediaState, value); }
+        }
+
+        public void Open(string mediaUrl)
+        {
+            try
+            {
+                Container = new MediaContainer(mediaUrl);
+                MediaOpening?.Invoke(this, new MediaOpeningEventArgs(Container.MediaOptions));
+                Container.Initialize();
+
+                foreach (var t in Container.Components.MediaTypes)
+                {
+                    Blocks[t] = new MediaBlockBuffer(MaxBlocks[t], t);
+                    Frames[t] = new MediaFrameQueue();
+                    LastRenderTime[t] = TimeSpan.MinValue;
+                }
+
+                PacketReadingTask = Task.Run(() => { RunPacketReadingTask(); }, PacketReadingCancel.Token);
+                FrameDecodingTask = Task.Run(() => { RunFrameDecodingTask(); }, FrameDecodingCancel.Token);
+                BlockRenderingTask = Task.Run(() => { RunBlockRenderingTask(); }, BlockRenderingCancel.Token);
+                MediaOpened?.Invoke(this, EventArgs.Empty);
+            }
+            catch (Exception ex)
+            {
+                MediaFailed?.Invoke(this, new MediaFailedEventArgs(ex));
+            }
+
+        }
+
+        public void Play()
+        {
+            Clock.Play();
+            BlockRenderingCycle.Wait(5);
+            State = MediaState.Play;
+        }
+
+        public void Pause()
+        {
+            Clock.Pause();
+            BlockRenderingCycle.Wait(5);
+            State = MediaState.Pause;
+        }
+
+        public void Stop()
+        {
+            Clock.Pause();
+            RequestedSeekPosition = TimeSpan.Zero;
+            BlockRenderingCycle.Wait(5);
+            State = MediaState.Stop;
+        }
+
+        public void Close()
+        {
+            throw new NotImplementedException();
+            //BlockRenderingTask.Wait();
+            //State = MediaState.Close;
         }
 
         #endregion
-
-        public void Test()
-        {
-            PacketReadingTask = Task.Run(() => { RunPacketReadingTask(); }, PacketReadingCancel.Token);
-            FrameDecodingTask = Task.Run(() => { RunFrameDecodingTask(); }, FrameDecodingCancel.Token);
-            BlockRenderingTask = Task.Run(() => { RunBlockRenderingTask(); }, BlockRenderingCancel.Token);
-
-            Clock.SpeedRatio = 0.1;
-            Clock.Play();
-
-            // Test seeking
-            while (true)
-            {
-                if (Clock.Position.TotalSeconds >= 4)
-                {
-                    //Clock.Pause();
-                    Seek(TimeSpan.FromSeconds(30));
-                    break;
-                }
-                else
-                {
-                    Thread.Sleep(1);
-                }
-            }
-
-            BlockRenderingTask.Wait();
-            $"Finished rendering everything!".Warn(typeof(MediaContainer));
-
-        }
 
         #region Task Runners
 
@@ -414,15 +480,19 @@
                 renderBlock[t] = null;
             }
 
+            // Buffer some blocks
             BufferBlocks(MaxPacketBufferLength / 8, true);
-            //Clock.Play();
 
             while (BlockRenderingCancel.IsCancellationRequested == false)
             {
+                if (RequestedSeekPosition != null)
+                    Seek(RequestedSeekPosition.Value);
+
                 SeekingDone.Wait();
                 BlockRenderingCycle.Reset();
 
                 // Capture current time and render index
+                OnPropertyChanged(nameof(Position));
                 clockPosition = Clock.Position;
                 renderIndex[main] = Blocks[main].IndexOf(clockPosition);
 
@@ -435,50 +505,54 @@
                     renderIndex[main] = Blocks[main].IndexOf(clockPosition);
                 }
 
-                if (Clock.IsRunning)
+                foreach (var t in Container.Components.MediaTypes)
                 {
-                    foreach (var t in Container.Components.MediaTypes)
+                    var blocks = Blocks[t];
+                    renderIndex[t] = blocks.IndexOf(clockPosition);
+                    if (renderIndex[t] < 0)
+                        continue;
+
+                    // Retrieve the render block
+                    renderBlock[t] = blocks[renderIndex[t]];
+                    hasRendered[t] = false;
+
+                    // render the frame if we have not rendered
+                    if (renderBlock[t].StartTime != LastRenderTime[t]
+                        && renderBlock[t].StartTime.Ticks <= clockPosition.Ticks)
                     {
-                        var blocks = Blocks[t];
-                        renderIndex[t] = blocks.IndexOf(clockPosition);
-                        if (renderIndex[t] < 0)
-                            continue;
+                        LastRenderTime[t] = renderBlock[t].StartTime;
+                        hasRendered[t] = true;
+                        RenderBlock(renderBlock[t], clockPosition, renderIndex[t]);
+                    }
 
-                        // Retrieve the render block
-                        renderBlock[t] = blocks[renderIndex[t]];
+                    // Add the next block if the conditions require us to do so:
+                    // If rendered, then we need to discard the oldest and add the newest
+                    // If the render index is greater than half, the capacity, add a new block
+                    while (hasRendered[t] || renderIndex[t] + 1 > Blocks[t].Capacity / 2)
+                    {
+                        AddNextBlock(t);
                         hasRendered[t] = false;
+                        renderIndex[t] = Blocks[t].IndexOf(clockPosition);
 
-                        // render the frame if we have not rendered
-                        if (renderBlock[t].StartTime != LastRenderTime[t]
-                            && renderBlock[t].StartTime.Ticks <= clockPosition.Ticks)
-                        {
-                            LastRenderTime[t] = renderBlock[t].StartTime;
-                            hasRendered[t] = true;
-                            RenderBlock(renderBlock[t], clockPosition, renderIndex[t]);
-                        }
-
-                        // Add the next block if the conditions require us to do so:
-                        // If rendered, then we need to discard the oldest and add the newest
-                        // If the render index is greater than half, the capacity, add a new block
-                        while (hasRendered[t] || renderIndex[t] + 1 > Blocks[t].Capacity / 2)
-                        {
-                            AddNextBlock(t);
-                            hasRendered[t] = false;
-                            renderIndex[t] = Blocks[t].IndexOf(clockPosition);
-
-                            // Stop the loop if we can't reach the conditions.
-                            if (Frames[t].Count == 0)
-                                break;
-                        }
+                        // Stop the loop if we can't reach the conditions.
+                        if (Frames[t].Count == 0)
+                            break;
                     }
                 }
 
                 // Detect end of block rendering
                 if (CanReadMoreBlocksOf(main) == false && renderIndex[main] == Blocks[main].Count - 1)
                 {
-                    // Rendered all and nothing else to read
-                    Clock.Pause();
-                    break;
+                    if (State != MediaState.Pause)
+                    {
+                        // Rendered all and nothing else to read
+                        Clock.Pause();
+                        Clock.Position = Blocks[main].RangeEndTime;
+                        State = MediaState.Pause;
+                        OnPropertyChanged(nameof(Position));
+                        MediaEnded?.Invoke(this, EventArgs.Empty);
+                    }
+
                 }
 
                 BlockRenderingCycle.Set();

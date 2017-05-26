@@ -448,7 +448,7 @@
                     {
                         // Open the input file
                         var openResult = ffmpeg.avformat_open_input(inputContext, MediaUrl, inputFormat, formatOptions.Reference);
-
+                        
                         // Validate the open operation
                         if (openResult < 0) throw new MediaContainerException($"Could not open '{MediaUrl}'. Error code: {openResult}");
                     }

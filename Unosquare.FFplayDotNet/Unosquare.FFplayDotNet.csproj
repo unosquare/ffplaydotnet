@@ -54,6 +54,7 @@
   <ItemGroup>
     <Compile Include="Core\Clock.cs" />
     <Compile Include="Core\Constants.cs" />
+    <Compile Include="Core\Events.cs" />
     <Compile Include="Decoding\AudioBlock.cs" />
     <Compile Include="Decoding\AudioFrame.cs" />
     <Compile Include="Decoding\MediaBlockBuffer.cs" />

@@ -2,6 +2,7 @@
 {
     using FFmpeg.AutoGen;
     using System;
+    using System.Collections.ObjectModel;
     using System.Linq;
 
     internal static class Constants
@@ -35,9 +36,12 @@
         public const int AVERROR_EAGAIN = -11; // http://www-numi.fnal.gov/offline_software/srt_public_context/WebDocs/Errors/unix_system_errors.html
 
 
-        public const decimal DefaultSpeedRatio = 1.0M;
+        public const double DefaultSpeedRatio = 1.0d;
 
         public const decimal MaxVolume = 1.0M;
         public const decimal MinVolume = 0.0M;
+
+        public static readonly ReadOnlyCollection<MediaType> MediaTypes 
+            = new ReadOnlyCollection<MediaType>(Enum.GetValues(typeof(MediaType)).Cast<MediaType>().ToArray());
     }
 }

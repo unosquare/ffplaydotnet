@@ -10,6 +10,7 @@
     {
         private readonly Stopwatch Chrono = new Stopwatch();
         private double OffsetMilliseconds = 0;
+        private double m_SpeedRatio = Constants.DefaultSpeedRatio;
         private readonly object SyncLock = new object();
 
         /// <summary>
@@ -30,7 +31,7 @@
             {
                 lock (SyncLock)
                     return TimeSpan.FromTicks((long)Math.Round(
-                        (OffsetMilliseconds + Chrono.ElapsedMilliseconds) * (double)TimeSpan.TicksPerMillisecond, 0));
+                        (OffsetMilliseconds + (Chrono.ElapsedMilliseconds * SpeedRatio)) * TimeSpan.TicksPerMillisecond, 0));
             }
             set
             {
@@ -49,6 +50,15 @@
         /// Gets a value indicating whether the clock is running.
         /// </summary>
         public bool IsRunning { get { lock (SyncLock) return Chrono.IsRunning; } }
+
+        /// <summary>
+        /// Gets or sets the speed ratio at which the clock runs.
+        /// </summary>
+        public double SpeedRatio
+        {
+            get { lock (SyncLock) return m_SpeedRatio; }
+            set { lock (SyncLock) { if (value < 0d) value = 0d; m_SpeedRatio = value; } }
+        }
 
         /// <summary>
         /// Starts or resumes the clock.
@@ -73,6 +83,7 @@
 
         /// <summary>
         /// Sets the clock position to 0 and stops it.
+        /// The pseed ratio is not modified.
         /// </summary>
         public void Reset()
         {

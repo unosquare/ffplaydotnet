@@ -60,7 +60,7 @@
         static void Main(string[] args)
         {
 
-            InputFile = TestInputs.BigBuckBunnyLocal;
+            InputFile = TestInputs.HlsStream;
             StartTime = 0;
             DecodeDurationLimit = 20;
             IsBenchmarking = false;

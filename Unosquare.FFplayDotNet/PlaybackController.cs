@@ -5,15 +5,17 @@
     using Swan;
     using System;
     using System.Collections.Generic;
+    using System.ComponentModel;
     using System.Linq;
+    using System.Runtime.CompilerServices;
     using System.Threading;
     using System.Threading.Tasks;
 
-    public class PlaybackController
+    public class PlaybackController : INotifyPropertyChanged
     {
         #region Constants
 
-        private static readonly int StateDictionaryCapacity = Enum.GetValues(typeof(MediaType)).Length - 1;
+        private static readonly int StateDictionaryCapacity = Constants.MediaTypes.Count - 1;
         private const int MaxPacketBufferLength = 1024 * 1024 * 8; // 8MB buffer
         private const int PacketReadBatchCount = 10; // Read 10 packets at a time
 
@@ -35,9 +37,51 @@
 
         #endregion
 
+        #region INotifyPropertyChanged Implementation
+
+        /// <summary>
+        /// Multicast event for property change notifications.
+        /// </summary>
+        public event PropertyChangedEventHandler PropertyChanged;
+
+        /// <summary>
+        /// Checks if a property already matches a desired value.  Sets the property and
+        /// notifies listeners only when necessary.
+        /// </summary>
+        /// <typeparam name="T">Type of the property.</typeparam>
+        /// <param name="storage">Reference to a property with both getter and setter.</param>
+        /// <param name="value">Desired value for the property.</param>
+        /// <param name="propertyName">Name of the property used to notify listeners.  This
+        /// value is optional and can be provided automatically when invoked from compilers that
+        /// support CallerMemberName.</param>
+        /// <returns>True if the value was changed, false if the existing value matched the
+        /// desired value.</returns>
+        private bool SetProperty<T>(ref T storage, T value, [CallerMemberName] string propertyName = null)
+        {
+            if (Equals(storage, value))
+                return false;
+
+            storage = value;
+            OnPropertyChanged(propertyName);
+            return true;
+        }
+
+        /// <summary>
+        /// Notifies listeners that a property value has changed.
+        /// </summary>
+        /// <param name="propertyName">Name of the property used to notify listeners.  This
+        /// value is optional and can be provided automatically when invoked from compilers
+        /// that support <see cref="CallerMemberNameAttribute"/>.</param>
+        private void OnPropertyChanged([CallerMemberName] string propertyName = null)
+        {
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+        }
+
+        #endregion
+
         #region Private Members
 
-        private MediaContainer Container;
+        private readonly MediaContainer Container;
         private readonly Clock Clock = new Clock();
 
         private readonly Dictionary<MediaType, MediaFrameQueue> Frames
@@ -46,7 +90,7 @@
         private readonly Dictionary<MediaType, MediaBlockBuffer> Blocks
             = new Dictionary<MediaType, MediaBlockBuffer>(StateDictionaryCapacity);
 
-        private readonly Dictionary<MediaType, TimeSpan> LastRenderTime 
+        private readonly Dictionary<MediaType, TimeSpan> LastRenderTime
             = new Dictionary<MediaType, TimeSpan>(StateDictionaryCapacity);
 
         private Task PacketReadingTask;
@@ -62,6 +106,8 @@
         private readonly ManualResetEventSlim BlockRenderingCycle = new ManualResetEventSlim(false);
 
         private readonly ManualResetEventSlim SeekingDone = new ManualResetEventSlim(true);
+
+        private TimeSpan m_Position = TimeSpan.Zero;
 
         #endregion
 
@@ -88,21 +134,37 @@
         #region Properties
 
         /// <summary>
-        /// Gets a value indicating whether this instance can read more packets.
+        /// Gets a value indicating whether more packets can be read from the stream.
+        /// This does not check if the packet queue is full.
         /// </summary>
         private bool CanReadMorePackets { get { return Container.IsAtEndOfStream == false; } }
 
+        /// <summary>
+        /// Gets a value indicating whether more frames can be decoded from the packet queue.
+        /// That is, if we have packets in the packet buffer or if we are not at the end of the stream.
+        /// </summary>
         private bool CanReadMoreFrames { get { return Container.Components.PacketBufferLength > 0 || CanReadMorePackets; } }
 
+        /// <summary>
+        /// Gets a value indicating whether more frames can be converted into blocks.
+        /// </summary>
         private bool CanReadMoreBlocks { get { return Frames.Any(f => f.Value.Count > 0) || CanReadMoreFrames || CanReadMorePackets; } }
-
-        private bool CanReadMoreBlocksOf(MediaType t) { return Frames[t].Count > 0 || CanReadMoreFrames || CanReadMorePackets; }
-
 
         #endregion
 
         #region Methods
 
+        /// <summary>
+        /// Gets a value indicating whether more frames can be converted into blocks of the given type.
+        /// </summary>
+        private bool CanReadMoreBlocksOf(MediaType t) { return Frames[t].Count > 0 || CanReadMoreFrames || CanReadMorePackets; }
+
+        /// <summary>
+        /// Dequeues the next available frame and converts it into a block of the appropriate type,
+        /// adding it to the correpsonding block buffer. If there is no more blocks in the pool, then 
+        /// more room is provided automatically.
+        /// </summary>
+        /// <param name="t">The media type.</param>
         private void AddNextBlock(MediaType t)
         {
             var frame = Frames[t].Dequeue();
@@ -110,12 +172,23 @@
             Blocks[t].Add(frame, Container);
         }
 
+        /// <summary>
+        /// Buffers some packets which in turn get decoded into frames and then
+        /// converted into blocks.
+        /// </summary>
+        /// <param name="packetBufferLength">Length of the packet buffer.</param>
+        /// <param name="setClock">if set to <c>true</c> [set clock].</param>
         private void BufferBlocks(int packetBufferLength, bool setClock)
         {
+            // Pause the clock while we buffer blocks
+            var wasClockRunning = Clock.IsRunning;
+            if (setClock) Clock.Pause();
+
             // Buffer some packets
             while (CanReadMorePackets && Container.Components.PacketBufferLength < packetBufferLength)
                 PacketReadingCycle.Wait(1);
 
+            // Wait up to 1 second to decode frames. This happens much faster but 1s is plenty.
             FrameDecodingCycle.Wait(1000);
 
             // Buffer some blocks
@@ -127,12 +200,21 @@
                     AddNextBlock(t);
             }
 
-
-
+            // Resume and set the clock if requested.
             if (setClock)
+            {
                 Clock.Position = Blocks[Container.Components.Main.MediaType].RangeStartTime;
+                if (wasClockRunning) Clock.Play();
+            }
+
         }
 
+        /// <summary>
+        /// The render block callback that updates the reported media position
+        /// </summary>
+        /// <param name="block">The block.</param>
+        /// <param name="clockPosition">The clock position.</param>
+        /// <param name="renderIndex">Index of the render.</param>
         private void RenderBlock(MediaBlock block, TimeSpan clockPosition, int renderIndex)
         {
             var drift = TimeSpan.FromTicks(clockPosition.Ticks - block.StartTime.Ticks);
@@ -146,9 +228,11 @@
                 + $"TQ: {Container.Components.PacketBufferLength / 1024d,7:0.0}k").Info(typeof(MediaContainer));
         }
 
-        #endregion
-
-        public void Seek(TimeSpan position)
+        /// <summary>
+        /// Performs a seek operation to the specified position.
+        /// </summary>
+        /// <param name="position">The position.</param>
+        private void Seek(TimeSpan position)
         {
             SeekingDone.Wait();
             var startTime = DateTime.UtcNow;
@@ -181,17 +265,33 @@
             SeekingDone.Set();
         }
 
+        #endregion
+
+        #region Public API
+
+        public TimeSpan Position
+        {
+            get { return m_Position; }
+            private set { SetProperty(ref m_Position, value); }
+        }
+
+        #endregion
+
         public void Test()
         {
-            PacketReadingTask = RunPacketReadingTask();
-            FrameDecodingTask = RunFrameDecodingTask();
-            BlockRenderingTask = RunBlockRenderingTask();
+            PacketReadingTask = Task.Run(() => { RunPacketReadingTask(); }, PacketReadingCancel.Token);
+            FrameDecodingTask = Task.Run(() => { RunFrameDecodingTask(); }, FrameDecodingCancel.Token);
+            BlockRenderingTask = Task.Run(() => { RunBlockRenderingTask(); }, BlockRenderingCancel.Token);
+
+            Clock.SpeedRatio = 0.1;
+            Clock.Play();
 
             // Test seeking
-            while (false)
+            while (true)
             {
-                if (Clock.Position.TotalSeconds >= 3)
+                if (Clock.Position.TotalSeconds >= 4)
                 {
+                    //Clock.Pause();
                     Seek(TimeSpan.FromSeconds(30));
                     break;
                 }
@@ -209,122 +309,134 @@
         #region Task Runners
 
         /// <summary>
-        /// Runs the read task which keeps a packet buffer healthy.
+        /// Runs the read task which keeps a packet buffer as full as possible.
         /// </summary>
-        private Task RunPacketReadingTask()
+        private void RunPacketReadingTask()
         {
-            return Task.Run(() =>
+            var packetsRead = 0;
+
+            while (!PacketReadingCancel.IsCancellationRequested)
             {
-                var packetsRead = 0;
+                // Enter a read cycle
+                SeekingDone.Wait();
+                PacketReadingCycle.Reset();
 
-                while (!PacketReadingCancel.IsCancellationRequested)
+                // Read a bunch of packets at a time
+                packetsRead = 0;
+                while (CanReadMorePackets
+                    && packetsRead < PacketReadBatchCount
+                    && Container.Components.PacketBufferLength < MaxPacketBufferLength)
                 {
-                    // Enter a read cycle
-                    SeekingDone.Wait();
-                    PacketReadingCycle.Reset();
-
-                    // Read a bunch of packets at a time
-                    packetsRead = 0;
-                    while (CanReadMorePackets
-                        && packetsRead < PacketReadBatchCount
-                        && Container.Components.PacketBufferLength < MaxPacketBufferLength)
-                    {
-                        Container.Read();
-                        packetsRead++;
-                    }
-
-                    PacketReadingCycle.Set();
-
-                    if (!CanReadMorePackets || Container.Components.PacketBufferLength > MaxPacketBufferLength)
-                        Thread.Sleep(1);
-
+                    Container.Read();
+                    packetsRead++;
                 }
 
                 PacketReadingCycle.Set();
 
-            }, PacketReadingCancel.Token);
+                if (!CanReadMorePackets || Container.Components.PacketBufferLength > MaxPacketBufferLength)
+                    Thread.Sleep(1);
+
+            }
+
+            PacketReadingCycle.Set();
         }
 
-        private Task RunFrameDecodingTask()
+        /// <summary>
+        /// Continually decodes the available packet buffer to have as
+        /// many frames as possible in each frame queue and 
+        /// up to the MaxFrames on each component
+        /// </summary>
+        private void RunFrameDecodingTask()
         {
-            return Task.Run(() =>
+            while (FrameDecodingCancel.IsCancellationRequested == false)
             {
-                while (FrameDecodingCancel.IsCancellationRequested == false)
+                // Wait for a seek operation to complete (if any)
+                // and initiate a decoding cycle.
+                SeekingDone.Wait();
+                FrameDecodingCycle.Reset();
+
+                // Decode Frames if necessary
+                var decodedFrames = 0;
+
+                // Decode frames for each of the components
+                foreach (var component in Container.Components.All)
                 {
-                    SeekingDone.Wait();
-                    FrameDecodingCycle.Reset();
+                    // Check if we can accept more frames
+                    if (Frames[component.MediaType].Count >= MaxFrames[component.MediaType])
+                        continue;
 
-                    // Decode Frames if necessary
-                    var decodedFrames = 0;
+                    // Don't do anything if we don't have packets to decode
+                    if (component.PacketBufferCount <= 0)
+                        continue;
 
-                    foreach (var component in Container.Components.All)
+                    // Push the decoded frames
+                    var frames = component.DecodeNextPacket();
+                    foreach (var frame in frames)
                     {
-                        if (Frames[component.MediaType].Count >= MaxFrames[component.MediaType])
-                            continue;
-
-                        if (component.PacketBufferCount <= 0)
-                            continue;
-
-                        var frames = component.DecodeNextPacket();
-                        foreach (var frame in frames)
-                        {
-                            Frames[frame.MediaType].Push(frame);
-                            decodedFrames += 1;
-                        }
+                        Frames[frame.MediaType].Push(frame);
+                        decodedFrames += 1;
                     }
-
-                    FrameDecodingCycle.Set();
-                    if (decodedFrames <= 0)
-                        Thread.Sleep(1);
-
                 }
 
+                // Complete the frame decoding cycle
                 FrameDecodingCycle.Set();
 
-            }, FrameDecodingCancel.Token);
+                // Give it a break if there wa snothing to decode.
+                if (decodedFrames <= 0)
+                    Thread.Sleep(1);
+
+            }
+
+            FrameDecodingCycle.Set();
         }
 
-        private Task RunBlockRenderingTask()
+        /// <summary>
+        /// Continuously converts frmes and places them on the corresponding
+        /// block buffer. This task is responsible for keeping track of the clock
+        /// and calling the render methods appropriate for the current clock position.
+        /// </summary>
+        /// <returns></returns>
+        private void RunBlockRenderingTask()
         {
-            return Task.Run(() =>
+            var mediaTypeCount = Container.Components.MediaTypes.Length;
+            var main = Container.Components.Main.MediaType;
+
+            var clockPosition = Clock.Position;
+
+            var hasRendered = new Dictionary<MediaType, bool>(mediaTypeCount);
+            var renderIndex = new Dictionary<MediaType, int>(mediaTypeCount);
+            var renderBlock = new Dictionary<MediaType, MediaBlock>(mediaTypeCount);
+
+            foreach (var t in Container.Components.MediaTypes)
             {
-                var mediaTypeCount = Container.Components.MediaTypes.Length;
-                var main = Container.Components.Main.MediaType;
+                hasRendered[t] = false;
+                renderIndex[t] = -1;
+                renderBlock[t] = null;
+            }
 
-                var clockPosition = Clock.Position;
+            BufferBlocks(MaxPacketBufferLength / 8, true);
+            //Clock.Play();
 
-                var hasRendered = new Dictionary<MediaType, bool>(mediaTypeCount);
-                var renderIndex = new Dictionary<MediaType, int>(mediaTypeCount);
-                var renderBlock = new Dictionary<MediaType, MediaBlock>(mediaTypeCount);
+            while (BlockRenderingCancel.IsCancellationRequested == false)
+            {
+                SeekingDone.Wait();
+                BlockRenderingCycle.Reset();
 
-                foreach (var t in Container.Components.MediaTypes)
+                // Capture current time and render index
+                clockPosition = Clock.Position;
+                renderIndex[main] = Blocks[main].IndexOf(clockPosition);
+
+                // Check for out-of sync issues (i.e. after seeking)
+                if (Blocks[main].IsInRange(clockPosition) == false || renderIndex[main] < 0)
                 {
-                    hasRendered[t] = false;
-                    renderIndex[t] = -1;
-                    renderBlock[t] = null;
-                }
-
-                BufferBlocks(MaxPacketBufferLength / 8, true);
-                Clock.Play();
-
-                while (BlockRenderingCancel.IsCancellationRequested == false)
-                {
-                    SeekingDone.Wait();
-                    BlockRenderingCycle.Reset();
-
-                    // Capture current time and render index
+                    BufferBlocks(MaxPacketBufferLength / 4, true);
+                    $"SYNC              CLK: {clockPosition.Debug()} | TGT: {Blocks[main].RangeStartTime.Debug()}".Warn(typeof(MediaContainer));
                     clockPosition = Clock.Position;
                     renderIndex[main] = Blocks[main].IndexOf(clockPosition);
+                }
 
-                    // Check for out-of sync issues (i.e. after seeking)
-                    if (Blocks[main].IsInRange(clockPosition) == false || renderIndex[main] < 0)
-                    {
-                        BufferBlocks(MaxPacketBufferLength / 4, true);
-                        $"SYNC              CLK: {clockPosition.Debug()} | TGT: {Blocks[main].RangeStartTime.Debug()}".Warn(typeof(MediaContainer));
-                        clockPosition = Clock.Position;
-                        renderIndex[main] = Blocks[main].IndexOf(clockPosition);
-                    }
-
+                if (Clock.IsRunning)
+                {
                     foreach (var t in Container.Components.MediaTypes)
                     {
                         var blocks = Blocks[t];
@@ -359,22 +471,21 @@
                                 break;
                         }
                     }
+                }
 
-                    // Detect end of block rendering
-                    if (CanReadMoreBlocksOf(main) == false && renderIndex[main] == Blocks[main].Count - 1)
-                    {
-                        // Rendered all and nothing else to read
-                        Clock.Pause();
-                        break;
-                    }
-
-                    BlockRenderingCycle.Set();
-                    Thread.Sleep(1);
+                // Detect end of block rendering
+                if (CanReadMoreBlocksOf(main) == false && renderIndex[main] == Blocks[main].Count - 1)
+                {
+                    // Rendered all and nothing else to read
+                    Clock.Pause();
+                    break;
                 }
 
                 BlockRenderingCycle.Set();
+                Thread.Sleep(1);
+            }
 
-            }, BlockRenderingCancel.Token);
+            BlockRenderingCycle.Set();
         }
 
         #endregion

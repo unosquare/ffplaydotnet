@@ -1,23 +1,23 @@
 ﻿namespace Unosquare.FFplayDotNet
 {
+    using Core;
+    using Decoding;
     using FFmpeg.AutoGen;
+    using Swan;
     using System;
     using System.Collections.Generic;
     using System.Diagnostics;
     using System.Linq;
     using System.Threading;
-    using Unosquare.FFplayDotNet.Core;
-    using Unosquare.FFplayDotNet.Decoding;
-    using Unosquare.Swan;
 
     /// <summary>
     /// A container capable of opening an input url,
     /// reading packets from it, decoding frames, seeking, and pausing and resuming network streams
     /// Code heavily based on https://raw.githubusercontent.com/FFmpeg/FFmpeg/release/3.2/ffplay.c
     /// The method pipeline should be: 
-    /// 1. Set Options (or don't for automatic options) and Initialize, 
+    /// 1. Set Options (or don't, for automatic options) and Initialize, 
     /// 2. Perform continuous Reads, 
-    /// 3. Perform continuous Decode and Materialize
+    /// 3. Perform continuous Decodes and Converts
     /// </summary>
     /// <seealso cref="System.IDisposable" />
     public unsafe sealed class MediaContainer : IDisposable
@@ -115,6 +115,19 @@
         /// Typically 0 but it could be something other than 0.
         /// </summary>
         internal TimeSpan MediaStartTimeOffset { get; private set; }
+
+        /// <summary>
+        /// Gets the seek start timestamp.
+        /// </summary>
+        internal long SeekStartTimestamp
+        {
+            get
+            {
+                var startSeekTime = (long)(MediaStartTimeOffset.TotalSeconds * ffmpeg.AV_TIME_BASE);
+                if (MediaSeeksByBytes) startSeekTime = 0;
+                return startSeekTime;
+            }
+        }
 
         /// <summary>
         /// Gets the duration of the media.
@@ -477,7 +490,7 @@
                     $"Unable to determine the media start time offset. Media start time offset will be set to zero.".Warn(typeof(MediaContainer));
                     MediaStartTimeOffset = TimeSpan.Zero;
                 }
-                    
+
                 MediaDuration = InputContext->duration.ToTimeSpan();
 
                 // Open the best suitable streams. Throw if no audio and/or video streams are found
@@ -558,40 +571,38 @@
                                         &requestedCodec, 0);
             }
 
-            var allMediaTypes = Enum.GetValues(typeof(MediaType));
 
-            foreach (var mediaTypeItem in allMediaTypes)
+            foreach (var t in Constants.MediaTypes)
             {
-                if ((int)mediaTypeItem < 0) continue;
-                var mediaType = (MediaType)mediaTypeItem;
+                if (t < 0) continue;
 
                 try
                 {
-                    if (streamIndexes[(int)mediaType] >= 0)
+                    if (streamIndexes[(int)t] >= 0)
                     {
-                        switch (mediaType)
+                        switch (t)
                         {
                             case MediaType.Video:
-                                Components[mediaType] = new VideoComponent(this, streamIndexes[(int)mediaType]);
+                                Components[t] = new VideoComponent(this, streamIndexes[(int)t]);
                                 break;
                             case MediaType.Audio:
-                                Components[mediaType] = new AudioComponent(this, streamIndexes[(int)mediaType]);
+                                Components[t] = new AudioComponent(this, streamIndexes[(int)t]);
                                 break;
                             case MediaType.Subtitle:
-                                Components[mediaType] = new SubtitleComponent(this, streamIndexes[(int)mediaType]);
+                                Components[t] = new SubtitleComponent(this, streamIndexes[(int)t]);
                                 break;
                             default:
                                 continue;
                         }
 
                         if (Debugger.IsAttached)
-                            $"{mediaType}: Selected Stream Index = {Components[mediaType].StreamIndex}".Info(typeof(MediaContainer));
+                            $"{t}: Selected Stream Index = {Components[t].StreamIndex}".Info(typeof(MediaContainer));
                     }
 
                 }
                 catch (Exception ex)
                 {
-                    $"Unable to initialize {mediaType.ToString()} component. {ex.Message}".Error(typeof(MediaContainer));
+                    $"Unable to initialize {t.ToString()} component. {ex.Message}".Error(typeof(MediaContainer));
                 }
             }
 
@@ -753,11 +764,8 @@
         private void StreamSeekToStart()
         {
             if (MediaStartTimeOffset == TimeSpan.MinValue) return;
-            var startSeekTime = (long)(MediaStartTimeOffset.TotalSeconds * ffmpeg.AV_TIME_BASE);
-            if (MediaSeeksByBytes) startSeekTime = 0;
-
-            var seekResult = ffmpeg.av_seek_frame(InputContext, -1,
-                startSeekTime, ffmpeg.AVSEEK_FLAG_BACKWARD);
+            var seekResult = ffmpeg.av_seek_frame(InputContext, -1, SeekStartTimestamp,
+                MediaSeeksByBytes ? ffmpeg.AVSEEK_FLAG_BYTE : ffmpeg.AVSEEK_FLAG_BACKWARD);
 
             Components.ClearPacketQueues();
             RequiresPictureAttachments = true;
@@ -835,15 +843,29 @@
 
             // Perform long seeks until we end up with a relative target time where decoding
             // of frames before or on target time is possible.
-            while (relativeTargetTime.Ticks >= main.StartTimeOffset.Ticks)
+            var isAtStartOfStream = false;
+            while (isAtStartOfStream == false)
             {
                 // Compute the seek target, mostly based on the relative Target Time
                 var seekTarget = MediaSeeksByBytes ?
                     (long)(MediaBitrate * relativeTargetTime.TotalSeconds / 8d) :
                     (long)Math.Round((relativeTargetTime.TotalSeconds) * timeBase.den / timeBase.num, 0);
 
-                //Perofrm the seek. There is also avformat_seek_file which is the older version of av_seek_frame
-                seekResult = ffmpeg.av_seek_frame(InputContext, streamIndex, seekTarget, seekFlags);
+                // Perform the seek. There is also avformat_seek_file which is the older version of av_seek_frame
+                // Check if we are seeking before the start of the stream in this cyle. If so, simply seek to the
+                // begining of the stream. Otherwise, seek normally.
+                if (relativeTargetTime.Ticks <= main.StartTimeOffset.Ticks)
+                {
+                    seekResult = ffmpeg.av_seek_frame(InputContext, -1, SeekStartTimestamp, seekFlags);
+                    isAtStartOfStream = true;
+                }
+                else
+                {
+                    seekResult = ffmpeg.av_seek_frame(InputContext, streamIndex, seekTarget, seekFlags);
+                    isAtStartOfStream = false;
+                }
+
+
                 $"SEEK L: Elapsed: {startTime.DebugElapsedUtc()} | Target: {relativeTargetTime.Debug()} | Seek: {seekTarget.Debug()} | P0: {startPos.Debug(1024)} | P1: {StreamPosition.Debug(1024)} ".Trace(typeof(MediaContainer));
 
                 // Flush the buffered packets and codec on every seek.
@@ -864,8 +886,8 @@
                 var firstAudioFrame = result.FirstOrDefault(f => f.MediaType == MediaType.Audio && f.StartTime <= targetTime);
                 var firstVideoFrame = result.FirstOrDefault(f => f.MediaType == MediaType.Video && f.StartTime <= targetTime);
 
-                var isAudioSeekInRange = Components.HasAudio == false 
-                    || (firstAudioFrame == null && Components.Main.MediaType != MediaType.Audio) 
+                var isAudioSeekInRange = Components.HasAudio == false
+                    || (firstAudioFrame == null && Components.Main.MediaType != MediaType.Audio)
                     || (firstAudioFrame != null && firstAudioFrame.StartTime <= targetTime);
 
                 var isVideoSeekInRange = Components.HasVideo == false

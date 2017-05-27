@@ -36,8 +36,29 @@
         internal AudioComponent(MediaContainer container, int streamIndex)
             : base(container, streamIndex)
         {
-            // Placeholder. Nothing else to init.
+            Channels = Stream->codec->channels;
+            SampleRate = Stream->codec->sample_rate;
+            BitsPerSample = Stream->codec->bits_per_raw_sample;
         }
+
+        #endregion
+
+        #region Properties
+
+        /// <summary>
+        /// Gets the number of audio channels.
+        /// </summary>
+        public int Channels { get; private set; }
+
+        /// <summary>
+        /// Gets the audio sample rate.
+        /// </summary>
+        public int SampleRate { get; private set; }
+
+        /// <summary>
+        /// Gets the bits per sample.
+        /// </summary>
+        public int BitsPerSample { get; private set; }
 
         #endregion
 

@@ -1,5 +1,6 @@
 ﻿namespace Unosquare.FFplayDotNet.Core
 {
+    using System;
     using System.Collections.Generic;
     using Unosquare.FFplayDotNet.Core;
 
@@ -9,6 +10,20 @@
     public class MediaOptions
     {
         // TODO: Support specific stream selection for each component
+
+        public MediaOptions()
+        {
+            FormatOptions["usetoc"] = "1";
+
+            FormatOptions["user_agent"] = $"{typeof(MediaOptions).Namespace}/{typeof(MediaOptions).Assembly.GetName().Version}";
+            FormatOptions["headers"] = $"Referer:https://www.unosquare.com";
+            FormatOptions["timeout"] = $"{30 * 1000000}"; // in nanoseconds
+            FormatOptions["multiple_requests"] = "1";
+            FormatOptions["reconnect"] = "1";
+            FormatOptions["reconnect_at_eof"] = "1";
+            FormatOptions["reconnect_streamed"] = "1";
+            FormatOptions["reconnect_delay_max"] = "10"; // in seconds
+        }
 
         /// <summary>
         /// Gets or sets the forced input format. If let null or empty,

@@ -45,10 +45,13 @@
         internal VideoComponent(MediaContainer container, int streamIndex)
             : base(container, streamIndex)
         {
-            BaseFrameRate = Stream->r_frame_rate.ToDouble();
+            BaseFrameRate = Stream->codec->framerate.ToDouble();
             CurrentFrameRate = Stream->avg_frame_rate.ToDouble();
             if (double.IsNaN(CurrentFrameRate))
                 CurrentFrameRate = BaseFrameRate;
+
+            FrameWidth = Stream->codec->width;
+            FrameHeight = Stream->codec->height;
         }
 
         #endregion
@@ -66,6 +69,16 @@
         /// Variable framerate might report different values at different times.
         /// </summary>
         public double CurrentFrameRate { get; private set; }
+
+        /// <summary>
+        /// Gets the width of the picture frame.
+        /// </summary>
+        public int FrameWidth { get; private set; }
+
+        /// <summary>
+        /// Gets the height of the picture frame.
+        /// </summary>
+        public int FrameHeight { get; private set; }
 
         #endregion
 

@@ -112,6 +112,16 @@
         /// </summary>
         public int PacketBufferCount { get { return Packets.Count; } }
 
+        /// <summary>
+        /// Gets the name of the codec for this component.
+        /// </summary>
+        public string Codec { get; }
+
+        /// <summary>
+        /// Gets the bitrate of this component. Return 0 for unknown.
+        /// </summary>
+        public int Bitrate { get; }
+
         #endregion
 
         #region Constructor
@@ -209,7 +219,8 @@
             else
                 Duration = Stream->duration.ToTimeSpan(Stream->time_base);
 
-
+            Codec = Stream->codec->codec_id.ToString();
+            Bitrate = (int)Stream->codec->bit_rate;
             $"{MediaType}: Start Offset: {StartTimeOffset.Debug()}; Duration: {Duration.Debug()}".Trace(typeof(MediaContainer));
 
         }

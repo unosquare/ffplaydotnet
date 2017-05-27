@@ -13,6 +13,9 @@
 
         private bool m_IsPlaying = false;
         private bool m_HasMediaEnded = false;
+        private double m_BufferingProgress = 0;
+        private double m_DownloadProgress = 0;
+        private bool m_IsBuffering = false;
 
         #endregion
 
@@ -130,6 +133,35 @@
             private set { SetProperty(ref m_HasMediaEnded, value); }
         }
 
+        /// <summary>
+        /// Gets a value that indicates the percentage of buffering progress made.
+        /// Range is from 0 to 1
+        /// </summary>
+        public double BufferingProgress
+        {
+            get { return m_BufferingProgress; }
+            private set { SetProperty(ref m_BufferingProgress, value); }
+        }
+
+        /// <summary>
+        /// Gets a value that indicates the percentage of download progress made.
+        /// Range is from 0 to 1
+        /// </summary>
+        public double DownloadProgress
+        {
+            get { return m_DownloadProgress; }
+            private set { SetProperty(ref m_DownloadProgress, value); }
+        }
+
+        /// <summary>
+        /// Get a value indicating whether the media is buffering.
+        /// </summary>
+        public bool IsBuffering
+        {
+            get { return m_IsBuffering; }
+            private set { SetProperty(ref m_IsBuffering, value); }
+        }
+
         #endregion
 
         #region Methods
@@ -165,6 +197,9 @@
                 //Position = Media.Position;
             }
 
+            DownloadProgress = 0;
+            BufferingProgress = 0;
+            IsBuffering = false;
             IsMuted = false;
             HasMediaEnded = false;
             SpeedRatio = Constants.DefaultSpeedRatio;

@@ -7,9 +7,7 @@
     /// <summary>
     /// A pre-allocated, scaled video block. The buffer is in BGR, 24-bit format
     /// </summary>
-    /// <seealso cref="Unosquare.FFplayDotNet.Core.MediaBlock" />
-    /// <seealso cref="System.IDisposable" />
-    public sealed class VideoBlock : MediaBlock, IDisposable
+    public sealed class VideoBlock : MediaBlock
     {
         #region Private Members
 
@@ -88,7 +86,7 @@
         /// <summary>
         /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
         /// </summary>
-        public void Dispose()
+        public override void Dispose()
         {
             Dispose(true);
         }

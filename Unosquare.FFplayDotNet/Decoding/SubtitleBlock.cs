@@ -6,7 +6,6 @@
     /// <summary>
     /// A subtitle frame container. Simply contains text lines.
     /// </summary>
-    /// <seealso cref="Unosquare.FFplayDotNet.Core.MediaBlock" />
     public sealed class SubtitleBlock : MediaBlock
     {
         #region Properties
@@ -22,5 +21,13 @@
         public List<string> Text { get; } = new List<string>(16);
 
         #endregion
+
+        /// <summary>
+        /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
+        /// </summary>
+        public override void Dispose()
+        {
+            // nothing to dispose.
+        }
     }
 }

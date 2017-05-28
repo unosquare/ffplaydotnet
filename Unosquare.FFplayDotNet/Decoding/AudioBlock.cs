@@ -5,12 +5,10 @@
     using System.Runtime.InteropServices;
 
     /// <summary>
-    /// A scaled, preallocated audio frame container. 
+    /// A scaled, preallocated audio frame container.
     /// The buffer is in 16-bit signed, interleaved sample data
     /// </summary>
-    /// <seealso cref="Unosquare.FFplayDotNet.Core.MediaBlock" />
-    /// <seealso cref="System.IDisposable" />
-    public sealed class AudioBlock : MediaBlock, IDisposable
+    public sealed class AudioBlock : MediaBlock
     {
         #region Private Members
 
@@ -90,7 +88,7 @@
         /// <summary>
         /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
         /// </summary>
-        public void Dispose()
+        public override void Dispose()
         {
             Dispose(true);
         }

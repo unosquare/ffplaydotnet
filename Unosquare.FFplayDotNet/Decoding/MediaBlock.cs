@@ -12,7 +12,7 @@
     /// Reue blocks as much as possible. Once you create a block from a frame,
     /// you don't need the frame anymore so make sure you dispose the frame.
     /// </summary>
-    public abstract class MediaBlock : IComparable<MediaBlock>
+    public abstract class MediaBlock : IComparable<MediaBlock>, IDisposable
     {
         /// <summary>
         /// Gets the media type of the data
@@ -45,6 +45,11 @@
         {
             return StartTime.CompareTo(other.StartTime);
         }
+
+        /// <summary>
+        /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
+        /// </summary>
+        public abstract void Dispose();
     }
 
 }

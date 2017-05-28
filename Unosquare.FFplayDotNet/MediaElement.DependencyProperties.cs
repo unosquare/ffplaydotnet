@@ -28,16 +28,14 @@
         /// <param name="e">The <see cref="DependencyPropertyChangedEventArgs"/> instance containing the event data.</param>
         private static void OnSourcePropertyChanged(DependencyObject dependencyObject, DependencyPropertyChangedEventArgs e)
         {
-            //var element = dependencyObject as MediaElement;
-            //if (element == null) return;
+            var element = dependencyObject as MediaElement;
+            if (element == null) return;
 
-            //var uri = e.NewValue as Uri;
-            //if (uri != null)
-            //    element.OpenMedia(uri);
-            //else
-            //    element.CloseMedia(true);
-
-            // PLACEHOLDER
+            var uri = e.NewValue as Uri;
+            if (uri != null)
+                element.Open(uri);
+            else
+                element.Close();
         }
 
         private static object OnSourcePropertyCoerce(DependencyObject dependencyObject, object baseValue)
@@ -48,12 +46,12 @@
             var uri = baseValue as Uri;
             if (uri != null)
             {
-                //element.CloseMedia(true);
-                //element.OpenMedia(uri, element.Referer, element.UserAgent);
+                element.Close();
+                element.Open(uri);
             }
             else
             {
-                //element.CloseMedia(true);
+                element.Close();
             }
 
             return uri;
@@ -358,7 +356,7 @@
         {
             var element = d as MediaElement;
             if (element == null) return;
-            if (element.Media == null) return;
+            if (element.Container == null) return;
 
             var newValue = (bool)e.NewValue;
             var oldValue = (bool)e.OldValue;
@@ -398,7 +396,7 @@
         {
             var element = d as MediaElement;
             if (element == null) return;
-            if (element.Media == null) return;
+            if (element.Container == null) return;
 
             // TODO: Implement here
         }
@@ -407,7 +405,7 @@
         {
             var element = d as MediaElement;
             if (element == null) return TimeSpan.Zero;
-            if (element.Media == null) return TimeSpan.Zero;
+            if (element.Container == null) return TimeSpan.Zero;
             //if (element.Media.IsStreamRealtime) return element.Media.Position;
 
             return (TimeSpan)value;
@@ -444,7 +442,7 @@
         {
             var element = d as MediaElement;
             if (element == null) return;
-            if (element.Media == null) return;
+            if (element.Container == null) return;
 
             var targetSpeedRatio = (double)e.NewValue;
             //element.Media.SpeedRatio = targetSpeedRatio;
@@ -454,8 +452,8 @@
         {
             var element = d as MediaElement;
             if (element == null) return Constants.DefaultSpeedRatio;
-            if (element.Media == null) return Constants.DefaultSpeedRatio;
-            if (element.Media.IsStreamRealtime) return Constants.DefaultSpeedRatio;
+            if (element.Container == null) return Constants.DefaultSpeedRatio;
+            if (element.Container.IsStreamRealtime) return Constants.DefaultSpeedRatio;
             return value;
         }
 

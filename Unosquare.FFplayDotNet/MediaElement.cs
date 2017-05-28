@@ -30,9 +30,6 @@
         // The target bitmap is where the video image will be held
         private WriteableBitmap TargetBitmap = null;
 
-        // The conatiner will hold access to media
-        private MediaContainer Media = null;
-
         /// <summary>
         /// Gets or sets the horizontal alignment characteristics applied to this element when it is composed within a parent element, such as a panel or items control.
         /// </summary>
@@ -47,17 +44,6 @@
                 ViewBox.HorizontalAlignment = value;
                 base.HorizontalAlignment = value;
             }
-        }
-
-        /// <summary>
-        /// Gets a clone of the current frame being displayed
-        /// </summary>
-        /// <returns>Clone of the current frame</returns>
-        public WriteableBitmap GetCurrentFrame()
-        {
-            // TODO: maybe change the name here or do something about this method.
-            // as it is non-standard
-            return TargetBitmap.Clone();
         }
 
         #endregion
@@ -121,10 +107,10 @@
             if (alsoManaged)
             {
                 // free managed resources
-                if (Media != null)
+                if (Container != null)
                 {
-                    Media.Dispose();
-                    Media = null;
+                    Container.Dispose();
+                    Container = null;
                 }
 
             }

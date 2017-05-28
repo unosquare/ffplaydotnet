@@ -16,6 +16,7 @@
         private double m_BufferingProgress = 0;
         private double m_DownloadProgress = 0;
         private bool m_IsBuffering = false;
+        private MediaState m_MediaState = MediaState.Close;
 
         #endregion
 
@@ -25,92 +26,92 @@
         /// Returns whether the given media has audio. 
         /// Only valid after the MediaOpened event has fired.
         /// </summary> 
-        public bool HasAudio { get { return Media == null ? false : Media.Components.HasAudio; } }
+        public bool HasAudio { get { return Container == null ? false : Container.Components.HasAudio; } }
 
         /// <summary> 
         /// Returns whether the given media has video. Only valid after the
         /// MediaOpened event has fired.
         /// </summary>
-        public bool HasVideo { get { return Media?.Components.HasVideo ?? false; } }
+        public bool HasVideo { get { return Container?.Components.HasVideo ?? false; } }
 
         /// <summary>
         /// Gets the video codec.
         /// Only valid after the MediaOpened event has fired.
         /// </summary>
-        public string VideoCodec { get { return Media?.Components.Video.Codec; } }
+        public string VideoCodec { get { return Container?.Components.Video.Codec; } }
 
         /// <summary>
         /// Gets the video bitrate.
         /// Only valid after the MediaOpened event has fired.
         /// </summary>
-        public int VideoBitrate { get { return Media?.Components?.Video?.Bitrate ?? 0; } }
+        public int VideoBitrate { get { return Container?.Components?.Video?.Bitrate ?? 0; } }
 
         /// <summary>
         /// Returns the natural width of the media in the video.
         /// Only valid after the MediaOpened event has fired.
         /// </summary> 
-        public int NaturalVideoWidth { get { return Media?.Components.Video?.FrameWidth ?? 0; } }
+        public int NaturalVideoWidth { get { return Container?.Components.Video?.FrameWidth ?? 0; } }
 
         /// <summary> 
         /// Returns the natural height of the media in the video.
         /// Only valid after the MediaOpened event has fired.
         /// </summary>
-        public int NaturalVideoHeight { get { return Media?.Components.Video?.FrameHeight ?? 0; } }
+        public int NaturalVideoHeight { get { return Container?.Components.Video?.FrameHeight ?? 0; } }
 
         /// <summary>
         /// Gets the video frame rate.
         /// Only valid after the MediaOpened event has fired.
         /// </summary>
-        public double VideoFrameRate { get { return Media?.Components.Video?.BaseFrameRate ?? 0; } }
+        public double VideoFrameRate { get { return Container?.Components.Video?.BaseFrameRate ?? 0; } }
 
         /// <summary>
         /// Gets the length of the video frame.
         /// Only valid after the MediaOpened event has fired.
         /// </summary>
-        public double VideoFrameLength { get { return 1d / (Media?.Components.Video?.BaseFrameRate ?? 0); } }
+        public double VideoFrameLength { get { return 1d / (Container?.Components.Video?.BaseFrameRate ?? 0); } }
 
         /// <summary>
         /// Gets the audio codec.
         /// Only valid after the MediaOpened event has fired.
         /// </summary>
-        public string AudioCodec { get { return Media?.Components.Audio.Codec; } }
+        public string AudioCodec { get { return Container?.Components.Audio.Codec; } }
 
         /// <summary>
         /// Gets the audio bitrate.
         /// Only valid after the MediaOpened event has fired.
         /// </summary>
-        public int AudioBitrate { get { return Media?.Components?.Audio?.Bitrate ?? 0; } }
+        public int AudioBitrate { get { return Container?.Components?.Audio?.Bitrate ?? 0; } }
 
         /// <summary>
         /// Gets the audio channels count.
         /// Only valid after the MediaOpened event has fired.
         /// </summary>
-        public int AudioChannels { get { return Media?.Components?.Audio?.Channels ?? 0; } }
+        public int AudioChannels { get { return Container?.Components?.Audio?.Channels ?? 0; } }
 
         /// <summary>
         /// Gets the audio sample rate.
         /// Only valid after the MediaOpened event has fired.
         /// </summary>
-        public int AudioSampleRate { get { return Media?.Components?.Audio?.SampleRate ?? 0; } }
+        public int AudioSampleRate { get { return Container?.Components?.Audio?.SampleRate ?? 0; } }
 
         /// <summary>
         /// Gets the audio bits per sample.
         /// Only valid after the MediaOpened event has fired.
         /// </summary>
-        public int AudioBitsPerSample { get { return Media?.Components?.Audio?.BitsPerSample ?? 0; } }
+        public int AudioBitsPerSample { get { return Container?.Components?.Audio?.BitsPerSample ?? 0; } }
 
         /// <summary>
         /// Gets the Media's natural duration
         /// Only valid after the MediaOpened event has fired.
         /// </summary>
-        public Duration NaturalDuration { get { return Media == null ? new Duration(TimeSpan.Zero) : new Duration(Media.MediaDuration); } }
+        public Duration NaturalDuration { get { return Container == null ? new Duration(TimeSpan.Zero) : new Duration(Container.MediaDuration); } }
 
         /// <summary>
         /// Returns whether the given media can be paused. 
         /// This is only valid after the MediaOpened event has fired.
         /// Note: This property is computed based on wether the stream is detected to be a live stream.
         /// </summary>
-        public bool CanPause { get { return Media != null ? Media.IsStreamRealtime == false : true; } }
+        public bool CanPause { get { return Container != null ? Container.IsStreamRealtime == false : true; } }
 
         /// <summary>
         /// Gets a value indicating whether the media is playing.
@@ -162,6 +163,12 @@
             private set { SetProperty(ref m_IsBuffering, value); }
         }
 
+        public MediaState MediaState
+        {
+            get { return m_MediaState; }
+            private set { SetProperty(ref m_MediaState, value); }
+        }
+
         #endregion
 
         #region Methods
@@ -186,7 +193,7 @@
             OnPropertyChanged(nameof(AudioBitsPerSample));
             OnPropertyChanged(nameof(NaturalDuration));
 
-            if (Media == null)
+            if (Container == null)
             {
                 Volume = 0;
                 Position = TimeSpan.Zero;

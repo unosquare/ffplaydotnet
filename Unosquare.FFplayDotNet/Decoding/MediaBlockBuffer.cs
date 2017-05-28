@@ -11,7 +11,7 @@
     /// can be reused. Playback blocks are blocks that have been filled.
     /// This class is thread safe.
     /// </summary>
-    public class MediaBlockBuffer
+    public class MediaBlockBuffer : IDisposable
     {
         #region Private Declarations
 
@@ -270,6 +270,33 @@
                 }
 
                 return -1;
+            }
+        }
+
+        #endregion
+
+        #region IDisposable Implementation
+
+        /// <summary>
+        /// Performs application-defined tasks associated with freeing, releasing, or resetting unmanaged resources.
+        /// </summary>
+        /// <exception cref="System.NotImplementedException"></exception>
+        public void Dispose()
+        {
+            lock (SyncRoot)
+            {
+                while (PoolBlocks.Count > 0)
+                {
+                    var block = PoolBlocks.Dequeue();
+                    block.Dispose();
+                }
+                
+                for (var i = PlaybackBlocks.Count - 1; i >= 0; i--)
+                {
+                    var block = PlaybackBlocks[i];
+                    PlaybackBlocks.RemoveAt(i);
+                    block.Dispose();
+                }
             }
         }
 

@@ -23,6 +23,55 @@
             return constructor.Invoke(new object[] { routedEvent, sender, errorException }) as ExceptionRoutedEventArgs;
         }
 
+        /// <summary>
+        /// Raises the buffering started event.
+        /// </summary>
+        private void RaiseBufferingStartedEvent()
+        {
+            RaiseEvent(new RoutedEventArgs(BufferingStartedEvent, this));
+        }
+
+        /// <summary>
+        /// Raises the buffering ended event.
+        /// </summary>
+        private void RaiseBufferingEndedEvent()
+        {
+            RaiseEvent(new RoutedEventArgs(BufferingEndedEvent, this));
+        }
+
+        /// <summary>
+        /// Raises the media failed event.
+        /// </summary>
+        /// <param name="ex">The ex.</param>
+        private void RaiseMediaFailedEvent(Exception ex)
+        {
+            RaiseEvent(CreateExceptionRoutedEventArgs(MediaFailedEvent, this, ex));
+        }
+
+        /// <summary>
+        /// Raises the media opened event.
+        /// </summary>
+        private void RaiseMediaOpenedEvent()
+        {
+            RaiseEvent(new RoutedEventArgs(MediaOpenedEvent, this));
+        }
+
+        /// <summary>
+        /// Raises the media opening event.
+        /// </summary>
+        private void RaiseMediaOpeningEvent()
+        {
+            RaiseEvent(new MediaOpeningRoutedEventArgs(MediaOpeningEvent, this, Container.MediaOptions));
+        }
+
+        /// <summary>
+        /// Raises the media ended event.
+        /// </summary>
+        private void RaiseMediaEndedEvent()
+        {
+            RaiseEvent(new RoutedEventArgs(MediaEndedEvent, this));
+        }
+
         #endregion
 
         #region BufferingStarted

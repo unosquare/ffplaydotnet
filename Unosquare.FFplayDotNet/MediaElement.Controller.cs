@@ -145,36 +145,35 @@
         /// <param name="renderIndex">Index of the render.</param>
         private async Task RenderBlock(MediaBlock block, TimeSpan clockPosition, int renderIndex)
         {
-            if (block.MediaType != MediaType.Video) return;
-
-            await InvokeAction(() =>
-            {
-                var e = block as VideoBlock;
-                TargetBitmap.Lock();
-
-                if (TargetBitmap.BackBufferStride != e.BufferStride)
+            if (block.MediaType == MediaType.Video)
+                await InvokeAction(() =>
                 {
-                    var sourceBase = e.Buffer;
-                    var targetBase = TargetBitmap.BackBuffer;
+                    var e = block as VideoBlock;
+                    TargetBitmap.Lock();
 
-                    for (var y = 0; y < TargetBitmap.PixelHeight; y++)
+                    if (TargetBitmap.BackBufferStride != e.BufferStride)
                     {
-                        var sourceAddress = sourceBase + (e.BufferStride * y);
-                        var targetAddress = targetBase + (TargetBitmap.BackBufferStride * y);
-                        Utils.CopyMemory(targetAddress, sourceAddress, (uint)e.BufferStride);
-                    }
-                }
-                else
-                {
-                    Utils.CopyMemory(TargetBitmap.BackBuffer, e.Buffer, (uint)e.BufferLength);
-                }
+                        var sourceBase = e.Buffer;
+                        var targetBase = TargetBitmap.BackBuffer;
 
-                TargetBitmap.AddDirtyRect(new Int32Rect(0, 0, e.PixelWidth, e.PixelHeight));
-                TargetBitmap.Unlock();
-            });
+                        for (var y = 0; y < TargetBitmap.PixelHeight; y++)
+                        {
+                            var sourceAddress = sourceBase + (e.BufferStride * y);
+                            var targetAddress = targetBase + (TargetBitmap.BackBufferStride * y);
+                            Utils.CopyMemory(targetAddress, sourceAddress, (uint)e.BufferStride);
+                        }
+                    }
+                    else
+                    {
+                        Utils.CopyMemory(TargetBitmap.BackBuffer, e.Buffer, (uint)e.BufferLength);
+                    }
+
+                    TargetBitmap.AddDirtyRect(new Int32Rect(0, 0, e.PixelWidth, e.PixelHeight));
+                    TargetBitmap.Unlock();
+                });
 
             var drift = TimeSpan.FromTicks(clockPosition.Ticks - block.StartTime.Ticks);
-            Container.Log(LogMessageType.Trace,
+            Container.Log(MediaLogMessageType.Trace,
             ($"{block.MediaType.ToString().Substring(0, 1)} "
                 + $"BLK: {block.StartTime.Debug()} | "
                 + $"CLK: {clockPosition.Debug()} | "
@@ -219,7 +218,7 @@
             if (resumeClock)
                 Clock.Play();
 
-            Container.Log(LogMessageType.Debug,
+            Container.Log(MediaLogMessageType.Debug,
                 $"SEEK D: Elapsed: {startTime.DebugElapsedUtc()}");
 
             RequestedSeekPosition = null;
@@ -467,7 +466,7 @@
                 if (Blocks[main].IsInRange(clockPosition) == false || renderIndex[main] < 0)
                 {
                     await BufferBlocks(WaitPacketBufferLength, true);
-                    Container.Log(LogMessageType.Warning,
+                    Container.Log(MediaLogMessageType.Warning,
                         $"SYNC              CLK: {clockPosition.Debug()} | TGT: {Blocks[main].RangeStartTime.Debug()}");
                     clockPosition = Clock.Position;
                     renderIndex[main] = Blocks[main].IndexOf(clockPosition);

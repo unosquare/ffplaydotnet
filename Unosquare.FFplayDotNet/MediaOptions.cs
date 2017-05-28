@@ -87,7 +87,7 @@
         /// <summary>
         /// Set this callback to handle log messages.
         /// </summary>
-        public Action<LogMessageType, string> LogMessageCallback = null;
+        public Action<MediaLogMessageType, string> LogMessageCallback = null;
     }
 
 }

@@ -1,5 +1,6 @@
 ﻿namespace Unosquare.FFplayDotNet.Sample
 {
+    using Swan;
     using System;
     using System.Windows;
 
@@ -15,6 +16,7 @@
 
         private void Button_Click(object sender, RoutedEventArgs e)
         {
+            Native.AllocConsole();
             Media.MediaOpening += Media_MediaOpening;
             Media.Source = new Uri(TestInputs.HlsStream);
             Media.Play();            
@@ -22,8 +24,9 @@
 
         private void Media_MediaOpening(object sender, MediaOpeningRoutedEventArgs e)
         {
-            
-            //throw new NotImplementedException();
+            e.Options.LogMessageCallback = new Action<MediaLogMessageType, string>((t, m) => {
+                Terminal.Log(m, nameof(MediaElement), (LogMessageType)t);
+            });
         }
     }
 }

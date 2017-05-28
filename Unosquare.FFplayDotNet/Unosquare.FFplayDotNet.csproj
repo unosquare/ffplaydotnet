@@ -58,7 +58,7 @@
     <Compile Include="Core\AudioParams.cs" />
     <Compile Include="Core\CodecOption.cs" />
     <Compile Include="Core\MediaType.cs" />
-    <Compile Include="LogMessageType.cs" />
+    <Compile Include="MediaLogMessageType.cs" />
     <Compile Include="MediaContainerException.cs" />
     <Compile Include="Decoding\MediaFrame.cs" />
     <Compile Include="Decoding\MediaFrameQueue.cs" />

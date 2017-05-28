@@ -148,7 +148,7 @@
             var setCodecParamsResult = ffmpeg.avcodec_parameters_to_context(CodecContext, Stream->codecpar);
 
             if (setCodecParamsResult < 0)
-                Container.Log(LogMessageType.Warning, $"Could not set codec parameters. Error code: {setCodecParamsResult}");
+                Container.Log(MediaLogMessageType.Warning, $"Could not set codec parameters. Error code: {setCodecParamsResult}");
 
             // We set the packet timebase in the same timebase as the stream as opposed to the tpyical AV_TIME_BASE
             ffmpeg.av_codec_set_pkt_timebase(CodecContext, Stream->time_base);
@@ -200,7 +200,7 @@
 
             // If there are any codec options left over from passing them, it means they were not consumed
             if (codecOptions.First() != null)
-                Container.Log(LogMessageType.Warning, $"Codec Option '{codecOptions.First().Key}' not found.");
+                Container.Log(MediaLogMessageType.Warning, $"Codec Option '{codecOptions.First().Key}' not found.");
 
             // Startup done. Set some options.
             Stream->discard = AVDiscard.AVDISCARD_DEFAULT;
@@ -220,7 +220,7 @@
 
             Codec = Stream->codec->codec_id.ToString();
             Bitrate = (int)Stream->codec->bit_rate;
-            Container.Log(LogMessageType.Trace, $"{MediaType}: Start Offset: {StartTimeOffset.Debug()}; Duration: {Duration.Debug()}");
+            Container.Log(MediaLogMessageType.Trace, $"{MediaType}: Start Offset: {StartTimeOffset.Debug()}; Duration: {Duration.Debug()}");
 
         }
 
@@ -363,7 +363,7 @@
                 {
                     ffmpeg.avsubtitle_free(&outputFrame);
                     SentPackets.Clear();
-                    Container.Log(LogMessageType.Error, $"{MediaType}: Error decoding. Error Code: {receiveFrameResult}");
+                    Container.Log(MediaLogMessageType.Error, $"{MediaType}: Error decoding. Error Code: {receiveFrameResult}");
                 }
                 else
                 {

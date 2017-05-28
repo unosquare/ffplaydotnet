@@ -20,6 +20,7 @@
 
         private static readonly int StateDictionaryCapacity = Constants.MediaTypes.Count - 1;
         private const int MaxPacketBufferLength = 1024 * 1024 * 8; // 8MB buffer
+        private const int WaitPacketBufferLength = 512 * 1024;
         private const int PacketReadBatchCount = 10; // Read 10 packets at a time
 
         private static readonly Dictionary<MediaType, int> MaxBlocks
@@ -97,10 +98,10 @@
         /// </summary>
         /// <param name="packetBufferLength">Length of the packet buffer.</param>
         /// <param name="setClock">if set to <c>true</c> [set clock].</param>
-        private void BufferBlocks(int packetBufferLength, bool setClock)
+        private async Task BufferBlocks(int packetBufferLength, bool setClock)
         {
             // Raise the buffering started event.
-            RaiseBufferingStartedEvent();
+            await RaiseBufferingStartedEvent();
             BufferingProgress = 0;
 
             // Pause the clock while we buffer blocks
@@ -133,7 +134,7 @@
 
             // Raise the buffering started event.
             BufferingProgress = 1;
-            RaiseBufferingEndedEvent();
+            await RaiseBufferingEndedEvent();
 
         }
 
@@ -143,11 +144,11 @@
         /// <param name="block">The block.</param>
         /// <param name="clockPosition">The clock position.</param>
         /// <param name="renderIndex">Index of the render.</param>
-        private void RenderBlock(MediaBlock block, TimeSpan clockPosition, int renderIndex)
+        private async Task RenderBlock(MediaBlock block, TimeSpan clockPosition, int renderIndex)
         {
             if (block.MediaType != MediaType.Video) return;
 
-            Application.Current.Dispatcher.Invoke(new Action(() => {
+            await InvokeAction(() => {
                 var e = block as VideoBlock;
                 TargetBitmap.Lock();
 
@@ -170,8 +171,8 @@
 
                 TargetBitmap.AddDirtyRect(new Int32Rect(0, 0, e.PixelWidth, e.PixelHeight));
                 TargetBitmap.Unlock();
-            }));
-            
+            });
+
             return;
 
             var drift = TimeSpan.FromTicks(clockPosition.Ticks - block.StartTime.Ticks);
@@ -250,14 +251,14 @@
 
         #region Public API
 
-        private void Open(Uri uri)
+        private async Task Open(Uri uri)
         {
             try
             {
                 var mediaUrl = uri.IsFile ? uri.LocalPath : uri.ToString();
 
                 Container = new MediaContainer(mediaUrl);
-                RaiseMediaOpeningEvent();
+                await RaiseMediaOpeningEvent();
                 Container.Initialize();
 
                 if (HasVideo)
@@ -276,12 +277,12 @@
 
                 PacketReadingTask = Task.Run(() => { RunPacketReadingTask(); }, PacketReadingCancel.Token);
                 FrameDecodingTask = Task.Run(() => { RunFrameDecodingTask(); }, FrameDecodingCancel.Token);
-                BlockRenderingTask = Task.Run(() => { RunBlockRenderingTask(); }, BlockRenderingCancel.Token);
-                RaiseMediaOpenedEvent();
+                BlockRenderingTask = Task.Run(async () => { await RunBlockRenderingTask(); }, BlockRenderingCancel.Token);
+                await RaiseMediaOpenedEvent();
             }
             catch (Exception ex)
             {
-                RaiseMediaFailedEvent(ex);
+                await RaiseMediaFailedEvent(ex);
             }
             finally
             {
@@ -428,7 +429,7 @@
         /// and calling the render methods appropriate for the current clock position.
         /// </summary>
         /// <returns></returns>
-        private void RunBlockRenderingTask()
+        private async Task RunBlockRenderingTask()
         {
             var mediaTypeCount = Container.Components.MediaTypes.Length;
             var main = Container.Components.Main.MediaType;
@@ -447,7 +448,7 @@
             }
 
             // Buffer some blocks
-            BufferBlocks(MaxPacketBufferLength / 8, true);
+            await BufferBlocks(WaitPacketBufferLength, true);
 
             while (BlockRenderingCancel.IsCancellationRequested == false)
             {
@@ -465,7 +466,7 @@
                 // Check for out-of sync issues (i.e. after seeking)
                 if (Blocks[main].IsInRange(clockPosition) == false || renderIndex[main] < 0)
                 {
-                    BufferBlocks(MaxPacketBufferLength / 4, true);
+                    await BufferBlocks(WaitPacketBufferLength, true);
                     $"SYNC              CLK: {clockPosition.Debug()} | TGT: {Blocks[main].RangeStartTime.Debug()}".Warn(typeof(MediaContainer));
                     clockPosition = Clock.Position;
                     renderIndex[main] = Blocks[main].IndexOf(clockPosition);
@@ -516,7 +517,7 @@
                         Clock.Position = Blocks[main].RangeEndTime;
                         MediaState = MediaState.Pause;
                         OnPropertyChanged(nameof(Position));
-                        RaiseMediaEndedEvent();
+                        await RaiseMediaEndedEvent();
                     }
 
                 }

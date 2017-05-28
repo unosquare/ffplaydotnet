@@ -27,7 +27,7 @@ namespace Unosquare.FFplayDotNet.Sample
 
         private void Button_Click(object sender, RoutedEventArgs e)
         {
-            Media.Source = new Uri(TestInputs.MatroskaLocalFile);
+            Media.Source = new Uri(TestInputs.ElysiumLocalFile);
             Media.Play();
         }
     }

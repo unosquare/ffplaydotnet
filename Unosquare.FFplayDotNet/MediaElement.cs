@@ -155,7 +155,11 @@
         /// that support <see cref="CallerMemberNameAttribute"/>.</param>
         private void OnPropertyChanged([CallerMemberName] string propertyName = null)
         {
-            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(propertyName));
+            if (PropertyChanged == null) return;
+            InvokeAction(() =>
+            {
+                PropertyChanged(this, new PropertyChangedEventArgs(propertyName));
+            }).Wait();
         }
 
         #endregion

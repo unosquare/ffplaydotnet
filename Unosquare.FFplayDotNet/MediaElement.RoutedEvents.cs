@@ -3,7 +3,9 @@
     using System;
     using System.Linq;
     using System.Reflection;
+    using System.Threading.Tasks;
     using System.Windows;
+    using System.Windows.Threading;
 
     partial class MediaElement
     {
@@ -24,70 +26,72 @@
         }
 
         /// <summary>
+        /// Asynchronously invokes the given instructions on the main application dispatcher.
+        /// </summary>
+        /// <param name="action">The action.</param>
+        /// <returns></returns>
+        private async Task InvokeAction(Action action)
+        {
+            if (Dispatcher == null || Dispatcher.CurrentDispatcher == Dispatcher)
+            {
+                action();
+                return;
+            }
+
+            if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+            await Dispatcher.InvokeAsync(action, DispatcherPriority.Normal); // Normal is 1 more than DataBind
+        }
+
+        /// <summary>
         /// Raises the buffering started event.
         /// </summary>
-        private void RaiseBufferingStartedEvent()
+        private async Task RaiseBufferingStartedEvent()
         {
-            Application.Current.Dispatcher.BeginInvoke(new Action(() =>
-            {
-                RaiseEvent(new RoutedEventArgs(BufferingStartedEvent, this));
-            }));
+            await InvokeAction(() => { RaiseEvent(new RoutedEventArgs(BufferingStartedEvent, this)); });
         }
 
         /// <summary>
         /// Raises the buffering ended event.
         /// </summary>
-        private void RaiseBufferingEndedEvent()
+        private async Task RaiseBufferingEndedEvent()
         {
-            Application.Current.Dispatcher.BeginInvoke(new Action(() =>
-            {
-                RaiseEvent(new RoutedEventArgs(BufferingEndedEvent, this));
-            }));
+            await InvokeAction(() => { RaiseEvent(new RoutedEventArgs(BufferingEndedEvent, this)); });
         }
 
         /// <summary>
         /// Raises the media failed event.
         /// </summary>
         /// <param name="ex">The ex.</param>
-        private void RaiseMediaFailedEvent(Exception ex)
+        private async Task RaiseMediaFailedEvent(Exception ex)
         {
-            Application.Current.Dispatcher.Invoke(new Action(() =>
-            {
-                RaiseEvent(CreateExceptionRoutedEventArgs(MediaFailedEvent, this, ex));
-            }));
+            await InvokeAction(() => { RaiseEvent(CreateExceptionRoutedEventArgs(MediaFailedEvent, this, ex)); });
         }
 
         /// <summary>
         /// Raises the media opened event.
         /// </summary>
-        private void RaiseMediaOpenedEvent()
+        private async Task RaiseMediaOpenedEvent()
         {
-            Application.Current.Dispatcher.Invoke(new Action(() =>
-            {
-                RaiseEvent(new RoutedEventArgs(MediaOpenedEvent, this));
-            }));
+            await InvokeAction(() => { RaiseEvent(new RoutedEventArgs(MediaOpenedEvent, this)); });
         }
 
         /// <summary>
         /// Raises the media opening event.
         /// </summary>
-        private void RaiseMediaOpeningEvent()
+        private async Task RaiseMediaOpeningEvent()
         {
-            Application.Current.Dispatcher.Invoke(new Action(() =>
+            await InvokeAction(() =>
             {
                 RaiseEvent(new MediaOpeningRoutedEventArgs(MediaOpeningEvent, this, Container.MediaOptions));
-            }));
+            });
         }
 
         /// <summary>
         /// Raises the media ended event.
         /// </summary>
-        private void RaiseMediaEndedEvent()
+        private async Task RaiseMediaEndedEvent()
         {
-            Application.Current.Dispatcher.Invoke(new Action(() =>
-            {
-                RaiseEvent(new RoutedEventArgs(MediaEndedEvent, this));
-            }));
+            await InvokeAction(() => { RaiseEvent(new RoutedEventArgs(MediaEndedEvent, this)); });
         }
 
         #endregion

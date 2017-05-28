@@ -35,7 +35,7 @@
             if (uri != null)
             {
                 element.Close();
-                element.Open(uri);
+                element.Open(uri).Wait();
             }
             else
             {

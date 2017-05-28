@@ -2,7 +2,6 @@
 {
     using Core;
     using Decoding;
-    using Swan;
     using System;
     using System.Collections.Generic;
     using System.Linq;
@@ -148,7 +147,8 @@
         {
             if (block.MediaType != MediaType.Video) return;
 
-            await InvokeAction(() => {
+            await InvokeAction(() =>
+            {
                 var e = block as VideoBlock;
                 TargetBitmap.Lock();
 
@@ -173,9 +173,8 @@
                 TargetBitmap.Unlock();
             });
 
-            return;
-
             var drift = TimeSpan.FromTicks(clockPosition.Ticks - block.StartTime.Ticks);
+            Container.Log(LogMessageType.Trace,
             ($"{block.MediaType.ToString().Substring(0, 1)} "
                 + $"BLK: {block.StartTime.Debug()} | "
                 + $"CLK: {clockPosition.Debug()} | "
@@ -183,7 +182,7 @@
                 + $"IX: {renderIndex,3} | "
                 + $"FQ: {Frames[block.MediaType].Count,4} | "
                 + $"PQ: {Container.Components[block.MediaType].PacketBufferLength / 1024d,7:0.0}k | "
-                + $"TQ: {Container.Components.PacketBufferLength / 1024d,7:0.0}k").Info(typeof(MediaContainer));
+                + $"TQ: {Container.Components.PacketBufferLength / 1024d,7:0.0}k"));
         }
 
         /// <summary>
@@ -220,7 +219,8 @@
             if (resumeClock)
                 Clock.Play();
 
-            $"SEEK D: Elapsed: {startTime.DebugElapsedUtc()}".Debug(typeof(MediaContainer));
+            Container.Log(LogMessageType.Debug,
+                $"SEEK D: Elapsed: {startTime.DebugElapsedUtc()}");
 
             RequestedSeekPosition = null;
             SeekingDone.Set();
@@ -467,7 +467,8 @@
                 if (Blocks[main].IsInRange(clockPosition) == false || renderIndex[main] < 0)
                 {
                     await BufferBlocks(WaitPacketBufferLength, true);
-                    $"SYNC              CLK: {clockPosition.Debug()} | TGT: {Blocks[main].RangeStartTime.Debug()}".Warn(typeof(MediaContainer));
+                    Container.Log(LogMessageType.Warning,
+                        $"SYNC              CLK: {clockPosition.Debug()} | TGT: {Blocks[main].RangeStartTime.Debug()}");
                     clockPosition = Clock.Position;
                     renderIndex[main] = Blocks[main].IndexOf(clockPosition);
                 }

@@ -2,7 +2,6 @@
 {
     using Core;
     using FFmpeg.AutoGen;
-    using Swan;
     using System;
     using System.Collections.Generic;
     using System.Globalization;
@@ -149,7 +148,7 @@
             var setCodecParamsResult = ffmpeg.avcodec_parameters_to_context(CodecContext, Stream->codecpar);
 
             if (setCodecParamsResult < 0)
-                $"Could not set codec parameters. Error code: {setCodecParamsResult}".Warn(typeof(MediaContainer));
+                Container.Log(LogMessageType.Warning, $"Could not set codec parameters. Error code: {setCodecParamsResult}");
 
             // We set the packet timebase in the same timebase as the stream as opposed to the tpyical AV_TIME_BASE
             ffmpeg.av_codec_set_pkt_timebase(CodecContext, Stream->time_base);
@@ -201,7 +200,7 @@
 
             // If there are any codec options left over from passing them, it means they were not consumed
             if (codecOptions.First() != null)
-                $"Codec Option '{codecOptions.First().Key}' not found.".Warn(typeof(MediaContainer));
+                Container.Log(LogMessageType.Warning, $"Codec Option '{codecOptions.First().Key}' not found.");
 
             // Startup done. Set some options.
             Stream->discard = AVDiscard.AVDISCARD_DEFAULT;
@@ -221,7 +220,7 @@
 
             Codec = Stream->codec->codec_id.ToString();
             Bitrate = (int)Stream->codec->bit_rate;
-            $"{MediaType}: Start Offset: {StartTimeOffset.Debug()}; Duration: {Duration.Debug()}".Trace(typeof(MediaContainer));
+            Container.Log(LogMessageType.Trace, $"{MediaType}: Start Offset: {StartTimeOffset.Debug()}; Duration: {Duration.Debug()}");
 
         }
 
@@ -364,7 +363,7 @@
                 {
                     ffmpeg.avsubtitle_free(&outputFrame);
                     SentPackets.Clear();
-                    $"{MediaType}: Error decoding. Error Code: {receiveFrameResult}".Error(typeof(MediaContainer));
+                    Container.Log(LogMessageType.Error, $"{MediaType}: Error decoding. Error Code: {receiveFrameResult}");
                 }
                 else
                 {

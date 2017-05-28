@@ -16,7 +16,7 @@
         private void Button_Click(object sender, RoutedEventArgs e)
         {
             Media.MediaOpening += Media_MediaOpening;
-            Media.Source = new Uri(TestInputs.YoutubeLocalFile);
+            Media.Source = new Uri(TestInputs.HlsStream);
             Media.Play();            
         }
 

@@ -1,5 +1,6 @@
 ﻿namespace Unosquare.FFplayDotNet
 {
+    using System;
     using System.Collections.Generic;
 
     /// <summary>
@@ -82,6 +83,11 @@
         /// this is why they are disabled by default.
         /// </summary>
         public bool IsSubtitleDisabled { get; set; } = true;
+
+        /// <summary>
+        /// Set this callback to handle log messages.
+        /// </summary>
+        public Action<LogMessageType, string> LogMessageCallback = null;
     }
 
 }

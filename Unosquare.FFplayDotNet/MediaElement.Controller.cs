@@ -8,7 +8,10 @@
     using System.Linq;
     using System.Threading;
     using System.Threading.Tasks;
+    using System.Windows;
     using System.Windows.Controls;
+    using System.Windows.Media;
+    using System.Windows.Media.Imaging;
 
     partial class MediaElement
     {
@@ -142,6 +145,35 @@
         /// <param name="renderIndex">Index of the render.</param>
         private void RenderBlock(MediaBlock block, TimeSpan clockPosition, int renderIndex)
         {
+            if (block.MediaType != MediaType.Video) return;
+
+            Application.Current.Dispatcher.Invoke(new Action(() => {
+                var e = block as VideoBlock;
+                TargetBitmap.Lock();
+
+                if (TargetBitmap.BackBufferStride != e.BufferStride)
+                {
+                    var sourceBase = e.Buffer;
+                    var targetBase = TargetBitmap.BackBuffer;
+
+                    for (var y = 0; y < TargetBitmap.PixelHeight; y++)
+                    {
+                        var sourceAddress = sourceBase + (e.BufferStride * y);
+                        var targetAddress = targetBase + (TargetBitmap.BackBufferStride * y);
+                        Utils.CopyMemory(targetAddress, sourceAddress, (uint)e.BufferStride);
+                    }
+                }
+                else
+                {
+                    Utils.CopyMemory(TargetBitmap.BackBuffer, e.Buffer, (uint)e.BufferLength);
+                }
+
+                TargetBitmap.AddDirtyRect(new Int32Rect(0, 0, e.PixelWidth, e.PixelHeight));
+                TargetBitmap.Unlock();
+            }));
+            
+            return;
+
             var drift = TimeSpan.FromTicks(clockPosition.Ticks - block.StartTime.Ticks);
             ($"{block.MediaType.ToString().Substring(0, 1)} "
                 + $"BLK: {block.StartTime.Debug()} | "
@@ -222,9 +254,18 @@
         {
             try
             {
-                Container = new MediaContainer(uri.ToString());
+                var mediaUrl = uri.IsFile ? uri.LocalPath : uri.ToString();
+
+                Container = new MediaContainer(mediaUrl);
                 RaiseMediaOpeningEvent();
                 Container.Initialize();
+
+                if (HasVideo)
+                    TargetBitmap = new WriteableBitmap(NaturalVideoWidth, NaturalVideoHeight, 96, 96, PixelFormats.Bgr24, null);
+                else
+                    TargetBitmap = new WriteableBitmap(1, 1, 96, 96, PixelFormats.Bgr24, null);
+
+                ViewBox.Source = TargetBitmap;
 
                 foreach (var t in Container.Components.MediaTypes)
                 {
@@ -250,7 +291,9 @@
 
         public void Play()
         {
-
+            Clock.Play();
+            BlockRenderingCycle.Wait(5);
+            MediaState = MediaState.Play;
         }
 
         public void Pause()

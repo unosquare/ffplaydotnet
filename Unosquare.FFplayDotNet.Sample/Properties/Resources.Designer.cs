@@ -8,7 +8,7 @@
 // </auto-generated>
 //------------------------------------------------------------------------------
 
-namespace Unosquare.FFplayDotNet.Properties {
+namespace Unosquare.FFplayDotNet.Sample.Properties {
     using System;
     
     
@@ -39,7 +39,7 @@ namespace Unosquare.FFplayDotNet.Properties {
         internal static global::System.Resources.ResourceManager ResourceManager {
             get {
                 if (object.ReferenceEquals(resourceMan, null)) {
-                    global::System.Resources.ResourceManager temp = new global::System.Resources.ResourceManager("Unosquare.FFplayDotNet.Properties.Resources", typeof(Resources).Assembly);
+                    global::System.Resources.ResourceManager temp = new global::System.Resources.ResourceManager("Unosquare.FFplayDotNet.Sample.Properties.Resources", typeof(Resources).Assembly);
                     resourceMan = temp;
                 }
                 return resourceMan;
@@ -57,16 +57,6 @@ namespace Unosquare.FFplayDotNet.Properties {
             }
             set {
                 resourceCulture = value;
-            }
-        }
-        
-        /// <summary>
-        ///   Looks up a localized resource of type System.Drawing.Bitmap.
-        /// </summary>
-        internal static System.Drawing.Bitmap FFmpegMediaElementBackground {
-            get {
-                object obj = ResourceManager.GetObject("FFmpegMediaElementBackground", resourceCulture);
-                return ((System.Drawing.Bitmap)(obj));
             }
         }
     }

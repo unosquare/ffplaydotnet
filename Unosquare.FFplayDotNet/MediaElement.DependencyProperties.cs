@@ -33,9 +33,15 @@
 
             var uri = e.NewValue as Uri;
             if (uri != null)
-                element.Open(uri);
-            else
+            {
                 element.Close();
+                element.Open(uri);
+            }
+            else
+            {
+                element.Close();
+            }
+                
         }
 
         private static object OnSourcePropertyCoerce(DependencyObject dependencyObject, object baseValue)
@@ -43,18 +49,8 @@
             var element = dependencyObject as MediaElement;
             if (element == null) return null;
 
-            var uri = baseValue as Uri;
-            if (uri != null)
-            {
-                element.Close();
-                element.Open(uri);
-            }
-            else
-            {
-                element.Close();
-            }
-
-            return uri;
+            return baseValue;
+            // Not sure why there was coersion before...
         }
 
         /// <summary>

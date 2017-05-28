@@ -28,7 +28,10 @@
         /// </summary>
         private void RaiseBufferingStartedEvent()
         {
-            RaiseEvent(new RoutedEventArgs(BufferingStartedEvent, this));
+            Application.Current.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                RaiseEvent(new RoutedEventArgs(BufferingStartedEvent, this));
+            }));
         }
 
         /// <summary>
@@ -36,7 +39,10 @@
         /// </summary>
         private void RaiseBufferingEndedEvent()
         {
-            RaiseEvent(new RoutedEventArgs(BufferingEndedEvent, this));
+            Application.Current.Dispatcher.BeginInvoke(new Action(() =>
+            {
+                RaiseEvent(new RoutedEventArgs(BufferingEndedEvent, this));
+            }));
         }
 
         /// <summary>
@@ -45,7 +51,10 @@
         /// <param name="ex">The ex.</param>
         private void RaiseMediaFailedEvent(Exception ex)
         {
-            RaiseEvent(CreateExceptionRoutedEventArgs(MediaFailedEvent, this, ex));
+            Application.Current.Dispatcher.Invoke(new Action(() =>
+            {
+                RaiseEvent(CreateExceptionRoutedEventArgs(MediaFailedEvent, this, ex));
+            }));
         }
 
         /// <summary>
@@ -53,7 +62,10 @@
         /// </summary>
         private void RaiseMediaOpenedEvent()
         {
-            RaiseEvent(new RoutedEventArgs(MediaOpenedEvent, this));
+            Application.Current.Dispatcher.Invoke(new Action(() =>
+            {
+                RaiseEvent(new RoutedEventArgs(MediaOpenedEvent, this));
+            }));
         }
 
         /// <summary>
@@ -61,7 +73,10 @@
         /// </summary>
         private void RaiseMediaOpeningEvent()
         {
-            RaiseEvent(new MediaOpeningRoutedEventArgs(MediaOpeningEvent, this, Container.MediaOptions));
+            Application.Current.Dispatcher.Invoke(new Action(() =>
+            {
+                RaiseEvent(new MediaOpeningRoutedEventArgs(MediaOpeningEvent, this, Container.MediaOptions));
+            }));
         }
 
         /// <summary>
@@ -69,7 +84,10 @@
         /// </summary>
         private void RaiseMediaEndedEvent()
         {
-            RaiseEvent(new RoutedEventArgs(MediaEndedEvent, this));
+            Application.Current.Dispatcher.Invoke(new Action(() =>
+            {
+                RaiseEvent(new RoutedEventArgs(MediaEndedEvent, this));
+            }));
         }
 
         #endregion

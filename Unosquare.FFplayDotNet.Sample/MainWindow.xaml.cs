@@ -1,20 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Text;
-using System.Threading.Tasks;
-using System.Windows;
-using System.Windows.Controls;
-using System.Windows.Data;
-using System.Windows.Documents;
-using System.Windows.Input;
-using System.Windows.Media;
-using System.Windows.Media.Imaging;
-using System.Windows.Navigation;
-using System.Windows.Shapes;
-
-namespace Unosquare.FFplayDotNet.Sample
+﻿namespace Unosquare.FFplayDotNet.Sample
 {
+    using System;
+    using System.Windows;
+
     /// <summary>
     /// Interaction logic for MainWindow.xaml
     /// </summary>
@@ -27,8 +15,15 @@ namespace Unosquare.FFplayDotNet.Sample
 
         private void Button_Click(object sender, RoutedEventArgs e)
         {
-            Media.Source = new Uri(TestInputs.ElysiumLocalFile);
-            Media.Play();
+            Media.MediaOpening += Media_MediaOpening;
+            Media.Source = new Uri(TestInputs.YoutubeLocalFile);
+            Media.Play();            
+        }
+
+        private void Media_MediaOpening(object sender, MediaOpeningRoutedEventArgs e)
+        {
+            
+            //throw new NotImplementedException();
         }
     }
 }

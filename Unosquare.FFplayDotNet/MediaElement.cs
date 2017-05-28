@@ -18,7 +18,7 @@
     /// the FFmpeg library to perform reading and decoding of media streams.
     /// </summary>
     [Localizability(LocalizationCategory.NeverLocalize)]
-    public partial class MediaElement : UserControl, IDisposable, INotifyPropertyChanged, IUriContext
+    public sealed partial class MediaElement : UserControl, IDisposable, INotifyPropertyChanged, IUriContext
     {
         // TODO: Implement network buffering events that the standard MediaElement provides. -- See issue #13
 
@@ -102,7 +102,7 @@
         /// Releases unmanaged and - optionally - managed resources.
         /// </summary>
         /// <param name="alsoManaged"><c>true</c> to release both managed and unmanaged resources; <c>false</c> to release only unmanaged resources.</param>
-        protected virtual void Dispose(bool alsoManaged)
+        private void Dispose(bool alsoManaged)
         {
             if (alsoManaged)
             {

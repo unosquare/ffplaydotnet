@@ -9,7 +9,7 @@
     /// Performs video picture decoding, scaling and extraction logic.
     /// </summary>
     /// <seealso cref="Unosquare.FFplayDotNet.MediaComponent" />
-    public sealed unsafe class VideoComponent : MediaComponent
+    internal sealed unsafe class VideoComponent : MediaComponent
     {
         #region Private State Variables
 

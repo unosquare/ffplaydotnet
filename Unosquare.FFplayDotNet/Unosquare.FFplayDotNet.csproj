@@ -54,15 +54,14 @@
   <ItemGroup>
     <Compile Include="Core\Clock.cs" />
     <Compile Include="Core\Constants.cs" />
-    <Compile Include="Core\Events.cs" />
     <Compile Include="Decoding\AudioBlock.cs" />
     <Compile Include="Decoding\AudioFrame.cs" />
     <Compile Include="Decoding\MediaBlockBuffer.cs" />
     <Compile Include="Decoding\AudioComponent.cs" />
     <Compile Include="Core\AudioParams.cs" />
     <Compile Include="Core\CodecOption.cs" />
-    <Compile Include="Core\Enums.cs" />
-    <Compile Include="Core\Exceptions.cs" />
+    <Compile Include="Core\MediaType.cs" />
+    <Compile Include="MediaContainerException.cs" />
     <Compile Include="Decoding\MediaFrame.cs" />
     <Compile Include="Decoding\MediaFrameQueue.cs" />
     <Compile Include="Decoding\MediaBlock.cs" />
@@ -72,10 +71,10 @@
     <Compile Include="Decoding\SubtitleFrame.cs" />
     <Compile Include="Decoding\VideoBlock.cs" />
     <Compile Include="Decoding\VideoFrame.cs" />
-    <Compile Include="MediaContainer.cs" />
-    <Compile Include="Core\MediaOptions.cs" />
+    <Compile Include="Decoding\MediaContainer.cs" />
+    <Compile Include="MediaOptions.cs" />
     <Compile Include="Decoding\PacketQueue.cs" />
-    <Compile Include="Core\CodecOptionSet.cs" />
+    <Compile Include="CodecOptions.cs" />
     <Compile Include="FFmpeg.Autogen\ConstCharPtrMarshaler.cs" />
     <Compile Include="FFmpeg.Autogen\FFmpeg.arrays.g.cs" />
     <Compile Include="FFmpeg.Autogen\FFmpeg.delegates.g.cs" />
@@ -93,7 +92,6 @@
     <Compile Include="MediaElement.MediaProperties.cs" />
     <Compile Include="MediaElement.RoutedEvents.cs" />
     <Compile Include="MediaOpeningRoutedEventArgs.cs" />
-    <Compile Include="PlaybackController.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Core\StreamSpecifier.cs" />
     <Compile Include="Decoding\SubtitleComponent.cs" />

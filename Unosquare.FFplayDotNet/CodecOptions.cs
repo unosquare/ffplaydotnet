@@ -1,12 +1,13 @@
-﻿namespace Unosquare.FFplayDotNet.Core
+﻿namespace Unosquare.FFplayDotNet
 {
+    using Core;
     using FFmpeg.AutoGen;
     using System.Collections.Generic;
 
     /// <summary>
-    /// Represents a set of codec options per 
+    /// Represents a set of codec options associated with a stream specifier.
     /// </summary>
-    public class CodecOptionSet
+    public class CodecOptions
     {
         #region Private Members
 
@@ -20,9 +21,9 @@
         #region Constructor
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="CodecOptionSet"/> class.
+        /// Initializes a new instance of the <see cref="CodecOptions"/> class.
         /// </summary>
-        public CodecOptionSet()
+        public CodecOptions()
         {
             // Placeholder
         }
@@ -32,14 +33,28 @@
         #region Methods
 
         /// <summary>
+        /// Converts a character to a media type.
+        /// </summary>
+        /// <param name="c">The c.</param>
+        /// <returns></returns>
+        private static MediaType CharToMediaType(char c)
+        {
+            if (c == 'v') return MediaType.Video;
+            if (c == 'a') return MediaType.Audio;
+            if (c == 's') return MediaType.Subtitle;
+
+            return MediaType.None;
+        }
+
+        /// <summary>
         /// Adds an option
         /// </summary>
         /// <param name="key">The key.</param>
         /// <param name="value">The value.</param>
         /// <param name="streamType">Type of the stream.</param>
-        public void Add(string key, string value, MediaType streamType)
+        public void Add(string key, string value, char streamType)
         {
-            var option = new CodecOption(new StreamSpecifier(streamType), key, value);
+            var option = new CodecOption(new StreamSpecifier(CharToMediaType(streamType)), key, value);
             Options.Add(option);
         }
 
@@ -62,9 +77,9 @@
         /// <param name="value">The value.</param>
         /// <param name="streamType">Type of the stream.</param>
         /// <param name="streamIndex">Index of the stream.</param>
-        public void Add(string key, string value, MediaType streamType, int streamIndex)
+        public void Add(string key, string value, char streamType, int streamIndex)
         {
-            var option = new CodecOption(new StreamSpecifier(streamType, streamIndex), key, value);
+            var option = new CodecOption(new StreamSpecifier(CharToMediaType(streamType), streamIndex), key, value);
             Options.Add(option);
         }
 

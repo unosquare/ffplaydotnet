@@ -3,7 +3,7 @@
     /// <summary>
     /// Provides access to the paths where FFmpeg binaries are extracted to
     /// </summary>
-    static public class Paths
+    static internal class Paths
     {
         /// <summary>
         /// Initializes the <see cref="Paths"/> class.

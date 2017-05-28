@@ -9,7 +9,7 @@
     /// Derived classes implement the specifics of each media type.
     /// </summary>
     /// <seealso cref="System.IDisposable" />
-    public unsafe abstract class MediaFrame : IDisposable, IComparable<MediaFrame>
+    internal unsafe abstract class MediaFrame : IDisposable, IComparable<MediaFrame>
     {
 
         #region Private Members

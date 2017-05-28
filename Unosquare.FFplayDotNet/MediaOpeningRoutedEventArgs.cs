@@ -1,7 +1,6 @@
 ﻿namespace Unosquare.FFplayDotNet
 {
     using System.Windows;
-    using Core;
 
     /// <summary>
     /// Represents the event arguments of the MediaOpening routed event.

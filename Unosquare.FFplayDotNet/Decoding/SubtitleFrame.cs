@@ -10,7 +10,7 @@
     /// TODO: Only text subtitles are supported currently
     /// </summary>
     /// <seealso cref="Unosquare.FFplayDotNet.Core.MediaFrame" />
-    public unsafe sealed class SubtitleFrame : MediaFrame
+    internal unsafe sealed class SubtitleFrame : MediaFrame
     {
         #region Private Members
 

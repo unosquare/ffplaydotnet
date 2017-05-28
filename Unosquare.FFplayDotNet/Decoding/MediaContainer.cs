@@ -1,4 +1,4 @@
-﻿namespace Unosquare.FFplayDotNet
+﻿namespace Unosquare.FFplayDotNet.Decoding
 {
     using Core;
     using Decoding;
@@ -20,7 +20,7 @@
     /// 3. Perform continuous Decodes and Converts
     /// </summary>
     /// <seealso cref="System.IDisposable" />
-    public unsafe sealed class MediaContainer : IDisposable
+    internal unsafe sealed class MediaContainer : IDisposable
     {
 
         #region Constants

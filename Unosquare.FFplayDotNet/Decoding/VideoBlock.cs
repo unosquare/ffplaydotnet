@@ -7,7 +7,7 @@
     /// <summary>
     /// A pre-allocated, scaled video block. The buffer is in BGR, 24-bit format
     /// </summary>
-    public sealed class VideoBlock : MediaBlock
+    internal sealed class VideoBlock : MediaBlock
     {
         #region Private Members
 

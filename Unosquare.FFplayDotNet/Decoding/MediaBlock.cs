@@ -2,8 +2,6 @@
 {
     using Core;
     using System;
-    using System.Collections.Generic;
-    using System.Runtime.InteropServices;
 
     /// <summary>
     /// A base class for blocks of the deifferent MediaTypes.
@@ -12,7 +10,7 @@
     /// Reue blocks as much as possible. Once you create a block from a frame,
     /// you don't need the frame anymore so make sure you dispose the frame.
     /// </summary>
-    public abstract class MediaBlock : IComparable<MediaBlock>, IDisposable
+    internal abstract class MediaBlock : IComparable<MediaBlock>, IDisposable
     {
         /// <summary>
         /// Gets the media type of the data

@@ -6,7 +6,7 @@
     /// <summary>
     /// A time measurement artifact.
     /// </summary>
-    public class Clock
+    internal sealed class Clock
     {
         private readonly Stopwatch Chrono = new Stopwatch();
         private double OffsetMilliseconds = 0;

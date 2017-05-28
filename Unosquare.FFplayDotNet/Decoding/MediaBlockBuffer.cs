@@ -11,7 +11,7 @@
     /// can be reused. Playback blocks are blocks that have been filled.
     /// This class is thread safe.
     /// </summary>
-    public class MediaBlockBuffer : IDisposable
+    internal sealed class MediaBlockBuffer : IDisposable
     {
         #region Private Declarations
 

@@ -489,7 +489,7 @@
                     {
                         LastRenderTime[t] = renderBlock[t].StartTime;
                         hasRendered[t] = true;
-                        RenderBlock(renderBlock[t], clockPosition, renderIndex[t]);
+                        await RenderBlock(renderBlock[t], clockPosition, renderIndex[t]);
                     }
 
                     // Add the next block if the conditions require us to do so:

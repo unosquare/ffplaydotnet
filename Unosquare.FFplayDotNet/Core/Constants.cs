@@ -5,6 +5,9 @@
     using System.Collections.ObjectModel;
     using System.Linq;
 
+    /// <summary>
+    /// Defines library-wide constants
+    /// </summary>
     internal static class Constants
     {
         #region Ported Methods

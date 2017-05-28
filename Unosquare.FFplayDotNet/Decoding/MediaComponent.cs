@@ -1,11 +1,11 @@
 ﻿namespace Unosquare.FFplayDotNet.Decoding
 {
+    using Core;
     using FFmpeg.AutoGen;
+    using Swan;
     using System;
     using System.Collections.Generic;
     using System.Globalization;
-    using Unosquare.FFplayDotNet.Core;
-    using Unosquare.Swan;
 
     /// <summary>
     /// Represents a media component of a given media type within a 
@@ -13,7 +13,7 @@
     /// logic.
     /// </summary>
     /// <seealso cref="System.IDisposable" />
-    public unsafe abstract class MediaComponent : IDisposable
+    internal unsafe abstract class MediaComponent : IDisposable
     {
         #region Constants
 

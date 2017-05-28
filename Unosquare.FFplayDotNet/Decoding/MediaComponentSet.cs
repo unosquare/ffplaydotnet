@@ -13,7 +13,7 @@
     /// a single set. Sending packets is automatically handled by
     /// this class. This class is thread safe.
     /// </summary>
-    public class MediaComponentSet : IDisposable
+    internal sealed class MediaComponentSet : IDisposable
     {
         #region Private Declarations
 
@@ -281,7 +281,7 @@
         /// Releases unmanaged and - optionally - managed resources.
         /// </summary>
         /// <param name="alsoManaged"><c>true</c> to release both managed and unmanaged resources; <c>false</c> to release only unmanaged resources.</param>
-        protected virtual void Dispose(bool alsoManaged)
+        private void Dispose(bool alsoManaged)
         {
             if (!IsDisposed)
             {

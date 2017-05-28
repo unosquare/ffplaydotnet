@@ -4,7 +4,10 @@
     using System.Collections.Generic;
     using System.Linq;
 
-    public class MediaFrameQueue
+    /// <summary>
+    /// Represents a Queue of alread-decoded media frames.
+    /// </summary>
+    internal sealed class MediaFrameQueue
     {
         #region Private Declarations
 
@@ -130,7 +133,7 @@
         /// Releases unmanaged and - optionally - managed resources.
         /// </summary>
         /// <param name="alsoManaged"><c>true</c> to release both managed and unmanaged resources; <c>false</c> to release only unmanaged resources.</param>
-        protected virtual void Dispose(bool alsoManaged)
+        private void Dispose(bool alsoManaged)
         {
             if (!IsDisposed)
             {

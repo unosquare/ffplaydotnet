@@ -1,15 +1,15 @@
 ﻿namespace Unosquare.FFplayDotNet.Decoding
 {
+    using Core;
     using FFmpeg.AutoGen;
     using System;
     using System.Runtime.InteropServices;
-    using Unosquare.FFplayDotNet.Core;
 
     /// <summary>
     /// Provides audio sample extraction, decoding and scaling functionality.
     /// </summary>
     /// <seealso cref="Unosquare.FFplayDotNet.MediaComponent" />
-    public sealed unsafe class AudioComponent : MediaComponent
+    internal sealed unsafe class AudioComponent : MediaComponent
     {
         #region Private Declarations
 

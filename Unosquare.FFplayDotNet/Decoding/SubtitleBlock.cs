@@ -6,7 +6,7 @@
     /// <summary>
     /// A subtitle frame container. Simply contains text lines.
     /// </summary>
-    public sealed class SubtitleBlock : MediaBlock
+    internal sealed class SubtitleBlock : MediaBlock
     {
         #region Properties
 

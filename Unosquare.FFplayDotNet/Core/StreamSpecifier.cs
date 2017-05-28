@@ -7,7 +7,7 @@
     /// <summary>
     /// A managed representation of an FFmpeg stream specifier
     /// </summary>
-    public class StreamSpecifier
+    internal class StreamSpecifier
     {
         #region Static Members
 

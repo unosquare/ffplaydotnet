@@ -16,7 +16,7 @@
     /// Provides a set of utilities to perfrom conversion and other
     /// handly calculations
     /// </summary>
-    public static class Utils
+    internal static class Utils
     {
         #region Private Declarations
 

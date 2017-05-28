@@ -8,7 +8,7 @@
     /// Represents a wrapper for an unmanaged ffmpeg video frame.
     /// </summary>
     /// <seealso cref="Unosquare.FFplayDotNet.Core.MediaFrame" />
-    public unsafe sealed class VideoFrame : MediaFrame
+    internal unsafe sealed class VideoFrame : MediaFrame
     {
         #region Private Members
 

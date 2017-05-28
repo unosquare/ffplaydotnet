@@ -3,7 +3,7 @@
     /// <summary>
     /// Enumerates the different Media Types
     /// </summary>
-    public enum MediaType
+    internal enum MediaType
     {
         /// <summary>
         /// Represents an unexisting media type (-1)

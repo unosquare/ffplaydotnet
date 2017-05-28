@@ -8,7 +8,7 @@
     /// Performs subtitle stream extraction, decoding and text conversion.
     /// </summary>
     /// <seealso cref="Unosquare.FFplayDotNet.MediaComponent" />
-    public sealed unsafe class SubtitleComponent : MediaComponent
+    internal sealed unsafe class SubtitleComponent : MediaComponent
     {
         /// <summary>
         /// Initializes a new instance of the <see cref="SubtitleComponent"/> class.

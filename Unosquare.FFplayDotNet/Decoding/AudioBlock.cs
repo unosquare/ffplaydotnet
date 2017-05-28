@@ -8,7 +8,7 @@
     /// A scaled, preallocated audio frame container.
     /// The buffer is in 16-bit signed, interleaved sample data
     /// </summary>
-    public sealed class AudioBlock : MediaBlock
+    internal sealed class AudioBlock : MediaBlock
     {
         #region Private Members
 

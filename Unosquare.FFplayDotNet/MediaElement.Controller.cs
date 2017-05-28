@@ -19,8 +19,8 @@
         #region Constants
 
         private static readonly int StateDictionaryCapacity = Constants.MediaTypes.Count - 1;
-        private const int MaxPacketBufferLength = 1024 * 1024 * 8; // 8MB buffer
-        private const int WaitPacketBufferLength = 512 * 1024;
+        private const int MaxPacketBufferLength = 1024 * 1024 * 8; // TODO: 8MB buffer adjust according to the bitrate if available.
+        private const int WaitPacketBufferLength = 512 * 1024; // TODO: adjust this to a multiple of bitrate if available
         private const int PacketReadBatchCount = 10; // Read 10 packets at a time
 
         private static readonly Dictionary<MediaType, int> MaxBlocks

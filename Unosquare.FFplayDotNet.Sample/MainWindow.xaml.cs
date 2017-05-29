@@ -4,27 +4,43 @@
     using System;
     using System.Windows;
 
+
+
     /// <summary>
     /// Interaction logic for MainWindow.xaml
     /// </summary>
     public partial class MainWindow : Window
     {
+        private DelegateCommand m_OpenCommand = null;
+        public DelegateCommand OpenCommand
+        {
+            get
+            {
+                if (m_OpenCommand == null)
+                {
+                    m_OpenCommand = new DelegateCommand((a) =>
+                    {
+                        Media.Source = new Uri(TestInputs.MatroskaLocalFile);
+                        Media.Play();
+                    }, null);
+                }
+
+                return m_OpenCommand;
+            }
+        }
+
         public MainWindow()
         {
             InitializeComponent();
-        }
 
-        private void Button_Click(object sender, RoutedEventArgs e)
-        {
             Native.AllocConsole();
             Media.MediaOpening += Media_MediaOpening;
-            Media.Source = new Uri(TestInputs.HlsStream);
-            Media.Play();            
         }
 
         private void Media_MediaOpening(object sender, MediaOpeningRoutedEventArgs e)
         {
-            e.Options.LogMessageCallback = new Action<MediaLogMessageType, string>((t, m) => {
+            e.Options.LogMessageCallback = new Action<MediaLogMessageType, string>((t, m) =>
+            {
                 Terminal.Log(m, nameof(MediaElement), (LogMessageType)t);
             });
         }

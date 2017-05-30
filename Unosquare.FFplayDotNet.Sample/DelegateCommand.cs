@@ -6,7 +6,7 @@
 
     public class DelegateCommand : ICommand
     {
-        public event EventHandler CanExecuteChanged;
+        public event EventHandler CanExecuteChanged = null;
 
         private Action<object> m_Action = null;
         private Func<object, bool> m_CanExecute = null;

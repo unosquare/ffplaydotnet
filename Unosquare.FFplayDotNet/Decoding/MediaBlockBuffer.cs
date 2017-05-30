@@ -118,6 +118,11 @@
         /// </summary>
         public double CapacityPercent { get { lock (SyncRoot) return (double)Count / Capacity; } }
 
+        /// <summary>
+        /// Gets a value indicating whether the playback blocks are all allocated.
+        /// </summary>
+        public bool IsFull { get { lock (SyncRoot) return Count >= Capacity; } }
+
         #endregion
 
         #region Methods

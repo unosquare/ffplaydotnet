@@ -20,7 +20,7 @@
                 {
                     m_OpenCommand = new DelegateCommand((a) =>
                     {
-                        Media.Source = new Uri(TestInputs.MatroskaLocalFile);
+                        Media.Source = new Uri(TestInputs.BigBuckBunnyLocal);
                         Media.Play();
                     }, null);
                 }
@@ -31,9 +31,8 @@
 
         public MainWindow()
         {
+            ConsoleManager.ShowConsole();
             InitializeComponent();
-
-            Native.AllocConsole();
             Media.MediaOpening += Media_MediaOpening;
         }
 

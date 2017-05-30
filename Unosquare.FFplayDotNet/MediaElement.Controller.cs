@@ -96,16 +96,13 @@
         /// converted into blocks.
         /// </summary>
         /// <param name="packetBufferLength">Length of the packet buffer.</param>
-        /// <param name="setClock">if set to <c>true</c> [set clock].</param>
-        private async Task BufferBlocks(int packetBufferLength, bool setClock)
+        private async Task BufferBlocks(int packetBufferLength)
         {
+            var main = Container.Components.Main.MediaType;
+
             // Raise the buffering started event.
             await RaiseBufferingStartedEvent();
             BufferingProgress = 0;
-
-            // Pause the clock while we buffer blocks
-            var wasClockRunning = Clock.IsRunning;
-            if (setClock) Clock.Pause();
 
             // Buffer some packets
             while (CanReadMorePackets && Container.Components.PacketBufferLength < packetBufferLength)
@@ -115,20 +112,13 @@
             FrameDecodingCycle.Wait(1000);
 
             // Buffer some blocks
-            while (CanReadMoreBlocks && Blocks.All(b => b.Value.CapacityPercent < 0.5d))
+            while (CanReadMoreBlocks && Blocks[main].CapacityPercent <= 0.5d)
             {
                 PacketReadingCycle.Wait(1);
                 FrameDecodingCycle.Wait(1);
-                BufferingProgress = Blocks.Average(b => b.Value.CapacityPercent);
+                BufferingProgress = Blocks[main].CapacityPercent / 0.5d;
                 foreach (var t in Container.Components.MediaTypes)
                     AddNextBlock(t);
-            }
-
-            // Resume and set the clock if requested.
-            if (setClock)
-            {
-                Clock.Position = Blocks[Container.Components.Main.MediaType].RangeStartTime;
-                if (wasClockRunning) Clock.Play();
             }
 
             // Raise the buffering started event.
@@ -433,8 +423,6 @@
             var mediaTypeCount = Container.Components.MediaTypes.Length;
             var main = Container.Components.Main.MediaType;
 
-            var clockPosition = Clock.Position;
-
             var hasRendered = new Dictionary<MediaType, bool>(mediaTypeCount);
             var renderIndex = new Dictionary<MediaType, int>(mediaTypeCount);
             var renderBlock = new Dictionary<MediaType, MediaBlock>(mediaTypeCount);
@@ -447,7 +435,9 @@
             }
 
             // Buffer some blocks
-            await BufferBlocks(WaitPacketBufferLength, true);
+            await BufferBlocks(WaitPacketBufferLength);
+            Clock.Position = Blocks[main].RangeStartTime;
+            var clockPosition = Clock.Position;
 
             while (BlockRenderingCancel.IsCancellationRequested == false)
             {
@@ -465,9 +455,11 @@
                 // Check for out-of sync issues (i.e. after seeking)
                 if (Blocks[main].IsInRange(clockPosition) == false || renderIndex[main] < 0)
                 {
-                    await BufferBlocks(WaitPacketBufferLength, true);
+                    await BufferBlocks(WaitPacketBufferLength);
+                    Clock.Position = Blocks[main].RangeStartTime;
                     Container.Log(MediaLogMessageType.Warning,
-                        $"SYNC              CLK: {clockPosition.Debug()} | TGT: {Blocks[main].RangeStartTime.Debug()}");
+                        $"SYNC              CLK: {clockPosition.Debug()} | TGT: {Blocks[main].RangeStartTime.Debug()} | SET: {Clock.Position.Debug()}");
+
                     clockPosition = Clock.Position;
                     renderIndex[main] = Blocks[main].IndexOf(clockPosition);
                 }
@@ -495,9 +487,11 @@
                     // Add the next block if the conditions require us to do so:
                     // If rendered, then we need to discard the oldest and add the newest
                     // If the render index is greater than half, the capacity, add a new block
-                    while (hasRendered[t] || renderIndex[t] + 1 > Blocks[t].Capacity / 2)
+                    if (hasRendered[t])
                     {
-                        AddNextBlock(t);
+                        if (Blocks[t].IsFull == false || renderIndex[t] + 1 > Blocks[t].Capacity / 2)
+                            AddNextBlock(t);
+
                         hasRendered[t] = false;
                         renderIndex[t] = Blocks[t].IndexOf(clockPosition);
 

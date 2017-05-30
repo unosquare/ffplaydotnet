@@ -38,7 +38,7 @@
         {
             Channels = Stream->codec->channels;
             SampleRate = Stream->codec->sample_rate;
-            BitsPerSample = Stream->codec->bits_per_raw_sample;
+            BitsPerSample = ffmpeg.av_samples_get_buffer_size(null, 1, 1, Stream->codec->sample_fmt, 1) * 8;
         }
 
         #endregion

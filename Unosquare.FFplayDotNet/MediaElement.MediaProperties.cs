@@ -11,7 +11,6 @@
 
         #region Property Backing
 
-        private bool m_IsPlaying = false;
         private bool m_HasMediaEnded = false;
         private double m_BufferingProgress = 0;
         private double m_DownloadProgress = 0;
@@ -65,7 +64,7 @@
         public double VideoFrameRate { get { return Container?.Components.Video?.BaseFrameRate ?? 0; } }
 
         /// <summary>
-        /// Gets the length of the video frame.
+        /// Gets the duration in seconds of the video frame.
         /// Only valid after the MediaOpened event has fired.
         /// </summary>
         public double VideoFrameLength { get { return 1d / (Container?.Components?.Video?.BaseFrameRate ?? 0); } }
@@ -125,18 +124,11 @@
         /// <summary>
         /// Gets a value indicating whether the media is playing.
         /// </summary>
-        public bool IsPlaying
-        {
-            get { return m_IsPlaying; }
-            private set { SetProperty(ref m_IsPlaying, value); }
-        }
+        public bool IsPlaying { get { return MediaState == MediaState.Play; } }
 
         /// <summary>
         /// Gets a value indicating whether the media has reached its end.
         /// </summary>
-        /// <value>
-        /// <c>true</c> if this instance has media ended; otherwise, <c>false</c>.
-        /// </value>
         public bool HasMediaEnded
         {
             get { return m_HasMediaEnded; }
@@ -175,7 +167,11 @@
         public MediaState MediaState
         {
             get { return m_MediaState; }
-            private set { SetProperty(ref m_MediaState, value); }
+            private set
+            {
+                SetProperty(ref m_MediaState, value);
+                OnPropertyChanged(nameof(IsPlaying));
+            }
         }
 
         #endregion

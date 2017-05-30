@@ -167,7 +167,12 @@
                     Maximum="{Binding ElementName=Media, Path=NaturalDuration, Converter={StaticResource TimeSpanToSecondsConverter}}" 
                     Value="{Binding ElementName=Media, Path=Position, Converter={StaticResource TimeSpanToSecondsConverter}}"
                     SmallChange="0.05" LargeChange="0.050"></Slider>
-            <Button Grid.Row="1" Margin="20,6" Command="{Binding ElementName=window, Mode=OneWay, Path=OpenCommand}" Content="{Binding ElementName=Media, Path=Position}"></Button>
+            <StackPanel Orientation="Horizontal" Grid.Row="1">
+                <Button Margin="10" Command="{Binding ElementName=window, Mode=OneWay, Path=OpenCommand}">Open</Button>
+                <Button Margin="10" Command="{Binding ElementName=window, Mode=OneWay, Path=PlayCommand}">Play</Button>
+                <Button Margin="10" Command="{Binding ElementName=window, Mode=OneWay, Path=PauseCommand}">Pause</Button>
+            </StackPanel>
+            
         </Grid>
         
         

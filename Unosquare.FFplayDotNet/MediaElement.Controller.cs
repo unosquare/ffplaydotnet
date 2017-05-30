@@ -236,6 +236,11 @@
         /// </summary>
         private bool CanReadMoreBlocks { get { return Frames.Any(f => f.Value.Count > 0) || CanReadMoreFrames || CanReadMorePackets; } }
 
+        private async Task UpdatePosition(TimeSpan currentPosition)
+        {
+            await InvokeAction(() => { Position = currentPosition; });
+        }
+
         #endregion
 
         #region Public API
@@ -353,7 +358,9 @@
                     packetsRead++;
                 }
 
+                DownloadProgress = Math.Round((double)Container.Components.PacketBufferLength / MaxPacketBufferLength, 3);
                 PacketReadingCycle.Set();
+
 
                 if (!CanReadMorePackets || Container.Components.PacketBufferLength > MaxPacketBufferLength)
                     Thread.Sleep(1);
@@ -448,7 +455,6 @@
                 BlockRenderingCycle.Reset();
 
                 // Capture current time and render index
-                OnPropertyChanged(nameof(Position));
                 clockPosition = Clock.Position;
                 renderIndex[main] = Blocks[main].IndexOf(clockPosition);
 
@@ -481,6 +487,8 @@
                     {
                         LastRenderTime[t] = renderBlock[t].StartTime;
                         hasRendered[t] = true;
+                        // Update the position;
+                        if (t == main) await UpdatePosition(clockPosition);
                         await RenderBlock(renderBlock[t], clockPosition, renderIndex[t]);
                     }
 
@@ -510,7 +518,7 @@
                         Clock.Pause();
                         Clock.Position = Blocks[main].RangeEndTime;
                         MediaState = MediaState.Pause;
-                        OnPropertyChanged(nameof(Position));
+                        await UpdatePosition(Clock.Position);
                         await RaiseMediaEndedEvent();
                     }
 

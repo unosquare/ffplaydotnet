@@ -38,7 +38,7 @@
         /// Gets the video codec.
         /// Only valid after the MediaOpened event has fired.
         /// </summary>
-        public string VideoCodec { get { return Container?.Components.Video.Codec; } }
+        public string VideoCodec { get { return Container?.Components?.Video?.Codec; } }
 
         /// <summary>
         /// Gets the video bitrate.
@@ -50,7 +50,7 @@
         /// Returns the natural width of the media in the video.
         /// Only valid after the MediaOpened event has fired.
         /// </summary> 
-        public int NaturalVideoWidth { get { return Container?.Components.Video?.FrameWidth ?? 0; } }
+        public int NaturalVideoWidth { get { return Container?.Components?.Video?.FrameWidth ?? 0; } }
 
         /// <summary> 
         /// Returns the natural height of the media in the video.
@@ -68,13 +68,13 @@
         /// Gets the length of the video frame.
         /// Only valid after the MediaOpened event has fired.
         /// </summary>
-        public double VideoFrameLength { get { return 1d / (Container?.Components.Video?.BaseFrameRate ?? 0); } }
+        public double VideoFrameLength { get { return 1d / (Container?.Components?.Video?.BaseFrameRate ?? 0); } }
 
         /// <summary>
         /// Gets the audio codec.
         /// Only valid after the MediaOpened event has fired.
         /// </summary>
-        public string AudioCodec { get { return Container?.Components.Audio.Codec; } }
+        public string AudioCodec { get { return Container?.Components?.Audio?.Codec; } }
 
         /// <summary>
         /// Gets the audio bitrate.
@@ -104,7 +104,16 @@
         /// Gets the Media's natural duration
         /// Only valid after the MediaOpened event has fired.
         /// </summary>
-        public Duration NaturalDuration { get { return Container == null ? new Duration(TimeSpan.Zero) : new Duration(Container.MediaDuration); } }
+        public Duration NaturalDuration
+        {
+            get
+            {
+                return Container == null ? Duration.Automatic :
+                    Container.MediaDuration == TimeSpan.MinValue ?
+                        Duration.Forever :
+                            new Duration(Container.MediaDuration);
+            }
+        }
 
         /// <summary>
         /// Returns whether the given media can be paused. 

@@ -20,7 +20,8 @@
                 {
                     m_OpenCommand = new DelegateCommand((a) =>
                     {
-                        Media.Source = new Uri(TestInputs.BigBuckBunnyLocal);
+                        Media.Source = new Uri(TestInputs.YoutubeLocalFile);
+                        window.Title = Media.Source.ToString();
                         Media.Play();
                     }, null);
                 }

@@ -469,8 +469,14 @@
 
                     // If there are any optins left in the dictionary, it means they dod not get used (invalid options).
                     formatOptions.Remove(EntryName.ScanAllPMTs);
-                    if (formatOptions.First() != null)
-                        Log(MediaLogMessageType.Warning, $"Invalid format option: '{formatOptions.First()?.Key}'");
+
+                    var currentEntry = formatOptions.First();
+                    while (currentEntry != null && currentEntry?.Key != null)
+                    {
+                        Log(MediaLogMessageType.Warning, $"Invalid format option: '{currentEntry.Key}'");
+                        currentEntry = formatOptions.Next(currentEntry);
+                    }
+
                 }
 
                 // Inject Codec Parameters

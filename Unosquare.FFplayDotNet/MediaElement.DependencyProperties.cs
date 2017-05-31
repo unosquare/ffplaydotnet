@@ -2,6 +2,7 @@
 {
     using Core;
     using System;
+    using System.Threading.Tasks;
     using System.Windows;
     using System.Windows.Controls;
     using System.Windows.Media;
@@ -26,7 +27,7 @@
         /// </summary>
         /// <param name="dependencyObject">The dependency object.</param>
         /// <param name="e">The <see cref="DependencyPropertyChangedEventArgs"/> instance containing the event data.</param>
-        private static void OnSourcePropertyChanged(DependencyObject dependencyObject, DependencyPropertyChangedEventArgs e)
+        private static async void OnSourcePropertyChanged(DependencyObject dependencyObject, DependencyPropertyChangedEventArgs e)
         {
             var element = dependencyObject as MediaElement;
             if (element == null) return;
@@ -34,12 +35,12 @@
             var uri = e.NewValue as Uri;
             if (uri != null)
             {
-                element.Close();
-                element.Open(uri).Wait();
+                await element.CloseAsync();
+                element.Open(uri);
             }
             else
             {
-                element.Close();
+                await element.CloseAsync();
             }
                 
         }

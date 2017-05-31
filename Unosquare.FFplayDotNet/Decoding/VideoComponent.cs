@@ -46,6 +46,9 @@
             : base(container, streamIndex)
         {
             BaseFrameRate = Stream->codec->framerate.ToDouble();
+            if (double.IsNaN(BaseFrameRate))
+                BaseFrameRate = Stream->r_frame_rate.ToDouble();
+
             CurrentFrameRate = Stream->avg_frame_rate.ToDouble();
             if (double.IsNaN(CurrentFrameRate))
                 CurrentFrameRate = BaseFrameRate;

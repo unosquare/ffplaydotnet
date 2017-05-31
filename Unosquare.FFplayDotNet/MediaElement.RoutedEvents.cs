@@ -1,6 +1,5 @@
 ﻿namespace Unosquare.FFplayDotNet
 {
-    using Core;
     using System;
     using System.Linq;
     using System.Reflection;
@@ -31,7 +30,7 @@
         /// </summary>
         /// <param name="action">The action.</param>
         /// <returns></returns>
-        private async Task InvokeAction(Action action)
+        private void InvokeOnUI(Action action)
         {
             if (Dispatcher == null || Dispatcher.CurrentDispatcher == Dispatcher)
             {
@@ -39,49 +38,61 @@
                 return;
             }
 
-            if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
-            await Dispatcher.InvokeAsync(action, DispatcherPriority.Normal); // Normal is 1 more than DataBind
+            try
+            {
+                if (Dispatcher.HasShutdownStarted || Dispatcher.HasShutdownFinished) return;
+                Dispatcher.Invoke(action, DispatcherPriority.Normal); // Normal is 1 more than DataBind
+            }
+            catch (TaskCanceledException)
+            {
+                // swallow
+            }
+            catch (Exception ex)
+            {
+                throw ex;
+            }
+
         }
 
         /// <summary>
         /// Raises the buffering started event.
         /// </summary>
-        private async Task RaiseBufferingStartedEvent()
+        private void RaiseBufferingStartedEvent()
         {
-            await InvokeAction(() => { RaiseEvent(new RoutedEventArgs(BufferingStartedEvent, this)); });
+            InvokeOnUI(() => { RaiseEvent(new RoutedEventArgs(BufferingStartedEvent, this)); });
         }
 
         /// <summary>
         /// Raises the buffering ended event.
         /// </summary>
-        private async Task RaiseBufferingEndedEvent()
+        private void RaiseBufferingEndedEvent()
         {
-            await InvokeAction(() => { RaiseEvent(new RoutedEventArgs(BufferingEndedEvent, this)); });
+            InvokeOnUI(() => { RaiseEvent(new RoutedEventArgs(BufferingEndedEvent, this)); });
         }
 
         /// <summary>
         /// Raises the media failed event.
         /// </summary>
         /// <param name="ex">The ex.</param>
-        private async Task RaiseMediaFailedEvent(Exception ex)
+        private void RaiseMediaFailedEvent(Exception ex)
         {
-            await InvokeAction(() => { RaiseEvent(CreateExceptionRoutedEventArgs(MediaFailedEvent, this, ex)); });
+            InvokeOnUI(() => { RaiseEvent(CreateExceptionRoutedEventArgs(MediaFailedEvent, this, ex)); });
         }
 
         /// <summary>
         /// Raises the media opened event.
         /// </summary>
-        private async Task RaiseMediaOpenedEvent()
+        private void RaiseMediaOpenedEvent()
         {
-            await InvokeAction(() => { RaiseEvent(new RoutedEventArgs(MediaOpenedEvent, this)); });
+            InvokeOnUI(() => { RaiseEvent(new RoutedEventArgs(MediaOpenedEvent, this)); });
         }
 
         /// <summary>
         /// Raises the media opening event.
         /// </summary>
-        private async Task RaiseMediaOpeningEvent()
+        private void RaiseMediaOpeningEvent()
         {
-            await InvokeAction(() =>
+            InvokeOnUI(() =>
             {
                 RaiseEvent(new MediaOpeningRoutedEventArgs(MediaOpeningEvent, this, Container.MediaOptions));
             });
@@ -90,9 +101,9 @@
         /// <summary>
         /// Raises the media ended event.
         /// </summary>
-        private async Task RaiseMediaEndedEvent()
+        private void RaiseMediaEndedEvent()
         {
-            await InvokeAction(() => { RaiseEvent(new RoutedEventArgs(MediaEndedEvent, this)); });
+            InvokeOnUI(() => { RaiseEvent(new RoutedEventArgs(MediaEndedEvent, this)); });
         }
 
         #endregion

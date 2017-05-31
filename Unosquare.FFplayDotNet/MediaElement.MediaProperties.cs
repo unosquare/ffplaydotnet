@@ -215,7 +215,6 @@
             IsMuted = false;
             HasMediaEnded = false;
             SpeedRatio = Constants.DefaultSpeedRatio;
-
         }
 
         #endregion

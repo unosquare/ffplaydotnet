@@ -10,7 +10,6 @@
     using System.Windows.Interop;
     using System.Windows.Markup;
     using System.Windows.Media.Imaging;
-    using System.Windows.Threading;
 
     /// <summary>
     /// Represents a control that contains audio and/or video.
@@ -156,10 +155,10 @@
         private void OnPropertyChanged([CallerMemberName] string propertyName = null)
         {
             if (PropertyChanged == null) return;
-            InvokeAction(() =>
+            InvokeOnUI(() =>
             {
                 PropertyChanged(this, new PropertyChangedEventArgs(propertyName));
-            }).Wait();
+            });
         }
 
         #endregion

@@ -15,7 +15,7 @@
     /// The method pipeline should be: 
     /// 1. Set Options (or don't, for automatic options) and Initialize, 
     /// 2. Perform continuous Reads, 
-    /// 3. Perform continuous Decodes and Converts
+    /// 3. Perform continuous Decodes and Converts/Materialize
     /// </summary>
     /// <seealso cref="System.IDisposable" />
     internal unsafe sealed class MediaContainer : IDisposable

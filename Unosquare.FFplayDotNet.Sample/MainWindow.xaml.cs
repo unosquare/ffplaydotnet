@@ -23,7 +23,7 @@
                 if (m_OpenCommand == null)
                     m_OpenCommand = new DelegateCommand((a) =>
                     {
-                        Media.Source = new Uri(TestInputs.MatroskaLocalFile);
+                        Media.Source = new Uri(TestInputs.FinlandiaMp3LocalFile);
                         window.Title = Media.Source.ToString();
                     }, null);
 

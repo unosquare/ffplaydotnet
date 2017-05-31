@@ -4,7 +4,9 @@
     using Decoding;
     using System;
     using System.Collections.Generic;
+    using System.Diagnostics;
     using System.Linq;
+    using System.Runtime.CompilerServices;
     using System.Threading;
     using System.Threading.Tasks;
     using System.Windows;
@@ -54,16 +56,16 @@
         private readonly Dictionary<MediaType, TimeSpan> LastRenderTime
             = new Dictionary<MediaType, TimeSpan>(StateDictionaryCapacity);
 
-        private Task PacketReadingTask;
-        private CancellationTokenSource PacketReadingCancel;
-        private readonly ManualResetEventSlim PacketReadingCycle = new ManualResetEventSlim(false);
+        private volatile bool IsTaskCancellationPending = false;
 
-        private Task FrameDecodingTask;
-        private CancellationTokenSource FrameDecodingCancel;
-        private readonly ManualResetEventSlim FrameDecodingCycle = new ManualResetEventSlim(false);
 
-        private Task BlockRenderingTask;
-        private CancellationTokenSource BlockRenderingCancel;
+        private Thread PacketReadingTask;
+        private readonly ManualResetEventSlim PacketReadingCycle = new ManualResetEventSlim(true);
+
+        private Thread FrameDecodingTask;
+        private readonly ManualResetEventSlim FrameDecodingCycle = new ManualResetEventSlim(true);
+
+        private Thread BlockRenderingTask;
         private readonly ManualResetEventSlim BlockRenderingCycle = new ManualResetEventSlim(true);
 
         private readonly ManualResetEventSlim SeekingDone = new ManualResetEventSlim(true);
@@ -96,14 +98,14 @@
         /// converted into blocks.
         /// </summary>
         /// <param name="packetBufferLength">Length of the packet buffer.</param>
-        private async Task BufferBlocks(int packetBufferLength)
+        private void BufferBlocks(int packetBufferLength)
         {
             var main = Container.Components.Main.MediaType;
 
             // Raise the buffering started event.
             IsBuffering = true;
             BufferingProgress = 0;
-            await RaiseBufferingStartedEvent();
+            RaiseBufferingStartedEvent();
 
             // Buffer some packets
             while (CanReadMorePackets && Container.Components.PacketBufferLength < packetBufferLength)
@@ -125,7 +127,7 @@
             // Raise the buffering started event.
             BufferingProgress = 1;
             IsBuffering = false;
-            await RaiseBufferingEndedEvent();
+            RaiseBufferingEndedEvent();
         }
 
         /// <summary>
@@ -134,10 +136,11 @@
         /// <param name="block">The block.</param>
         /// <param name="clockPosition">The clock position.</param>
         /// <param name="renderIndex">Index of the render.</param>
-        private async Task RenderBlock(MediaBlock block, TimeSpan clockPosition, int renderIndex)
+        private void RenderBlock(MediaBlock block, TimeSpan clockPosition, int renderIndex)
         {
-            if (block.MediaType == MediaType.Video)
-                await InvokeAction(() =>
+            InvokeOnUI(() =>
+            {
+                if (block.MediaType == MediaType.Video)
                 {
                     var e = block as VideoBlock;
                     TargetBitmap.Lock();
@@ -161,18 +164,26 @@
 
                     TargetBitmap.AddDirtyRect(new Int32Rect(0, 0, e.PixelWidth, e.PixelHeight));
                     TargetBitmap.Unlock();
-                });
+                }
+            });
 
-            var drift = TimeSpan.FromTicks(clockPosition.Ticks - block.StartTime.Ticks);
-            Container.Log(MediaLogMessageType.Trace,
-            ($"{block.MediaType.ToString().Substring(0, 1)} "
-                + $"BLK: {block.StartTime.Debug()} | "
-                + $"CLK: {clockPosition.Debug()} | "
-                + $"DFT: {drift.TotalMilliseconds,4:0} | "
-                + $"IX: {renderIndex,3} | "
-                + $"FQ: {Frames[block.MediaType].Count,4} | "
-                + $"PQ: {Container.Components[block.MediaType].PacketBufferLength / 1024d,7:0.0}k | "
-                + $"TQ: {Container.Components.PacketBufferLength / 1024d,7:0.0}k"));
+            try
+            {
+                var drift = TimeSpan.FromTicks(clockPosition.Ticks - block.StartTime.Ticks);
+                Container?.Log(MediaLogMessageType.Trace,
+                ($"{block.MediaType.ToString().Substring(0, 1)} "
+                    + $"BLK: {block.StartTime.Debug()} | "
+                    + $"CLK: {clockPosition.Debug()} | "
+                    + $"DFT: {drift.TotalMilliseconds,4:0} | "
+                    + $"IX: {renderIndex,3} | "
+                    + $"FQ: {Frames[block.MediaType]?.Count,4} | "
+                    + $"PQ: {Container?.Components[block.MediaType]?.PacketBufferLength / 1024d,7:0.0}k | "
+                    + $"TQ: {Container?.Components.PacketBufferLength / 1024d,7:0.0}k"));
+            }
+            catch
+            {
+                // swallow
+            }
         }
 
         /// <summary>
@@ -237,31 +248,43 @@
         /// </summary>
         private bool CanReadMoreBlocks { get { return Frames.Any(f => f.Value.Count > 0) || CanReadMoreFrames || CanReadMorePackets; } }
 
-        private async Task UpdatePosition(TimeSpan currentPosition)
+        private void UpdatePosition(TimeSpan currentPosition)
         {
-            await InvokeAction(() => { Position = currentPosition; });
+            InvokeOnUI(() => { Position = currentPosition; });
         }
 
         #endregion
 
-        #region Public API
+        #region Open and Close
 
+        /// <summary>
+        /// Opens the specified media Asynchronously
+        /// </summary>
+        /// <param name="uri">The URI.</param>
+        /// <returns></returns>
         private async Task Open(Uri uri)
         {
             try
             {
-                var mediaUrl = uri.IsFile ? uri.LocalPath : uri.ToString();
+                await Task.Run(() =>
+                {
+                    var mediaUrl = uri.IsFile ? uri.LocalPath : uri.ToString();
 
-                Container = new MediaContainer(mediaUrl);
-                await RaiseMediaOpeningEvent();
-                Container.Initialize();
+                    Container = new MediaContainer(mediaUrl);
+                    RaiseMediaOpeningEvent();
+                    Container.Log(MediaLogMessageType.Debug, $"{nameof(Open)}: Entered");
+                    Container.Initialize();
+                });
 
-                if (HasVideo)
-                    TargetBitmap = new WriteableBitmap(NaturalVideoWidth, NaturalVideoHeight, 96, 96, PixelFormats.Bgr24, null);
-                else
-                    TargetBitmap = new WriteableBitmap(1, 1, 96, 96, PixelFormats.Bgr24, null);
+                InvokeOnUI(() =>
+                {
+                    if (HasVideo)
+                        TargetBitmap = new WriteableBitmap(NaturalVideoWidth, NaturalVideoHeight, 96, 96, PixelFormats.Bgr24, null);
+                    else
+                        TargetBitmap = new WriteableBitmap(1, 1, 96, 96, PixelFormats.Bgr24, null);
 
-                ViewBox.Source = TargetBitmap;
+                    ViewBox.Source = TargetBitmap;
+                });
 
                 foreach (var t in Container.Components.MediaTypes)
                 {
@@ -270,72 +293,62 @@
                     LastRenderTime[t] = TimeSpan.MinValue;
                 }
 
-                PacketReadingCancel = new CancellationTokenSource();
-                FrameDecodingCancel = new CancellationTokenSource();
-                BlockRenderingCancel = new CancellationTokenSource();
+                IsTaskCancellationPending = false;
 
-                PacketReadingTask = Task.Run(async () => { await RunPacketReadingTask(PacketReadingCancel.Token); });
-                FrameDecodingTask = Task.Run(async () => { await RunFrameDecodingTask(FrameDecodingCancel.Token); });
-                BlockRenderingTask = Task.Run(async () => { await RunBlockRenderingTask(BlockRenderingCancel.Token); });
+                BlockRenderingCycle.Set();
+                FrameDecodingCycle.Set();
+                PacketReadingCycle.Set();
 
-                await RaiseMediaOpenedEvent();
+                PacketReadingTask = new Thread(RunPacketReadingWorker) { IsBackground = true };
+                FrameDecodingTask = new Thread(RunFrameDecodingWorker) { IsBackground = true };
+                BlockRenderingTask = new Thread(RunBlockRenderingWorker) { IsBackground = true };
+
+                PacketReadingTask.Start();
+                FrameDecodingTask.Start();
+                BlockRenderingTask.Start();
+
+                RaiseMediaOpenedEvent();
+
+                if (LoadedBehavior == MediaState.Play)
+                    Play();
             }
             catch (Exception ex)
             {
-                await RaiseMediaFailedEvent(ex);
+                RaiseMediaFailedEvent(ex);
             }
             finally
             {
                 UpdateMediaProperties();
+                Container.Log(MediaLogMessageType.Debug, $"{nameof(Open)}: Completed");
             }
         }
 
-        public void Play()
+        public async Task CloseAsync()
         {
-            Clock.Play();
-            BlockRenderingCycle.Wait(5);
-            MediaState = MediaState.Play;
-        }
-
-        public void Pause()
-        {
-            BlockRenderingCycle.Wait(5);
+            Container?.Log(MediaLogMessageType.Debug, $"{nameof(CloseAsync)}: Entered");
             Clock.Pause();
-            MediaState = MediaState.Pause;
-        }
+            IsTaskCancellationPending = true;
 
-        public void Stop()
-        {
-            Clock.Reset();
-            Seek(TimeSpan.Zero);
-        }
-
-        public void Close()
-        {
-            Clock.Pause();
-
-
-            if (BlockRenderingTask != null)
+            // Wait for cycles to complete.
+            await Task.Run(() =>
             {
-                BlockRenderingCancel?.Cancel();
-                BlockRenderingCycle.Wait();
-                BlockRenderingTask.Wait();
-            }
+                while (!BlockRenderingCycle.Wait(1)) { }
+                while (!FrameDecodingCycle.Wait(1)) { }
+                while (!PacketReadingCycle.Wait(1)) { }
+            });
 
-            if (FrameDecodingTask != null)
-            {
-                FrameDecodingCancel?.Cancel();
-                FrameDecodingTask.Wait();
-            }
+            BlockRenderingTask?.Join();
+            FrameDecodingTask?.Join();
+            PacketReadingTask?.Join();
 
-            if (PacketReadingTask != null)
-            {
-                PacketReadingCancel?.Cancel();
-                PacketReadingTask.Wait();
-            }
+            BlockRenderingTask = null;
+            FrameDecodingTask = null;
+            PacketReadingTask = null;
 
             // Reset the clock
             Clock.Reset();
+
+            Container?.Log(MediaLogMessageType.Debug, $"{nameof(CloseAsync)}: Completed");
 
             // Dispose the container
             if (Container != null)
@@ -362,16 +375,40 @@
 
         #endregion
 
+        #region Public API
+
+        public void Play()
+        {
+            Clock.Play();
+            BlockRenderingCycle.Wait(5);
+            MediaState = MediaState.Play;
+        }
+
+        public void Pause()
+        {
+            BlockRenderingCycle.Wait(5);
+            Clock.Pause();
+            MediaState = MediaState.Pause;
+        }
+
+        public void Stop()
+        {
+            Clock.Reset();
+            Seek(TimeSpan.Zero);
+        }
+
+        #endregion
+
         #region Task Runners
 
         /// <summary>
         /// Runs the read task which keeps a packet buffer as full as possible.
         /// </summary>
-        private async Task RunPacketReadingTask(CancellationToken control)
+        private void RunPacketReadingWorker()
         {
             var packetsRead = 0;
 
-            while (control.IsCancellationRequested == false)
+            while (IsTaskCancellationPending == false)
             {
                 // Enter a read cycle
                 SeekingDone.Wait();
@@ -392,7 +429,7 @@
 
 
                 if (!CanReadMorePackets || Container.Components.PacketBufferLength > MaxPacketBufferLength)
-                    await Task.Delay(1);
+                    Thread.Sleep(1);
 
             }
 
@@ -404,9 +441,9 @@
         /// many frames as possible in each frame queue and 
         /// up to the MaxFrames on each component
         /// </summary>
-        private async Task RunFrameDecodingTask(CancellationToken control)
+        private void RunFrameDecodingWorker()
         {
-            while (control.IsCancellationRequested == false)
+            while (IsTaskCancellationPending == false)
             {
                 // Wait for a seek operation to complete (if any)
                 // and initiate a decoding cycle.
@@ -441,11 +478,12 @@
 
                 // Give it a break if there wa snothing to decode.
                 if (decodedFrames <= 0)
-                    await Task.Delay(1);
+                    Thread.Sleep(1);
 
             }
 
             FrameDecodingCycle.Set();
+
         }
 
         /// <summary>
@@ -455,8 +493,9 @@
         /// </summary>
         /// <param name="control">The control.</param>
         /// <returns></returns>
-        private async Task RunBlockRenderingTask(CancellationToken control)
+        private void RunBlockRenderingWorker()
         {
+
             var mediaTypeCount = Container.Components.MediaTypes.Length;
             var main = Container.Components.Main.MediaType;
 
@@ -472,11 +511,11 @@
             }
 
             // Buffer some blocks
-            await BufferBlocks(WaitPacketBufferLength);
+            BufferBlocks(WaitPacketBufferLength);
             Clock.Position = Blocks[main].RangeStartTime;
             var clockPosition = Clock.Position;
 
-            while (control.IsCancellationRequested == false)
+            while (IsTaskCancellationPending == false)
             {
                 if (RequestedSeekPosition != null)
                     Seek(RequestedSeekPosition.Value);
@@ -491,7 +530,7 @@
                 // Check for out-of sync issues (i.e. after seeking)
                 if (Blocks[main].IsInRange(clockPosition) == false || renderIndex[main] < 0)
                 {
-                    await BufferBlocks(WaitPacketBufferLength);
+                    BufferBlocks(WaitPacketBufferLength);
                     Clock.Position = Blocks[main].RangeStartTime;
                     Container.Log(MediaLogMessageType.Warning,
                         $"SYNC              CLK: {clockPosition.Debug()} | TGT: {Blocks[main].RangeStartTime.Debug()} | SET: {Clock.Position.Debug()}");
@@ -518,8 +557,8 @@
                         LastRenderTime[t] = renderBlock[t].StartTime;
                         hasRendered[t] = true;
                         // Update the position;
-                        if (t == main) await UpdatePosition(clockPosition);
-                        await RenderBlock(renderBlock[t], clockPosition, renderIndex[t]);
+                        if (t == main) UpdatePosition(clockPosition);
+                        RenderBlock(renderBlock[t], clockPosition, renderIndex[t]);
                     }
 
                     // Add the next block if the conditions require us to do so:
@@ -548,9 +587,9 @@
                         Clock.Pause();
                         Clock.Position = Blocks[main].RangeEndTime;
                         MediaState = MediaState.Pause;
-                        await UpdatePosition(Clock.Position);
+                        UpdatePosition(Clock.Position);
                         HasMediaEnded = true;
-                        await RaiseMediaEndedEvent();
+                        RaiseMediaEndedEvent();
                     }
 
                 }
@@ -560,10 +599,11 @@
                 }
 
                 BlockRenderingCycle.Set();
-                await Task.Delay(1);
+                Thread.Sleep(1);
             }
 
             BlockRenderingCycle.Set();
+
         }
 
         #endregion

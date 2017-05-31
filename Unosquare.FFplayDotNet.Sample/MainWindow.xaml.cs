@@ -12,6 +12,8 @@
     /// </summary>
     public partial class MainWindow : Window
     {
+        #region Commands
+
         private DelegateCommand m_OpenCommand = null;
         private DelegateCommand m_PauseCommand = null;
         private DelegateCommand m_PlayCommand = null;
@@ -24,7 +26,7 @@
                 if (m_OpenCommand == null)
                     m_OpenCommand = new DelegateCommand((a) =>
                     {
-                        Media.Source = new Uri(TestInputs.BigBuckBunnyLocal);
+                        Media.Source = new Uri(UrlTextBox.Text);
                         window.Title = Media.Source.ToString();
                     }, null);
 
@@ -69,10 +71,13 @@
             }
         }
 
+        #endregion
+
         public MainWindow()
         {
             ConsoleManager.ShowConsole();
             InitializeComponent();
+            UrlTextBox.Text = TestInputs.UdpStream;
             Media.MediaOpening += Media_MediaOpening;
         }
 

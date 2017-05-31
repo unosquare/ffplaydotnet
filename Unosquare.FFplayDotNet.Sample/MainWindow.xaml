@@ -9,6 +9,8 @@
         Title="MainWindow" Height="800" MinHeight="800" MinWidth="1024" Width="1024">
     <Window.Resources>
         <local:TimeSpanToSecondsConverter x:Key="TimeSpanToSecondsConverter" />
+        <Path x:Key="OpenIcon" Data="M22.785004,8.4599915L13.740021,17.51001 9.2100067,12.980011 6.2000122,16 13.740021,23.545013 25.804993,11.480011z M16,0C24.834991,0 32,7.1700134 32,16 32,24.834991 24.834991,32 16,32 7.1699982,32 0,24.834991 0,16 0,7.1700134 7.1699982,0 16,0z" />
+        <Path x:Key="CloseIcon" Data="M20.200012,8.4000015L16,12.599998 11.800049,8.5 8.4000244,11.900002 12.600037,16.099998 8.4000244,20.300003 11.800049,23.699997 16,19.5 20.200012,23.699997 23.600037,20.300003 19.400024,16 23.600037,11.800003z M16,0C24.800049,0 32,7.1999969 32,16 32,24.800003 24.800049,32 16,32 7.2000122,32 0,24.800003 0,16 0,7.1999969 7.2000122,0 16,0z" />
     </Window.Resources>
     <Grid Name="MainLayoutGrid" HorizontalAlignment="Stretch">
         <Grid.RowDefinitions>
@@ -157,25 +159,47 @@
         </Grid>
 
         <Grid Name="Controls" Grid.Row="1">
+            <Grid.Resources>
+                <Style TargetType="Path">
+                    <Setter Property="Fill" Value="Black" />
+                    <Setter Property="Stretch" Value="Uniform" />
+                </Style>
+                <Style TargetType="Button">
+                    <Setter Property="Width" Value="28"/>
+                </Style>
+            </Grid.Resources>
             <Grid.RowDefinitions>
+                <RowDefinition Height="28"></RowDefinition>
                 <RowDefinition></RowDefinition>
                 <RowDefinition></RowDefinition>
             </Grid.RowDefinitions>
-            <Slider Grid.Row="0" 
+            <DockPanel Grid.Row="0" LastChildFill="True">
+                <Button DockPanel.Dock="Right" Command="{Binding ElementName=window, Mode=OneWay, Path=OpenCommand}">
+                    <Path Data="{Binding Source={StaticResource CloseIcon}, Path=Data}"/>
+                </Button>
+                <Button DockPanel.Dock="Right" Command="{Binding ElementName=window, Mode=OneWay, Path=OpenCommand}">
+                    <Path Data="{Binding Source={StaticResource OpenIcon}, Path=Data}"/>
+                </Button>
+                <Label>URL:</Label>
+                <TextBox Name="UrlTextBox" Padding="6,3,0,0" VerticalContentAlignment="Top" Foreground="#FF666666" FontWeight="Bold" FontSize="14">This is some sample text</TextBox>
+            </DockPanel>
+            <Slider Grid.Row="1"
+                    TickFrequency="1"
+                    TickPlacement="TopLeft"
+                    Foreground="Black"
                     VerticalAlignment="Center"
                     Minimum="0" 
                     Maximum="{Binding ElementName=Media, Path=NaturalDuration, Converter={StaticResource TimeSpanToSecondsConverter}}" 
                     Value="{Binding ElementName=Media, Path=Position, Converter={StaticResource TimeSpanToSecondsConverter}}"
                     SmallChange="0.05" LargeChange="0.050"></Slider>
-            <StackPanel Orientation="Horizontal" Grid.Row="1">
-                <Button Margin="10" Command="{Binding ElementName=window, Mode=OneWay, Path=OpenCommand}">Open</Button>
+            <StackPanel Orientation="Horizontal" Grid.Row="2">
                 <Button Margin="10" Command="{Binding ElementName=window, Mode=OneWay, Path=PlayCommand}">Play</Button>
                 <Button Margin="10" Command="{Binding ElementName=window, Mode=OneWay, Path=PauseCommand}">Pause</Button>
                 <Button Margin="10" Command="{Binding ElementName=window, Mode=OneWay, Path=StopCommand}">Stop</Button>
             </StackPanel>
-            
+
         </Grid>
-        
-        
+
+
     </Grid>
 </Window>

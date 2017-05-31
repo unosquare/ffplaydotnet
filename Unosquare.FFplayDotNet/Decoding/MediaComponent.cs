@@ -191,7 +191,10 @@
                 codecOptions[CodecOption.RefCountedFrames] = 1.ToString(CultureInfo.InvariantCulture);
 
             // Open the CodecContext
-            var codecOpenResult = ffmpeg.avcodec_open2(CodecContext, codec, codecOptions.Reference);
+            var codecOpenResult = 0;
+            fixed (AVDictionary** reference = &codecOptions.Pointer)
+                codecOpenResult = ffmpeg.avcodec_open2(CodecContext, codec, reference);
+
             if (codecOpenResult < 0)
             {
                 Dispose();

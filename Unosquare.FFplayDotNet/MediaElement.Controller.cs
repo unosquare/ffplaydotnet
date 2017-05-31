@@ -262,7 +262,7 @@
         /// </summary>
         /// <param name="uri">The URI.</param>
         /// <returns></returns>
-        private async Task Open(Uri uri)
+        private async Task OpenAsync(Uri uri)
         {
             try
             {
@@ -272,7 +272,7 @@
 
                     Container = new MediaContainer(mediaUrl);
                     RaiseMediaOpeningEvent();
-                    Container.Log(MediaLogMessageType.Debug, $"{nameof(Open)}: Entered");
+                    Container.Log(MediaLogMessageType.Debug, $"{nameof(OpenAsync)}: Entered");
                     Container.Initialize();
                 });
 
@@ -319,7 +319,7 @@
             finally
             {
                 UpdateMediaProperties();
-                Container.Log(MediaLogMessageType.Debug, $"{nameof(Open)}: Completed");
+                Container.Log(MediaLogMessageType.Debug, $"{nameof(OpenAsync)}: Completed");
             }
         }
 

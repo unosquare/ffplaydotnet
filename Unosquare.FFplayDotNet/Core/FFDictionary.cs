@@ -14,7 +14,6 @@
         // These pointers and references are created by unmanaged code
         // there is no need to pin them.
         public AVDictionary* Pointer;
-        public AVDictionary** Reference;
 
         #endregion
 
@@ -190,7 +189,6 @@
             fixed (AVDictionary** reference = &Pointer)
             {
                 ffmpeg.av_dict_set(reference, key, value, flags);
-                Reference = reference;
                 Pointer = *reference;
             }
         }
@@ -224,7 +222,8 @@
             {
                 if (alsoManaged)
                 {
-                    ffmpeg.av_dict_free(Reference);
+                    fixed (AVDictionary** reference = &Pointer)
+                        ffmpeg.av_dict_free(reference);
                 }
 
                 IsDisposed = true;

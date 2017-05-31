@@ -171,6 +171,7 @@
                 <Button Margin="10" Command="{Binding ElementName=window, Mode=OneWay, Path=OpenCommand}">Open</Button>
                 <Button Margin="10" Command="{Binding ElementName=window, Mode=OneWay, Path=PlayCommand}">Play</Button>
                 <Button Margin="10" Command="{Binding ElementName=window, Mode=OneWay, Path=PauseCommand}">Pause</Button>
+                <Button Margin="10" Command="{Binding ElementName=window, Mode=OneWay, Path=StopCommand}">Stop</Button>
             </StackPanel>
             
         </Grid>

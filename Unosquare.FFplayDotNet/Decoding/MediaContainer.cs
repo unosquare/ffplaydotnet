@@ -458,7 +458,9 @@
                     fixed (AVFormatContext** inputContext = &InputContext)
                     {
                         // Open the input file
-                        var openResult = ffmpeg.avformat_open_input(inputContext, MediaUrl, inputFormat, formatOptions.Reference);
+                        var openResult = 0;
+                        fixed (AVDictionary** reference = &formatOptions.Pointer)
+                            openResult = ffmpeg.avformat_open_input(inputContext, MediaUrl, inputFormat, reference);
 
                         // Validate the open operation
                         if (openResult < 0) throw new MediaContainerException($"Could not open '{MediaUrl}'. Error code: {openResult}");
@@ -467,7 +469,7 @@
                     // Set some general properties
                     MediaFormatName = Utils.PtrToString(InputContext->iformat->name);
 
-                    // If there are any optins left in the dictionary, it means they dod not get used (invalid options).
+                    // If there are any optins left in the dictionary, it means they did not get used (invalid options).
                     formatOptions.Remove(EntryName.ScanAllPMTs);
 
                     var currentEntry = formatOptions.First();

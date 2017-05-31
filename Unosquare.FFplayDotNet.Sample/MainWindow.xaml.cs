@@ -3,6 +3,7 @@
     using Swan;
     using System;
     using System.Windows;
+    using System.Windows.Controls;
 
 
 
@@ -14,7 +15,7 @@
         private DelegateCommand m_OpenCommand = null;
         private DelegateCommand m_PauseCommand = null;
         private DelegateCommand m_PlayCommand = null;
-
+        private DelegateCommand m_StopCommand = null;
 
         public DelegateCommand OpenCommand
         {
@@ -23,7 +24,7 @@
                 if (m_OpenCommand == null)
                     m_OpenCommand = new DelegateCommand((a) =>
                     {
-                        Media.Source = new Uri(TestInputs.FinlandiaMp3LocalFile);
+                        Media.Source = new Uri(TestInputs.Transport2LocalFile);
                         window.Title = Media.Source.ToString();
                     }, null);
 
@@ -50,6 +51,21 @@
                     m_PlayCommand = new DelegateCommand((o) => { Media.Play(); }, (o) => { return Media.IsPlaying == false; });
 
                 return m_PlayCommand;
+            }
+        }
+
+        public DelegateCommand StopCommand
+        {
+            get
+            {
+                if (m_StopCommand == null)
+                    m_StopCommand = new DelegateCommand((o) => { Media.Stop(); }, (o) =>
+                    {
+                        return Media.MediaState != MediaState.Close
+                            && Media.MediaState != MediaState.Manual;
+                    });
+
+                return m_StopCommand;
             }
         }
 

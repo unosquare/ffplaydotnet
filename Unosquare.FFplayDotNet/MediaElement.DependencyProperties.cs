@@ -36,7 +36,7 @@
             if (uri != null)
             {
                 await element.CloseAsync();
-                element.Open(uri);
+                await element.OpenAsync(uri);
             }
             else
             {

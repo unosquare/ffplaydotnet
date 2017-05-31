@@ -24,7 +24,7 @@
                 if (m_OpenCommand == null)
                     m_OpenCommand = new DelegateCommand((a) =>
                     {
-                        Media.Source = new Uri(TestInputs.Transport2LocalFile);
+                        Media.Source = new Uri(TestInputs.YoutubeLocalFile);
                         window.Title = Media.Source.ToString();
                     }, null);
 

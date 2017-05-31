@@ -278,10 +278,20 @@
 
                 InvokeOnUI(() =>
                 {
+                    var visual = PresentationSource.FromVisual(this);
+
+                    var dpiX = 96.0;
+                    var dpiY = 96.0;
+                    if (visual != null)
+                    {
+                        dpiX = 96.0 * visual.CompositionTarget.TransformToDevice.M11;
+                        dpiY = 96.0 * visual.CompositionTarget.TransformToDevice.M22;
+                    }
+
                     if (HasVideo)
-                        TargetBitmap = new WriteableBitmap(NaturalVideoWidth, NaturalVideoHeight, 96, 96, PixelFormats.Bgr24, null);
+                        TargetBitmap = new WriteableBitmap(NaturalVideoWidth, NaturalVideoHeight, dpiX, dpiY, PixelFormats.Bgr24, null);
                     else
-                        TargetBitmap = new WriteableBitmap(1, 1, 96, 96, PixelFormats.Bgr24, null);
+                        TargetBitmap = new WriteableBitmap(1, 1, dpiX, dpiY, PixelFormats.Bgr24, null);
 
                     ViewBox.Source = TargetBitmap;
                 });

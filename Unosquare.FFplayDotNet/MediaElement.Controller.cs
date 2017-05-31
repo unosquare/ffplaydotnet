@@ -279,14 +279,8 @@
                 InvokeOnUI(() =>
                 {
                     var visual = PresentationSource.FromVisual(this);
-
-                    var dpiX = 96.0;
-                    var dpiY = 96.0;
-                    if (visual != null)
-                    {
-                        dpiX = 96.0 * visual.CompositionTarget.TransformToDevice.M11;
-                        dpiY = 96.0 * visual.CompositionTarget.TransformToDevice.M22;
-                    }
+                    var dpiX = 96.0 * visual?.CompositionTarget?.TransformToDevice.M11 ?? 96.0;
+                    var dpiY = 96.0 * visual?.CompositionTarget?.TransformToDevice.M22 ?? 96;
 
                     if (HasVideo)
                         TargetBitmap = new WriteableBitmap(NaturalVideoWidth, NaturalVideoHeight, dpiX, dpiY, PixelFormats.Bgr24, null);

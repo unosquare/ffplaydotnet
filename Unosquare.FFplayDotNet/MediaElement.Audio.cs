@@ -14,12 +14,11 @@
 
     partial class MediaElement
     {
-        private WasapiOut AudioDevice;
+        private DirectSoundOut AudioDevice;
         private VolumeWaveProvider16 AudioSamplesProvider;
-        private ReaderWriterLockSlim AudioLock = new ReaderWriterLockSlim();
-        private AudioBlock CurrentAudioBlock = null;
+        private object AudioLock = new object();
+        private int CurrentAudioBlockIndex = 0;
         private int CurrentAudioBlockOffset = 0;
-
 
         private void InitializeAudio()
         {
@@ -29,7 +28,7 @@
             if (AudioSamplesProvider == null)
                 AudioSamplesProvider = new VolumeWaveProvider16(new CallbackWaveProvider16(RenderAudioBufferCallback));
 
-            AudioDevice = new WasapiOut();
+            AudioDevice = new DirectSoundOut();
             AudioDevice.Init(AudioSamplesProvider);
         }
 
@@ -71,30 +70,44 @@
             if (IsPlaying == false || HasAudio == false)
                 return null;
 
-            try
+
+            lock (AudioLock)
             {
-                if (AudioLock.TryEnterReadLock(200) == false)
-                    return null;
+                var resultPtr = Marshal.AllocHGlobal(requestedBytes);
+                var writtenCount = 0;
 
-                if (CurrentAudioBlock == null)
-                    return null;
 
-                var availableBytes = CurrentAudioBlock.BufferLength - CurrentAudioBlockOffset;
-                var resultBytes = Math.Min(requestedBytes, availableBytes);
-                var result = new byte[resultBytes];
+                while (writtenCount < requestedBytes)
+                {
+                    if (CurrentAudioBlockIndex < 0 || CurrentAudioBlockIndex >= Blocks[MediaType.Audio].Count)
+                        break;
 
-                var sourcePtr = CurrentAudioBlock.Buffer + CurrentAudioBlockOffset;
-                Marshal.Copy(sourcePtr, result, 0, result.Length);
-                CurrentAudioBlockOffset += result.Length;
+                    var currentAudioBlock = Blocks[MediaType.Audio][CurrentAudioBlockIndex] as AudioBlock;
+                    var availableBytes = currentAudioBlock.BufferLength - CurrentAudioBlockOffset;
+                    if (availableBytes <= 0)
+                    {
+                        CurrentAudioBlockIndex += 1;
+                        CurrentAudioBlockOffset = 0;
+                        continue;
+                    }
+
+                    var copyLength = Math.Min(availableBytes, requestedBytes - writtenCount);
+                    var sourcePtr = currentAudioBlock.Buffer + CurrentAudioBlockOffset;
+                    var targetPtr = resultPtr + writtenCount;
+
+                    Utils.CopyMemory(targetPtr, sourcePtr, (uint)copyLength);
+                    CurrentAudioBlockOffset += copyLength;
+                    writtenCount += copyLength;
+                }
+
+                var result = new byte[requestedBytes];
+                Marshal.Copy(resultPtr, result, 0, result.Length);
+                Marshal.FreeHGlobal(resultPtr);
+
                 return result;
-            }
-            catch { }
-            finally
-            {
-                AudioLock.ExitReadLock();
+
             }
 
-            return null;
         }
 
     }

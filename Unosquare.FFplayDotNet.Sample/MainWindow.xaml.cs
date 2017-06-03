@@ -77,7 +77,7 @@
         {
             ConsoleManager.ShowConsole();
             InitializeComponent();
-            UrlTextBox.Text = TestInputs.UdpStream;
+            UrlTextBox.Text = TestInputs.MatroskaLocalFile;
             Media.MediaOpening += Media_MediaOpening;
         }
 

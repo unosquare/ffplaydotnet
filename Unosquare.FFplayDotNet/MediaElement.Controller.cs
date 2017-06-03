@@ -138,17 +138,10 @@
         {
             if (block.MediaType == MediaType.Audio)
             {
-                try
+                lock (AudioLock)
                 {
-                    AudioLock.EnterWriteLock();
-                    if (CurrentAudioBlock != block)
-                        CurrentAudioBlockOffset = 0;
-
-                    CurrentAudioBlock = block as AudioBlock;
-                }
-                finally
-                {
-                    AudioLock.ExitWriteLock();
+                    CurrentAudioBlockIndex = renderIndex;
+                    //CurrentAudioRenderTime = clockPosition;
                 }
             }
             else if (block.MediaType == MediaType.Video)

@@ -14,17 +14,21 @@
 
     partial class MediaElement
     {
+        // TODO: Isolate the audio renderer in a separate class and implement IDisposable.
+
         private DirectSoundOut AudioDevice;
         private VolumeWaveProvider16 AudioSamplesProvider;
         private object AudioLock = new object();
         private int CurrentAudioBlockIndex = 0;
         private int CurrentAudioBlockOffset = 0;
+        private IntPtr CurrentAudioBuffer = IntPtr.Zero;
+        private int CurrentAudioBufferLength = 0;
 
         private void InitializeAudio()
         {
             if (AudioDevice != null)
                 DestroyAudio();
-            
+
             if (AudioSamplesProvider == null)
                 AudioSamplesProvider = new VolumeWaveProvider16(new CallbackWaveProvider16(RenderAudioBufferCallback));
 
@@ -73,9 +77,16 @@
 
             lock (AudioLock)
             {
-                var resultPtr = Marshal.AllocHGlobal(requestedBytes);
-                var writtenCount = 0;
+                if (CurrentAudioBufferLength != requestedBytes)
+                {
+                    if (CurrentAudioBuffer != IntPtr.Zero)
+                        Marshal.FreeHGlobal(CurrentAudioBuffer);
 
+                    CurrentAudioBuffer = Marshal.AllocHGlobal(requestedBytes);
+                    CurrentAudioBufferLength = requestedBytes;
+                }
+
+                var writtenCount = 0;
 
                 while (writtenCount < requestedBytes)
                 {
@@ -93,7 +104,7 @@
 
                     var copyLength = Math.Min(availableBytes, requestedBytes - writtenCount);
                     var sourcePtr = currentAudioBlock.Buffer + CurrentAudioBlockOffset;
-                    var targetPtr = resultPtr + writtenCount;
+                    var targetPtr = CurrentAudioBuffer + writtenCount;
 
                     Utils.CopyMemory(targetPtr, sourcePtr, (uint)copyLength);
                     CurrentAudioBlockOffset += copyLength;
@@ -101,8 +112,8 @@
                 }
 
                 var result = new byte[requestedBytes];
-                Marshal.Copy(resultPtr, result, 0, result.Length);
-                Marshal.FreeHGlobal(resultPtr);
+                if (writtenCount > 0)
+                    Marshal.Copy(CurrentAudioBuffer, result, 0, writtenCount);
 
                 return result;
 

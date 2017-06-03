@@ -140,7 +140,12 @@
             {
                 lock (AudioLock)
                 {
-                    CurrentAudioBlockIndex = renderIndex;
+                    if (CurrentAudioBlockIndex != renderIndex)
+                    {
+                        CurrentAudioBlockIndex--; // = renderIndex;
+                        //CurrentAudioBlockOffset = 0;
+                    }
+                    //CurrentAudioBlockIndex = renderIndex;
                     //CurrentAudioRenderTime = clockPosition;
                 }
             }

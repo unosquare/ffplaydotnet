@@ -111,7 +111,7 @@
             }
 
             // Allocate the unmanaged output buffer
-            if (target.AudioBufferLength < targetSpec.BufferLength)
+            if (target.AudioBufferLength != targetSpec.BufferLength)
             {
                 if (target.AudioBuffer != IntPtr.Zero)
                     Marshal.FreeHGlobal(target.AudioBuffer);

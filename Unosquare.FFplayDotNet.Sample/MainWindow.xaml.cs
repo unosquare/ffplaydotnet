@@ -77,7 +77,7 @@
         {
             ConsoleManager.ShowConsole();
             InitializeComponent();
-            UrlTextBox.Text = TestInputs.MatroskaLocalFile;
+            UrlTextBox.Text = TestInputs.YoutubeLocalFile;
             Media.MediaOpening += Media_MediaOpening;
         }
 

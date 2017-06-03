@@ -16,6 +16,8 @@
         /// </summary>
         static public readonly AudioParams Output;
 
+        public const int BufferPadding = 256;
+
         #endregion
 
         #region Constructors
@@ -30,9 +32,9 @@
             Output.SampleRate = 48000;
             Output.Format = AVSampleFormat.AV_SAMPLE_FMT_S16;
             Output.ChannelLayout = ffmpeg.av_get_default_channel_layout(Output.ChannelCount);
-            Output.SamplesPerChannel = Output.SampleRate + 256;
+            Output.SamplesPerChannel = Output.SampleRate;
             Output.BufferLength = ffmpeg.av_samples_get_buffer_size(
-                null, Output.ChannelCount, Output.SamplesPerChannel, Output.Format, 1);
+                null, Output.ChannelCount, Output.SamplesPerChannel + BufferPadding, Output.Format, 1);
         }
 
         /// <summary>
@@ -120,8 +122,8 @@
             };
 
             // The target transform is just a ratio of the source frame's sample. This is how many samples we desire
-            spec.SamplesPerChannel = (int)Math.Round((double)frame->nb_samples * spec.SampleRate / frame->sample_rate, 0) + 256;
-            spec.BufferLength = ffmpeg.av_samples_get_buffer_size(null, spec.ChannelCount, spec.SamplesPerChannel, spec.Format, 1);
+            spec.SamplesPerChannel = (int)Math.Round((double)frame->nb_samples * spec.SampleRate / frame->sample_rate, 0);
+            spec.BufferLength = ffmpeg.av_samples_get_buffer_size(null, spec.ChannelCount, spec.SamplesPerChannel + BufferPadding, spec.Format, 1);
             return spec;
         }
 

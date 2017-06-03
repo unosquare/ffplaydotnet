@@ -1,43 +1,38 @@
 ﻿namespace Unosquare.FFplayDotNet
 {
-    using System;
-    using System.Collections.Generic;
-    using System.Linq;
-    using System.Text;
-    using System.Threading.Tasks;
-    using NAudio.Wave;
-    using NAudio.CoreAudioApi;
     using Core;
-    using System.Threading;
-    using Decoding;
-    using System.Runtime.InteropServices;
+    using NAudio.Wave;
+    using System;
 
     partial class MediaElement
     {
         // TODO: Isolate the audio renderer in a separate class and implement IDisposable.
 
-        private DirectSoundOut AudioDevice;
+        private IWavePlayer AudioDevice;
         private VolumeWaveProvider16 AudioSamplesProvider;
-        private object AudioLock = new object();
-        private int CurrentAudioBlockIndex = 0;
-        private int CurrentAudioBlockOffset = 0;
-        private IntPtr CurrentAudioBuffer = IntPtr.Zero;
-        private int CurrentAudioBufferLength = 0;
+        private CircularBuffer AudioBuffer;
 
         private void InitializeAudio()
         {
-            if (AudioDevice != null)
-                DestroyAudio();
+            DestroyAudio();
 
             if (AudioSamplesProvider == null)
-                AudioSamplesProvider = new VolumeWaveProvider16(new CallbackWaveProvider16(RenderAudioBufferCallback));
+                AudioSamplesProvider = new VolumeWaveProvider16(new CallbackWaveProvider16(ProvideAudioSamplesCallback));
 
+            AudioBuffer = new CircularBuffer(AudioParams.Output.BufferLength / 2); // Buffer length is 1 second (that is plenty)
             AudioDevice = new DirectSoundOut();
+            
             AudioDevice.Init(AudioSamplesProvider);
         }
 
         private void DestroyAudio()
         {
+            if (AudioBuffer != null)
+            {
+                AudioBuffer.Dispose();
+                AudioBuffer = null;
+            }
+
             if (AudioDevice == null) return;
             AudioDevice.Stop();
             AudioDevice.Dispose();
@@ -68,74 +63,30 @@
             AudioDevice.Stop();
         }
 
-        private byte[] RenderAudioBufferCallback(int requestedBytes)
+        private byte[] ProvideAudioSamplesCallback(int requestedBytes)
         {
 
             if (IsPlaying == false || HasAudio == false)
                 return null;
 
-
-            lock (AudioLock)
-            {
-                if (CurrentAudioBufferLength != requestedBytes)
-                {
-                    if (CurrentAudioBuffer != IntPtr.Zero)
-                        Marshal.FreeHGlobal(CurrentAudioBuffer);
-
-                    CurrentAudioBuffer = Marshal.AllocHGlobal(requestedBytes);
-                    CurrentAudioBufferLength = requestedBytes;
-                }
-
-                var writtenCount = 0;
-
-                while (writtenCount < requestedBytes)
-                {
-                    if (CurrentAudioBlockIndex < 0 || CurrentAudioBlockIndex >= Blocks[MediaType.Audio].Count)
-                        break;
-
-                    var currentAudioBlock = Blocks[MediaType.Audio][CurrentAudioBlockIndex] as AudioBlock;
-                    var availableBytes = currentAudioBlock.BufferLength - CurrentAudioBlockOffset;
-                    if (availableBytes <= 0)
-                    {
-                        CurrentAudioBlockIndex += 1;
-                        CurrentAudioBlockOffset = 0;
-                        continue;
-                    }
-
-                    var copyLength = Math.Min(availableBytes, requestedBytes - writtenCount);
-                    var sourcePtr = currentAudioBlock.Buffer + CurrentAudioBlockOffset;
-                    var targetPtr = CurrentAudioBuffer + writtenCount;
-
-                    Utils.CopyMemory(targetPtr, sourcePtr, (uint)copyLength);
-                    CurrentAudioBlockOffset += copyLength;
-                    writtenCount += copyLength;
-                }
-
-                var result = new byte[requestedBytes];
-                if (writtenCount > 0)
-                    Marshal.Copy(CurrentAudioBuffer, result, 0, writtenCount);
-
-                return result;
-
-            }
-
+            return AudioBuffer.Read(requestedBytes);
         }
 
     }
 
     internal class CallbackWaveProvider16 : IWaveProvider
     {
-        public delegate byte[] RenderAudioBufferDelegate(int wantedBytes);
+        public delegate byte[] ProvideSamplesBufferDelegate(int wantedBytes);
 
-        private RenderAudioBufferDelegate RenderCallback = null;
+        private ProvideSamplesBufferDelegate ProvideSamplesCallback = null;
         private WaveFormat m_Format = null;
         private byte[] SilenceBuffer = null;
 
-        public CallbackWaveProvider16(RenderAudioBufferDelegate renderCallback)
+        public CallbackWaveProvider16(ProvideSamplesBufferDelegate provideSamplesCallback)
         {
-            m_Format = new WaveFormat(AudioParams.Output.SampleRate, 16, AudioParams.Output.ChannelCount);
+            m_Format = new WaveFormat(AudioParams.Output.SampleRate, AudioParams.OutputBitsPerSample, AudioParams.Output.ChannelCount);
             SilenceBuffer = new byte[m_Format.BitsPerSample / 8 * m_Format.Channels * 2];
-            RenderCallback = renderCallback;
+            ProvideSamplesCallback = provideSamplesCallback;
         }
 
         /// <summary>
@@ -151,8 +102,10 @@
         {
             byte[] renderBuffer = null;
 
-            try { renderBuffer = RenderCallback(count); }
-            catch { }
+            try { renderBuffer = ProvideSamplesCallback(count); }
+            catch
+            {
+            }
             if (renderBuffer == null) renderBuffer = new byte[] { };
 
             if (renderBuffer.Length == 0)

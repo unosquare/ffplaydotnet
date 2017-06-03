@@ -138,16 +138,8 @@
         {
             if (block.MediaType == MediaType.Audio)
             {
-                lock (AudioLock)
-                {
-                    if (CurrentAudioBlockIndex != renderIndex)
-                    {
-                        CurrentAudioBlockIndex--; // = renderIndex;
-                        //CurrentAudioBlockOffset = 0;
-                    }
-                    //CurrentAudioBlockIndex = renderIndex;
-                    //CurrentAudioRenderTime = clockPosition;
-                }
+                var audioBlock = block as AudioBlock;
+                AudioBuffer.Write(audioBlock.Buffer, audioBlock.BufferLength);
             }
             else if (block.MediaType == MediaType.Video)
             {

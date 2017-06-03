@@ -140,7 +140,6 @@
             target.SampleRate = targetSpec.SampleRate;
             target.SamplesPerChannel = outputSamplesPerChannel;
 
-
             return target;
 
         }

@@ -17,6 +17,7 @@
         static public readonly AudioParams Output;
 
         public const int BufferPadding = 256;
+        public const int OutputBitsPerSample = 16;
 
         #endregion
 
@@ -29,7 +30,7 @@
         {
             Output = new AudioParams();
             Output.ChannelCount = 2;
-            Output.SampleRate = 48000;
+            Output.SampleRate = 44100;
             Output.Format = AVSampleFormat.AV_SAMPLE_FMT_S16;
             Output.ChannelLayout = ffmpeg.av_get_default_channel_layout(Output.ChannelCount);
             Output.SamplesPerChannel = Output.SampleRate;

@@ -35,6 +35,10 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
+    <Reference Include="NAudio, Version=1.8.0.0, Culture=neutral, processorArchitecture=MSIL">
+      <HintPath>..\packages\NAudio.1.8.0\lib\net35\NAudio.dll</HintPath>
+      <Private>True</Private>
+    </Reference>
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />
     <Reference Include="System" />
@@ -58,6 +62,7 @@
     <Compile Include="Core\AudioParams.cs" />
     <Compile Include="Core\CodecOption.cs" />
     <Compile Include="Core\MediaType.cs" />
+    <Compile Include="MediaElement.Audio.cs" />
     <Compile Include="MediaLogMessageType.cs" />
     <Compile Include="MediaContainerException.cs" />
     <Compile Include="Decoding\MediaFrame.cs" />
@@ -120,6 +125,7 @@
     <None Include="ffmpeg32\_readme.txt" />
   </ItemGroup>
   <ItemGroup>
+    <None Include="packages.config" />
     <None Include="Resources\ffme-preview.png" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />

@@ -4,9 +4,7 @@
     using Decoding;
     using System;
     using System.Collections.Generic;
-    using System.Diagnostics;
     using System.Linq;
-    using System.Runtime.CompilerServices;
     using System.Threading;
     using System.Threading.Tasks;
     using System.Windows;
@@ -138,10 +136,26 @@
         /// <param name="renderIndex">Index of the render.</param>
         private void RenderBlock(MediaBlock block, TimeSpan clockPosition, int renderIndex)
         {
-            InvokeOnUI(() =>
+            if (block.MediaType == MediaType.Audio)
             {
-                if (block.MediaType == MediaType.Video)
+                try
                 {
+                    AudioLock.EnterWriteLock();
+                    if (CurrentAudioBlock != block)
+                        CurrentAudioBlockOffset = 0;
+
+                    CurrentAudioBlock = block as AudioBlock;
+                }
+                finally
+                {
+                    AudioLock.ExitWriteLock();
+                }
+            }
+            else if (block.MediaType == MediaType.Video)
+            {
+                InvokeOnUI(() =>
+                {
+
                     var e = block as VideoBlock;
                     TargetBitmap.Lock();
 
@@ -164,8 +178,8 @@
 
                     TargetBitmap.AddDirtyRect(new Int32Rect(0, 0, e.PixelWidth, e.PixelHeight));
                     TargetBitmap.Unlock();
-                }
-            });
+                });
+            }
 
             try
             {
@@ -385,11 +399,13 @@
         {
             Clock.Play();
             BlockRenderingCycle.Wait(5);
+            PlayAudio();
             MediaState = MediaState.Play;
         }
 
         public void Pause()
         {
+            PauseAudio();
             BlockRenderingCycle.Wait(5);
             Clock.Pause();
             MediaState = MediaState.Pause;
@@ -397,6 +413,7 @@
 
         public void Stop()
         {
+            StopAudio();
             Clock.Reset();
             Seek(TimeSpan.Zero);
         }

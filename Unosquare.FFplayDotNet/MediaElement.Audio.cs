@@ -70,8 +70,8 @@
             if (IsPlaying == false || HasAudio == false)
                 return null;
 
-            var result = AudioBuffer.Available >= requestedBytes ? AudioBuffer.Read(requestedBytes) : new byte[] { };
-            Container.Log(MediaLogMessageType.Trace, $"{MediaType.Audio} READ: {result.Length} b | AVL: {AudioBuffer.Available} | LEN: {AudioBuffer.Length} | USE: {100.0 * AudioBuffer.Available / AudioBuffer.Length:0.00}%");
+            var result = AudioBuffer.ReadableCount >= requestedBytes ? AudioBuffer.Read(requestedBytes) : new byte[] { };
+            Container.Log(MediaLogMessageType.Trace, $"{MediaType.Audio} READ: {result.Length} b | AVL: {AudioBuffer.ReadableCount} | LEN: {AudioBuffer.Length} | USE: {100.0 * AudioBuffer.ReadableCount / AudioBuffer.Length:0.00}%");
             return result;
         }
 

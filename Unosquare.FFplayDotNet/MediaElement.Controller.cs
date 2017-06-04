@@ -156,11 +156,11 @@
                     currentIndex++;
 
                     // Stop adding if we have too much in there.
-                    if (AudioBuffer.Available > 0.8 * AudioBuffer.Length)
+                    if (AudioBuffer.CapacityPercent >= 0.8)
                         break;
                 }
 
-                Container.Log(MediaLogMessageType.Trace, $"{MediaType.Audio} WROTE: {addedBlockCount} blocks, {addedBytes} b | AVL: {AudioBuffer.Available} | LEN: {AudioBuffer.Length} | USE: {100.0 * AudioBuffer.Available / AudioBuffer.Length:0.00}%");
+                Container.Log(MediaLogMessageType.Trace, $"{MediaType.Audio} WROTE: {addedBlockCount} blocks, {addedBytes} b | AVL: {AudioBuffer.ReadableCount} | LEN: {AudioBuffer.Length} | USE: {100.0 * AudioBuffer.ReadableCount / AudioBuffer.Length:0.00}%");
 
             }
             else if (block.MediaType == MediaType.Video)

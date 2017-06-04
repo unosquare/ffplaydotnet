@@ -20,8 +20,8 @@
             if (AudioSamplesProvider == null)
                 AudioSamplesProvider = new CallbackWaveProvider16(ProvideAudioSamplesCallback);
 
-            AudioBuffer = new CircularBuffer(AudioParams.Output.BufferLength / 2); // Buffer length is 1 second (that is plenty)
-            AudioDevice = new WaveOut() { DesiredLatency = 100 };
+            AudioBuffer = new CircularBuffer(AudioParams.Output.BufferLength); // Buffer length is 1 second (that is plenty)
+            AudioDevice = new WaveOut();
 
             AudioDevice.Init(AudioSamplesProvider);
         }

@@ -88,7 +88,12 @@
         {
             var frame = Frames[t].Dequeue();
             if (frame == null) return;
-            Blocks[t].Add(frame, Container);
+
+            var audioBlock = Blocks[t].Add(frame, Container) as AudioBlock;
+
+            if (audioBlock != null)
+                AudioBuffer.Write(audioBlock.Buffer, audioBlock.BufferLength);
+
         }
 
         /// <summary>
@@ -138,8 +143,7 @@
         {
             if (block.MediaType == MediaType.Audio)
             {
-                var audioBlock = block as AudioBlock;
-                AudioBuffer.Write(audioBlock.Buffer, audioBlock.BufferLength);
+                // placeholder
             }
             else if (block.MediaType == MediaType.Video)
             {

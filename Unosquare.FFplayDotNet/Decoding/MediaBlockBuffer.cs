@@ -158,7 +158,7 @@
         /// </summary>
         /// <param name="source">The source.</param>
         /// <param name="container">The container.</param>
-        public void Add(MediaFrame source, MediaContainer container)
+        public MediaBlock Add(MediaFrame source, MediaContainer container)
         {
             lock (SyncRoot)
             {
@@ -191,6 +191,7 @@
                 // Add the converted block to the playback list and sort it.
                 PlaybackBlocks.Add(targetBlock);
                 PlaybackBlocks.Sort();
+                return targetBlock;
             }
 
         }

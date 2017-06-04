@@ -5,8 +5,6 @@
     using System.Windows;
     using System.Windows.Controls;
 
-
-
     /// <summary>
     /// Interaction logic for MainWindow.xaml
     /// </summary>
@@ -77,7 +75,7 @@
         {
             //ConsoleManager.ShowConsole();
             InitializeComponent();
-            UrlTextBox.Text = TestInputs.UdpStream;
+            UrlTextBox.Text = TestInputs.MusicLocalFile;
             Media.MediaOpening += Media_MediaOpening;
         }
 

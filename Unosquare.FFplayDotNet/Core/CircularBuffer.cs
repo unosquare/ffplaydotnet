@@ -21,46 +21,49 @@
 
         public int WriteIndex { get; private set; }
 
-        public ulong ReadCount { get; private set; }
-
-        public ulong WriteCount { get; private set; }
+        /// <summary>
+        /// Gets the available bytes to read.
+        /// </summary>
+        public int Available { get; private set; }
 
         public byte[] Read(int requestedBytes)
         {
             lock (SyncLock)
             {
-                var maxReadLength = Math.Max(WriteCount - ReadCount, 0);
-                if ((ulong)requestedBytes > maxReadLength)
-                    requestedBytes = (int)maxReadLength;
+                if (requestedBytes > Available)
+                    throw new InvalidOperationException(
+                        $"Unable to read {requestedBytes} bytes. Only {Available} bytes are available");
 
                 var result = new byte[requestedBytes];
 
                 var readCount = 0;
-                var readCycles = 0;
                 while (readCount < requestedBytes)
                 {
                     var copyLength = Math.Min(Length - ReadIndex, requestedBytes - readCount);
                     var sourcePtr = Buffer + ReadIndex;
                     Marshal.Copy(sourcePtr, result, readCount, copyLength);
+
                     readCount += copyLength;
                     ReadIndex += copyLength;
-                    ReadCount += (ulong)copyLength;
+                    Available -= copyLength;
 
                     if (ReadIndex >= Length)
                         ReadIndex = 0;
-
-                    readCycles += 1;
                 }
 
                 return result;
             }
-            
+
         }
 
         public void Write(IntPtr source, int length)
         {
             lock (SyncLock)
             {
+                if (Available + length > Length)
+                    throw new InvalidOperationException(
+                        $"Unable to write to circular buffer. Call the {nameof(Read)} method to make some additional room");
+
                 var writeCount = 0;
                 while (writeCount < length)
                 {
@@ -71,13 +74,13 @@
 
                     writeCount += copyLength;
                     WriteIndex += copyLength;
-                    WriteCount += (ulong)copyLength;
+                    Available += copyLength;
 
                     if (WriteIndex >= Length)
                         WriteIndex = 0;
                 }
             }
-            
+
 
         }
 

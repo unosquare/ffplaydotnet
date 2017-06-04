@@ -1,6 +1,7 @@
 ﻿namespace Unosquare.FFplayDotNet
 {
     using Core;
+    using Decoding;
     using NAudio.Wave;
     using System;
 
@@ -20,7 +21,7 @@
                 AudioSamplesProvider = new CallbackWaveProvider16(ProvideAudioSamplesCallback);
 
             AudioBuffer = new CircularBuffer(AudioParams.Output.BufferLength); // Buffer length is 1 second (that is plenty)
-            AudioDevice = new WaveOut() { DesiredLatency = 200 };
+            AudioDevice = new DirectSoundOut();
 
             AudioDevice.Init(AudioSamplesProvider);
         }
@@ -63,13 +64,18 @@
             AudioDevice.Stop();
         }
 
+        private void RenderAudio(AudioBlock block)
+        {
+            AudioBuffer.Write(block.Buffer, block.BufferLength);
+        }
+
         private byte[] ProvideAudioSamplesCallback(int requestedBytes)
         {
 
             if (IsPlaying == false || HasAudio == false)
                 return null;
 
-            return AudioBuffer.Read(requestedBytes);
+            return AudioBuffer.Available >= requestedBytes ? AudioBuffer.Read(requestedBytes) : null;
         }
 
     }

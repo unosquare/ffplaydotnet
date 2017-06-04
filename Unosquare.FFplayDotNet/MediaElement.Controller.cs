@@ -89,11 +89,7 @@
             var frame = Frames[t].Dequeue();
             if (frame == null) return;
 
-            var audioBlock = Blocks[t].Add(frame, Container) as AudioBlock;
-
-            if (audioBlock != null)
-                AudioBuffer.Write(audioBlock.Buffer, audioBlock.BufferLength);
-
+            Blocks[t].Add(frame, Container);
         }
 
         /// <summary>
@@ -143,7 +139,17 @@
         {
             if (block.MediaType == MediaType.Audio)
             {
-                // placeholder
+                var currentIndex = renderIndex;
+                var blockCount = 0;
+                while (currentIndex < Blocks[MediaType.Audio].Count && blockCount < 2)
+                {
+                    var audioBlock = Blocks[MediaType.Audio][renderIndex] as AudioBlock;
+                    AudioBuffer.Write(audioBlock.Buffer, audioBlock.BufferLength);
+                    LastRenderTime[MediaType.Audio] = audioBlock.StartTime;
+                    currentIndex++;
+                    blockCount++;
+                }
+
             }
             else if (block.MediaType == MediaType.Video)
             {
@@ -591,6 +597,7 @@
                         if (Frames[t].Count == 0)
                             break;
                     }
+
                 }
 
                 // Detect end of block rendering

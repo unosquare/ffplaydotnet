@@ -21,6 +21,8 @@
 
         public int WriteIndex { get; private set; }
 
+        public TimeSpan WriteTag { get; private set; } = TimeSpan.MinValue;
+
         /// <summary>
         /// Gets the available bytes to read.
         /// </summary>
@@ -56,7 +58,7 @@
 
         }
 
-        public void Write(IntPtr source, int length)
+        public void Write(IntPtr source, int length, TimeSpan writeTag)
         {
             lock (SyncLock)
             {
@@ -79,9 +81,9 @@
                     if (WriteIndex >= Length)
                         WriteIndex = 0;
                 }
+
+                WriteTag = writeTag;
             }
-
-
         }
 
         public void Dispose()

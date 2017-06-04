@@ -89,7 +89,7 @@
             var frame = Frames[t].Dequeue();
             if (frame == null) return;
 
-            Blocks[t].Add(frame, Container);
+            var addedBlock = Blocks[t].Add(frame, Container);
         }
 
         /// <summary>
@@ -140,15 +140,27 @@
             if (block.MediaType == MediaType.Audio)
             {
                 var currentIndex = renderIndex;
-                var blockCount = 0;
-                while (currentIndex < Blocks[MediaType.Audio].Count && blockCount < 2)
+                var audioBlocks = Blocks[MediaType.Audio];
+                var addedBlockCount = 0;
+                var addedBytes = 0;
+                while (currentIndex >= 0 && currentIndex < audioBlocks.Count)
                 {
-                    var audioBlock = Blocks[MediaType.Audio][renderIndex] as AudioBlock;
-                    AudioBuffer.Write(audioBlock.Buffer, audioBlock.BufferLength);
-                    LastRenderTime[MediaType.Audio] = audioBlock.StartTime;
+                    var audioBlock = audioBlocks[currentIndex] as AudioBlock;
+                    if (AudioBuffer.WriteTag < audioBlock.StartTime)
+                    {
+                        AudioBuffer.Write(audioBlock.Buffer, audioBlock.BufferLength, audioBlock.StartTime);
+                        addedBlockCount++;
+                        addedBytes += audioBlock.BufferLength;
+                    }
+
                     currentIndex++;
-                    blockCount++;
+
+                    // Stop adding if we have too much in there.
+                    if (AudioBuffer.Available > 0.8 * AudioBuffer.Length)
+                        break;
                 }
+
+                Container.Log(MediaLogMessageType.Trace, $"{MediaType.Audio} WROTE: {addedBlockCount} blocks, {addedBytes} b | AVL: {AudioBuffer.Available} | LEN: {AudioBuffer.Length} | USE: {100.0 * AudioBuffer.Available / AudioBuffer.Length:0.00}%");
 
             }
             else if (block.MediaType == MediaType.Video)
@@ -183,6 +195,7 @@
 
             try
             {
+                return;
                 var drift = TimeSpan.FromTicks(clockPosition.Ticks - block.StartTime.Ticks);
                 Container?.Log(MediaLogMessageType.Trace,
                 ($"{block.MediaType.ToString().Substring(0, 1)} "

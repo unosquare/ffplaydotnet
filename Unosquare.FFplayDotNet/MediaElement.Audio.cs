@@ -20,8 +20,8 @@
             if (AudioSamplesProvider == null)
                 AudioSamplesProvider = new CallbackWaveProvider16(ProvideAudioSamplesCallback);
 
-            AudioBuffer = new CircularBuffer(AudioParams.Output.BufferLength); // Buffer length is 1 second (that is plenty)
-            AudioDevice = new DirectSoundOut();
+            AudioBuffer = new CircularBuffer(AudioParams.Output.BufferLength / 2); // Buffer length is 1 second (that is plenty)
+            AudioDevice = new WaveOut() { DesiredLatency = 100 };
 
             AudioDevice.Init(AudioSamplesProvider);
         }
@@ -64,18 +64,15 @@
             AudioDevice.Stop();
         }
 
-        private void RenderAudio(AudioBlock block)
-        {
-            AudioBuffer.Write(block.Buffer, block.BufferLength);
-        }
-
         private byte[] ProvideAudioSamplesCallback(int requestedBytes)
         {
 
             if (IsPlaying == false || HasAudio == false)
                 return null;
 
-            return AudioBuffer.Available >= requestedBytes ? AudioBuffer.Read(requestedBytes) : null;
+            var result = AudioBuffer.Available >= requestedBytes ? AudioBuffer.Read(requestedBytes) : new byte[] { };
+            Container.Log(MediaLogMessageType.Trace, $"{MediaType.Audio} READ: {result.Length} b | AVL: {AudioBuffer.Available} | LEN: {AudioBuffer.Length} | USE: {100.0 * AudioBuffer.Available / AudioBuffer.Length:0.00}%");
+            return result;
         }
 
     }

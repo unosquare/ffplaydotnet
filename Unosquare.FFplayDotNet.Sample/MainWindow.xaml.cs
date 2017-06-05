@@ -75,7 +75,7 @@
         {
             ConsoleManager.ShowConsole();
             InitializeComponent();
-            UrlTextBox.Text = TestInputs.YoutubeLocalFile;
+            UrlTextBox.Text = TestInputs.MusicLocalFile;
             Media.MediaOpening += Media_MediaOpening;
         }
 

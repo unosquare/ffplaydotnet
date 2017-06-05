@@ -35,10 +35,6 @@
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="NAudio, Version=1.8.0.0, Culture=neutral, processorArchitecture=MSIL">
-      <HintPath>..\packages\NAudio.1.8.0\lib\net35\NAudio.dll</HintPath>
-      <Private>True</Private>
-    </Reference>
     <Reference Include="PresentationCore" />
     <Reference Include="PresentationFramework" />
     <Reference Include="System" />
@@ -49,10 +45,35 @@
     <Reference Include="Microsoft.CSharp" />
     <Reference Include="System.Data" />
     <Reference Include="System.Net.Http" />
+    <Reference Include="System.Windows.Forms" />
     <Reference Include="System.Xaml" />
     <Reference Include="WindowsBase" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="NAudio\AdpcmWaveFormat.cs" />
+    <Compile Include="NAudio\AudioMediaSubtypes.cs" />
+    <Compile Include="NAudio\Gsm610WaveFormat.cs" />
+    <Compile Include="NAudio\IWavePlayer.cs" />
+    <Compile Include="NAudio\IWaveProvider.cs" />
+    <Compile Include="NAudio\MarshalHelpers.cs" />
+    <Compile Include="NAudio\MmException.cs" />
+    <Compile Include="NAudio\MmResult.cs" />
+    <Compile Include="NAudio\MmTime.cs" />
+    <Compile Include="NAudio\PlaybackState.cs" />
+    <Compile Include="NAudio\StoppedEventArgs.cs" />
+    <Compile Include="NAudio\WaveCallbackInfo.cs" />
+    <Compile Include="NAudio\WaveCallbackStrategy.cs" />
+    <Compile Include="NAudio\WaveFormat.cs" />
+    <Compile Include="NAudio\WaveFormatEncoding.cs" />
+    <Compile Include="NAudio\WaveFormatExtensible.cs" />
+    <Compile Include="NAudio\WaveFormatExtraData.cs" />
+    <Compile Include="NAudio\WaveHeader.cs" />
+    <Compile Include="NAudio\WaveHeaderFlags.cs" />
+    <Compile Include="NAudio\WaveInCapabilities.cs" />
+    <Compile Include="NAudio\WaveInterop.cs" />
+    <Compile Include="NAudio\WaveOut.cs" />
+    <Compile Include="NAudio\WaveOutBuffer.cs" />
+    <Compile Include="NAudio\WaveOutCapabilities.cs" />
     <Compile Include="Core\CircularBuffer.cs" />
     <Compile Include="Core\Clock.cs" />
     <Compile Include="Core\Constants.cs" />
@@ -96,6 +117,8 @@
     <Compile Include="MediaElement.MediaProperties.cs" />
     <Compile Include="MediaElement.RoutedEvents.cs" />
     <Compile Include="MediaOpeningRoutedEventArgs.cs" />
+    <Compile Include="NAudio\WaveOutSupport.cs" />
+    <Compile Include="NAudio\WaveWindow.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Core\StreamSpecifier.cs" />
     <Compile Include="Decoding\SubtitleComponent.cs" />
@@ -126,8 +149,11 @@
     <None Include="ffmpeg32\_readme.txt" />
   </ItemGroup>
   <ItemGroup>
-    <None Include="packages.config" />
     <None Include="Resources\ffme-preview.png" />
+  </ItemGroup>
+  <ItemGroup>
+    <Content Include="NAudio\license.txt" />
+    <Content Include="NAudio\version.txt" />
   </ItemGroup>
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 

@@ -4,6 +4,7 @@
     using FFmpeg.AutoGen;
     using System;
     using System.Collections.Generic;
+    using System.Collections.ObjectModel;
     using System.Diagnostics;
     using System.Linq;
     using System.Threading;
@@ -56,7 +57,6 @@
         /// </summary>
         private bool m_RequiresPictureAttachments = true;
 
-
         private readonly object LogSyncRoot = new object();
 
         private readonly object ReadSyncRoot = new object();
@@ -100,15 +100,14 @@
         }
 
         /// <summary>
+        /// Holds the metadata of the media file when the stream is initialized.
+        /// </summary>
+        public ReadOnlyDictionary<string, string> Metadata { get; private set; }
+
+        /// <summary>
         /// Gets a value indicating whether an Input Context has been initialize.
         /// </summary>
         public bool IsInitialized { get { return InputContext != null; } }
-
-        /// <summary>
-        /// If available, the title will be extracted from the metadata of the media.
-        /// Otherwise, this will be set to false.
-        /// </summary>
-        public string MediaTitle { get; private set; }
 
         /// <summary>
         /// Gets the media start time by which all component streams are offset. 
@@ -493,7 +492,20 @@
                 if (InputContext->pb != null) InputContext->pb->eof_reached = 0;
 
                 // Setup initial state variables
-                MediaTitle = FFDictionary.GetEntry(InputContext->metadata, EntryName.Title, false)?.Value;
+
+                {
+                    var metadataDictionary = new Dictionary<string, string>();
+
+                    var metadataEntry = ffmpeg.av_dict_get(InputContext->metadata, "", null, ffmpeg.AV_DICT_IGNORE_SUFFIX);
+                    while (metadataEntry != null)
+                    {
+                        metadataDictionary[Utils.PtrToString(metadataEntry->key)] = Utils.PtrToString(metadataEntry->value);
+                        metadataEntry = ffmpeg.av_dict_get(InputContext->metadata, "", metadataEntry, ffmpeg.AV_DICT_IGNORE_SUFFIX);
+                    }
+
+                    Metadata = new ReadOnlyDictionary<string, string>(metadataDictionary);
+                }
+
                 IsStreamRealtime = new[] { "rtp", "rtsp", "sdp" }.Any(s => MediaFormatName.Equals(s)) ||
                     (InputContext->pb != null && new[] { "rtp:", "udp:" }.Any(s => MediaUrl.StartsWith(s)));
 

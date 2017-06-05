@@ -22,7 +22,7 @@
 
             AudioBuffer = new CircularBuffer(AudioParams.Output.BufferLength); // Buffer length is 1 second (that is plenty)
             AudioDevice = new WaveOut();
-
+            //(AudioDevice as WaveOut).Volume = 0.1f;
             AudioDevice.Init(AudioSamplesProvider);
         }
 

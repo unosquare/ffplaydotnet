@@ -9,9 +9,10 @@
     {
         // TODO: Isolate the audio renderer in a separate class and implement IDisposable.
 
-        private IWavePlayer AudioDevice;
+        private WaveOut AudioDevice;
         private IWaveProvider AudioSamplesProvider;
         private CircularBuffer AudioBuffer;
+
 
         private void InitializeAudio()
         {
@@ -20,9 +21,14 @@
             if (AudioSamplesProvider == null)
                 AudioSamplesProvider = new CallbackWaveProvider16(ProvideAudioSamplesCallback);
 
-            AudioBuffer = new CircularBuffer(AudioParams.Output.BufferLength); // Buffer length is 1 second (that is plenty)
-            AudioDevice = new WaveOut();
-            //(AudioDevice as WaveOut).Volume = 0.1f;
+            AudioDevice = new WaveOut()
+            {
+                DesiredLatency = 80,
+                NumberOfBuffers = 2,
+            };
+
+            var bufferLength = AudioSamplesProvider.WaveFormat.ConvertLatencyToByteSize(AudioDevice.DesiredLatency) * Blocks[MediaType.Audio].Capacity / 2;
+            AudioBuffer = new CircularBuffer(bufferLength);
             AudioDevice.Init(AudioSamplesProvider);
         }
 

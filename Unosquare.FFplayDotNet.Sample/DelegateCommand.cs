@@ -30,9 +30,7 @@
         /// <exception cref="System.ArgumentNullException">execute</exception>
         public DelegateCommand(Action<object> execute, Func<object, bool> canExecute = null)
         {
-            if (execute == null) throw new ArgumentNullException(nameof(execute));
-
-            m_Execute = execute;
+            m_Execute = execute ?? throw new ArgumentNullException(nameof(execute));
             m_CanExecute = canExecute;
 
             ExecuteAction = parameter =>

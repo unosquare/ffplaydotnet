@@ -81,8 +81,13 @@
         {
             var block = mediaBlock as VideoBlock;
             if (block == null) return;
-            var updateRect = new Int32Rect(0, 0, block.PixelWidth, block.PixelHeight);
 
+            // Skip rendering if the application is shutting down.
+            if (Application.Current == null || Application.Current.Dispatcher == null 
+                || Application.Current.Dispatcher.HasShutdownStarted || Application.Current.Dispatcher.HasShutdownFinished)
+                return;
+
+            var updateRect = new Int32Rect(0, 0, block.PixelWidth, block.PixelHeight);
             Application.Current.Dispatcher.Invoke(() =>
             {
                 TargetBitmap.WritePixels(updateRect, block.Buffer, block.BufferLength, block.BufferStride);

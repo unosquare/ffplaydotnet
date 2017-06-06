@@ -50,6 +50,7 @@
     <Reference Include="WindowsBase" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="MediaElement.Workers.cs" />
     <Compile Include="NAudio\AdpcmWaveFormat.cs" />
     <Compile Include="NAudio\AudioMediaSubtypes.cs" />
     <Compile Include="NAudio\Gsm610WaveFormat.cs" />

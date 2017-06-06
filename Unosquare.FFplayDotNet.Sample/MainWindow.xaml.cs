@@ -1,7 +1,7 @@
 ﻿namespace Unosquare.FFplayDotNet.Sample
 {
-    using Swan;
     using System;
+    using System.Diagnostics;
     using System.Windows;
     using System.Windows.Controls;
 
@@ -83,7 +83,8 @@
         {
             e.Options.LogMessageCallback = new Action<MediaLogMessageType, string>((t, m) =>
             {
-                Terminal.Log(m, nameof(MediaElement), (LogMessageType)t);
+                Debug.WriteLine($"{t} - {m}");
+                //Terminal.Log(m, nameof(MediaElement), (LogMessageType)t);
             });
         }
     }

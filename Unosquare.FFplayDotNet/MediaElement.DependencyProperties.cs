@@ -414,7 +414,32 @@
         public TimeSpan Position
         {
             get { return (TimeSpan)GetValue(PositionProperty); }
-            set { SetValue(PositionProperty, value); }
+            set { UpdatePosition(value, true); }
+        }
+
+        /// <summary>
+        /// Updates the position property.
+        /// When coming from the public setter of the position property, it means we require a seek.
+        /// Wehn not coming from public setter, it means we simply need to update the property as we are just reporting on the current position.
+        /// </summary>
+        /// <param name="currentPosition">The current position.</param>
+        /// <param name="comesFromSetter">if set to <c>true</c> [comes from setter].</param>
+        private void UpdatePosition(TimeSpan currentPosition, bool comesFromSetter)
+        {
+            
+            if (comesFromSetter)
+            {
+                // If the update is coming from the property setter, we request to perfom a seek operation
+                // TODO: enqueue a seek operation here
+
+            }
+            else
+            {
+                // if the update is NOT coming from the setter, then it means we are calling it internally
+                InvokeOnUI(() => {
+                    SetValue(PositionProperty, currentPosition);
+                });
+            }
         }
 
         #endregion

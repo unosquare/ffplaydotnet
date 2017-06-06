@@ -46,10 +46,6 @@
         internal MediaContainer Container = null;
         private readonly Clock Clock = new Clock();
 
-        // TODO: Create a dictionary of renderers in order to generalize the IRenderer calls.
-        private AudioRenderer AudioRenderer;
-        private VideoRenderer VideoRenderer;
-
         private readonly Dictionary<MediaType, MediaFrameQueue> Frames
             = new Dictionary<MediaType, MediaFrameQueue>(StateDictionaryCapacity);
 
@@ -58,6 +54,9 @@
 
         private readonly Dictionary<MediaType, TimeSpan> LastRenderTime
             = new Dictionary<MediaType, TimeSpan>(StateDictionaryCapacity);
+
+        private readonly Dictionary<MediaType, IRenderer> Renderers
+            = new Dictionary<MediaType, IRenderer>(StateDictionaryCapacity);
 
         private volatile bool IsTaskCancellationPending = false;
 
@@ -142,14 +141,7 @@
         /// <param name="renderIndex">Index of the render.</param>
         private void RenderBlock(MediaBlock block, TimeSpan clockPosition, int renderIndex)
         {
-            if (block.MediaType == MediaType.Audio)
-            {
-                AudioRenderer.Render(block, clockPosition, renderIndex);
-            }
-            else if (block.MediaType == MediaType.Video)
-            {
-                VideoRenderer.Render(block, clockPosition, renderIndex);
-            }
+            Renderers[block.MediaType].Render(block, clockPosition, renderIndex);
 
             try
             {
@@ -282,14 +274,11 @@
                 FrameDecodingTask.Start();
                 BlockRenderingTask.Start();
 
-                if (AudioRenderer != null)
-                {
-                    AudioRenderer.Dispose();
-                    AudioRenderer = null;
-                }
+                if (Container.Components.HasAudio)
+                    Renderers[MediaType.Audio] = new AudioRenderer(this);
 
-                AudioRenderer = new AudioRenderer(this);
-                VideoRenderer = new VideoRenderer(this);
+                if (Container.Components.HasVideo)
+                    Renderers[MediaType.Video] = new VideoRenderer(this);
 
                 RaiseMediaOpenedEvent();
 
@@ -312,12 +301,6 @@
             Container?.Log(MediaLogMessageType.Debug, $"{nameof(CloseAsync)}: Entered");
             Clock.Pause();
 
-            AudioRenderer?.Close();
-            AudioRenderer = null;
-
-            VideoRenderer?.Close();
-            VideoRenderer = null;
-
             IsTaskCancellationPending = true;
 
             // Wait for cycles to complete.
@@ -335,6 +318,11 @@
             BlockRenderingTask = null;
             FrameDecodingTask = null;
             PacketReadingTask = null;
+
+            foreach (var renderer in Renderers.Values)
+                renderer.Close();
+
+            Renderers.Clear();
 
             // Reset the clock
             Clock.Reset();
@@ -370,23 +358,24 @@
 
         public void Play()
         {
+            foreach (var renderer in Renderers.Values)
+                renderer.Play();
             Clock.Play();
-            BlockRenderingCycle.Wait(5);
-            AudioRenderer.Play();
             MediaState = MediaState.Play;
         }
 
         public void Pause()
         {
-            AudioRenderer.Pause();
-            BlockRenderingCycle.Wait(5);
+            foreach (var renderer in Renderers.Values)
+                renderer.Pause();
             Clock.Pause();
             MediaState = MediaState.Pause;
         }
 
         public void Stop()
         {
-            AudioRenderer.Stop();
+            foreach (var renderer in Renderers.Values)
+                renderer.Stop();
             Clock.Reset();
             Seek(TimeSpan.Zero);
         }

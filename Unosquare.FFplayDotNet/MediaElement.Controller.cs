@@ -46,6 +46,7 @@
         internal MediaContainer Container = null;
         private readonly Clock Clock = new Clock();
 
+        // TODO: Create a dictionary of renderers in order to generalize the IRenderer calls.
         private AudioRenderer AudioRenderer;
         private VideoRenderer VideoRenderer;
 

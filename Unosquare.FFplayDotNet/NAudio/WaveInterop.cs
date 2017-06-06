@@ -6,7 +6,7 @@ namespace NAudio.Wave
     /// <summary>
     /// MME Wave function interop
     /// </summary>
-    class WaveInterop
+    internal class WaveInterop
     {
         [Flags]
         public enum WaveInOutOpenFlags
@@ -114,7 +114,13 @@ namespace NAudio.Wave
         // http://msdn.microsoft.com/en-us/library/dd743874%28VS.85%29.aspx
         [DllImport("winmm.dll")]
         public static extern MmResult waveOutSetVolume(IntPtr hWaveOut, int dwVolume);
-        
+
+        [DllImport("winmm.dll")]
+        public static extern MmResult waveOutSetPitch(IntPtr hWaveOut, int dwPitch);
+
+        [DllImport("winmm.dll")]
+        public static extern MmResult waveOutSetPlaybackRate(IntPtr hWaveOut, int dwRate);
+
         [DllImport("winmm.dll")]
         public static extern MmResult waveOutGetVolume(IntPtr hWaveOut, out int dwVolume);
 
@@ -125,9 +131,6 @@ namespace NAudio.Wave
         [DllImport("winmm.dll")]
         public static extern Int32 waveInGetNumDevs();
 
-        // http://msdn.microsoft.com/en-us/library/dd743841%28VS.85%29.aspx
-        [DllImport("winmm.dll", CharSet = CharSet.Auto)]
-        public static extern MmResult waveInGetDevCaps(IntPtr deviceID, out WaveInCapabilities waveInCaps, int waveInCapsSize);
         
         // http://msdn.microsoft.com/en-us/library/dd743838%28VS.85%29.aspx
         [DllImport("winmm.dll")]

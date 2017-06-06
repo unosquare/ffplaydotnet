@@ -289,9 +289,25 @@ namespace NAudio.Wave
             get { return volume; }
             set
             {
-                WaveOut.SetWaveOutVolume(value, hWaveOut, waveOutLock);
+                SetWaveOutVolume(value, hWaveOut, waveOutLock);
                 volume = value;
             }
+        }
+
+        internal static void SetWaveOutVolume(float value, IntPtr hWaveOut, object lockObject)
+        {
+            if (value < 0) throw new ArgumentOutOfRangeException("value", "Volume must be between 0.0 and 1.0");
+            if (value > 1) throw new ArgumentOutOfRangeException("value", "Volume must be between 0.0 and 1.0");
+            float left = value;
+            float right = value;
+
+            int stereoVolume = (int)(left * 0xFFFF) + ((int)(right * 0xFFFF) << 16);
+            MmResult result;
+            lock (lockObject)
+            {
+                result = WaveInterop.waveOutSetVolume(hWaveOut, stereoVolume);
+            }
+            MmException.Try(result, "waveOutSetVolume");
         }
 
         #region Dispose Pattern

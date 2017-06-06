@@ -160,15 +160,6 @@ namespace NAudio.Wave
                     // corrupt data
                     waveFormat.extraSize = 0;
                     break;
-                case WaveFormatEncoding.Extensible:
-                    waveFormat = MarshalHelpers.PtrToStructure<WaveFormatExtensible>(pointer);
-                    break;
-                case WaveFormatEncoding.Adpcm:
-                    waveFormat = MarshalHelpers.PtrToStructure<AdpcmWaveFormat>(pointer);
-                    break;
-                case WaveFormatEncoding.Gsm610:
-                    waveFormat = MarshalHelpers.PtrToStructure<Gsm610WaveFormat>(pointer);
-                    break;
                 default:
                     if (waveFormat.ExtraSize > 0)
                     {

@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 
 namespace NAudio.Wave
 {
@@ -241,7 +241,7 @@ namespace NAudio.Wave
         /// </summary>
         RawAac = 0x00FF,
         /// <summary></summary>
-        WAVE_FORMAT_RHETOREX_ADPCM			= 0x0100, // Rhetorex Inc. 
+        WAVE_FORMAT_RHETOREX_ADPCM = 0x0100, // Rhetorex Inc. 
         /// <summary></summary>
         WAVE_FORMAT_IRAT = 0x0101, // BeCubed Software Inc. 
         /// <summary></summary>

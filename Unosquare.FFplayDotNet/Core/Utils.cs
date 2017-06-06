@@ -1,5 +1,6 @@
 ﻿namespace Unosquare.FFplayDotNet.Core
 {
+    using Decoding;
     using FFmpeg.AutoGen;
     using System;
     using System.Collections.Generic;
@@ -322,6 +323,35 @@
         #endregion
 
         #region Misc
+
+        /// <summary>
+        /// Logs a block rendering operation as a Trace Message
+        /// if the debugger is attached.
+        /// </summary>
+        /// <param name="container">The container.</param>
+        /// <param name="block">The block.</param>
+        /// <param name="clockPosition">The clock position.</param>
+        /// <param name="renderIndex">Index of the render.</param>
+        internal static void LogRenderBlock(this MediaContainer container, MediaBlock block, TimeSpan clockPosition, int renderIndex)
+        {
+            if (Debugger.IsAttached == false) return;
+            try
+            {
+                var drift = TimeSpan.FromTicks(clockPosition.Ticks - block.StartTime.Ticks);
+                container?.Log(MediaLogMessageType.Trace,
+                ($"{block.MediaType.ToString().Substring(0, 1)} "
+                    + $"BLK: {block.StartTime.Debug()} | "
+                    + $"CLK: {clockPosition.Debug()} | "
+                    + $"DFT: {drift.TotalMilliseconds,4:0} | "
+                    + $"IX: {renderIndex,3} | "
+                    + $"PQ: {container?.Components[block.MediaType]?.PacketBufferLength / 1024d,7:0.0}k | "
+                    + $"TQ: {container?.Components.PacketBufferLength / 1024d,7:0.0}k"));
+            }
+            catch
+            {
+                // swallow
+            }
+        }
 
         /// <summary>
         /// Returns a formatted timestamp string in Seconds

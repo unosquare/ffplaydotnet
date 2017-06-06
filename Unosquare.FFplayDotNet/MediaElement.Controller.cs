@@ -78,6 +78,21 @@
         #region Private Methods
 
         /// <summary>
+        /// Creates a new instance of the renderer of the given type.
+        /// </summary>
+        /// <param name="mediaType">Type of the media.</param>
+        /// <returns></returns>
+        /// <exception cref="System.ArgumentException"></exception>
+        private IRenderer CreateRenderer(MediaType mediaType)
+        {
+            if (mediaType == MediaType.Audio) return new AudioRenderer(this);
+            else if (mediaType == MediaType.Video) return new VideoRenderer(this);
+            else if (mediaType == MediaType.Subtitle) return new SubtitleRenderer(this);
+
+            throw new ArgumentException($"No suitable renderer for Media Type '{mediaType}'");
+        }
+
+        /// <summary>
         /// Gets a value indicating whether more frames can be converted into blocks of the given type.
         /// </summary>
         private bool CanReadMoreBlocksOf(MediaType t) { return Frames[t].Count > 0 || CanReadMoreFrames || CanReadMorePackets; }
@@ -142,25 +157,7 @@
         private void RenderBlock(MediaBlock block, TimeSpan clockPosition, int renderIndex)
         {
             Renderers[block.MediaType].Render(block, clockPosition, renderIndex);
-
-            try
-            {
-                return;
-                var drift = TimeSpan.FromTicks(clockPosition.Ticks - block.StartTime.Ticks);
-                Container?.Log(MediaLogMessageType.Trace,
-                ($"{block.MediaType.ToString().Substring(0, 1)} "
-                    + $"BLK: {block.StartTime.Debug()} | "
-                    + $"CLK: {clockPosition.Debug()} | "
-                    + $"DFT: {drift.TotalMilliseconds,4:0} | "
-                    + $"IX: {renderIndex,3} | "
-                    + $"FQ: {Frames[block.MediaType]?.Count,4} | "
-                    + $"PQ: {Container?.Components[block.MediaType]?.PacketBufferLength / 1024d,7:0.0}k | "
-                    + $"TQ: {Container?.Components.PacketBufferLength / 1024d,7:0.0}k"));
-            }
-            catch
-            {
-                // swallow
-            }
+            Container.LogRenderBlock(block, clockPosition, renderIndex);
         }
 
         /// <summary>
@@ -258,6 +255,7 @@
                     Blocks[t] = new MediaBlockBuffer(MaxBlocks[t], t);
                     Frames[t] = new MediaFrameQueue();
                     LastRenderTime[t] = TimeSpan.MinValue;
+                    Renderers[t] = CreateRenderer(t);
                 }
 
                 IsTaskCancellationPending = false;
@@ -273,12 +271,6 @@
                 PacketReadingTask.Start();
                 FrameDecodingTask.Start();
                 BlockRenderingTask.Start();
-
-                if (Container.Components.HasAudio)
-                    Renderers[MediaType.Audio] = new AudioRenderer(this);
-
-                if (Container.Components.HasVideo)
-                    Renderers[MediaType.Video] = new VideoRenderer(this);
 
                 RaiseMediaOpenedEvent();
 

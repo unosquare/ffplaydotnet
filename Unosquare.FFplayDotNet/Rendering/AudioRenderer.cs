@@ -93,6 +93,12 @@
 
         #region Public API
 
+        /// <summary>
+        /// Renders the specified media block.
+        /// </summary>
+        /// <param name="mediaBlock">The media block.</param>
+        /// <param name="clockPosition">The clock position.</param>
+        /// <param name="renderIndex">Index of the render.</param>
         public void Render(MediaBlock mediaBlock, TimeSpan clockPosition, int renderIndex)
         {
             if (AudioBuffer == null) return;
@@ -119,26 +125,36 @@
                 if (AudioBuffer.CapacityPercent >= 0.8)
                     break;
             }
-
-            MediaElement.Container.Log(MediaLogMessageType.Trace, $"{MediaType.Audio} WROTE: {addedBlockCount} blocks, {addedBytes} b | AVL: {AudioBuffer.ReadableCount} | LEN: {AudioBuffer.Length} | USE: {100.0 * AudioBuffer.ReadableCount / AudioBuffer.Length:0.00}%");
         }
 
+        /// <summary>
+        /// Executed when the Play method is called on the parent MediaElement
+        /// </summary>
         public void Play()
         {
             AudioDevice?.Play();
         }
 
+        /// <summary>
+        /// Executed when the Pause method is called on the parent MediaElement
+        /// </summary>
         public void Pause()
         {
-            AudioDevice?.Pause();
+            //AudioDevice?.Pause();
         }
 
+        /// <summary>
+        /// Executed when the Pause method is called on the parent MediaElement
+        /// </summary>
         public void Stop()
         {
-            AudioDevice?.Stop();
+            //AudioDevice?.Stop();
             AudioBuffer.Clear();
         }
 
+        /// <summary>
+        /// Executed when the Close method is called on the parent MediaElement
+        /// </summary>
         public void Close()
         {
             Destroy();
@@ -159,10 +175,6 @@
                 return null;
 
             var result = AudioBuffer.ReadableCount >= requestedBytes ? AudioBuffer.Read(requestedBytes) : null;
-
-            if (result != null)
-                MediaElement.Container.Log(MediaLogMessageType.Trace, $"{MediaType.Audio} READ: {result.Length} b | AVL: {AudioBuffer.ReadableCount} | LEN: {AudioBuffer.Length} | USE: {100.0 * AudioBuffer.ReadableCount / AudioBuffer.Length:0.00}%");
-
             return result;
         }
 

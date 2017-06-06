@@ -84,7 +84,6 @@
     <Compile Include="Core\AudioParams.cs" />
     <Compile Include="Core\CodecOption.cs" />
     <Compile Include="Core\MediaType.cs" />
-    <Compile Include="MediaElement.Audio.cs" />
     <Compile Include="MediaLogMessageType.cs" />
     <Compile Include="MediaContainerException.cs" />
     <Compile Include="Decoding\MediaFrame.cs" />
@@ -129,6 +128,10 @@
       <DesignTime>True</DesignTime>
       <DependentUpon>Resources.resx</DependentUpon>
     </Compile>
+    <Compile Include="Rendering\AudioRenderer.cs" />
+    <Compile Include="Rendering\CallbackWaveProvider.cs" />
+    <Compile Include="Rendering\IRenderer.cs" />
+    <Compile Include="Rendering\VideoRenderer.cs" />
   </ItemGroup>
   <ItemGroup>
     <EmbeddedResource Include="ffmpeg32\avcodec-57.dll" />

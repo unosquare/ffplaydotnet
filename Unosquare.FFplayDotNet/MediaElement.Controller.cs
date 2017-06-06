@@ -2,6 +2,7 @@
 {
     using Core;
     using Decoding;
+    using Rendering;
     using System;
     using System.Collections.Generic;
     using System.Linq;
@@ -42,13 +43,15 @@
 
         #region Private Members
 
-        private MediaContainer Container = null;
+        internal MediaContainer Container = null;
         private readonly Clock Clock = new Clock();
+
+        private AudioRenderer AudioRenderer;
 
         private readonly Dictionary<MediaType, MediaFrameQueue> Frames
             = new Dictionary<MediaType, MediaFrameQueue>(StateDictionaryCapacity);
 
-        private readonly Dictionary<MediaType, MediaBlockBuffer> Blocks
+        internal readonly Dictionary<MediaType, MediaBlockBuffer> Blocks
             = new Dictionary<MediaType, MediaBlockBuffer>(StateDictionaryCapacity);
 
         private readonly Dictionary<MediaType, TimeSpan> LastRenderTime
@@ -139,29 +142,7 @@
         {
             if (block.MediaType == MediaType.Audio)
             {
-                var currentIndex = renderIndex;
-                var audioBlocks = Blocks[MediaType.Audio];
-                var addedBlockCount = 0;
-                var addedBytes = 0;
-                while (currentIndex >= 0 && currentIndex < audioBlocks.Count)
-                {
-                    var audioBlock = audioBlocks[currentIndex] as AudioBlock;
-                    if (AudioBuffer.WriteTag < audioBlock.StartTime)
-                    {
-                        AudioBuffer.Write(audioBlock.Buffer, audioBlock.BufferLength, audioBlock.StartTime);
-                        addedBlockCount++;
-                        addedBytes += audioBlock.BufferLength;
-                    }
-
-                    currentIndex++;
-
-                    // Stop adding if we have too much in there.
-                    if (AudioBuffer.CapacityPercent >= 0.8)
-                        break;
-                }
-
-                Container.Log(MediaLogMessageType.Trace, $"{MediaType.Audio} WROTE: {addedBlockCount} blocks, {addedBytes} b | AVL: {AudioBuffer.ReadableCount} | LEN: {AudioBuffer.Length} | USE: {100.0 * AudioBuffer.ReadableCount / AudioBuffer.Length:0.00}%");
-
+                AudioRenderer.Render(block as AudioBlock, clockPosition, renderIndex);
             }
             else if (block.MediaType == MediaType.Video)
             {
@@ -293,6 +274,12 @@
         {
             try
             {
+                if (AudioRenderer != null)
+                {
+                    AudioRenderer.Dispose();
+                    AudioRenderer = null;
+                }
+
                 await Task.Run(() =>
                 {
                     var mediaUrl = uri.IsFile ? uri.LocalPath : uri.ToString();
@@ -338,6 +325,8 @@
                 FrameDecodingTask.Start();
                 BlockRenderingTask.Start();
 
+                AudioRenderer = new AudioRenderer(this);
+
                 RaiseMediaOpenedEvent();
 
                 if (LoadedBehavior == MediaState.Play)
@@ -358,6 +347,13 @@
         {
             Container?.Log(MediaLogMessageType.Debug, $"{nameof(CloseAsync)}: Entered");
             Clock.Pause();
+
+            if (AudioRenderer != null)
+            {
+                AudioRenderer.Dispose();
+                AudioRenderer = null;
+            }
+
             IsTaskCancellationPending = true;
 
             // Wait for cycles to complete.
@@ -412,13 +408,13 @@
         {
             Clock.Play();
             BlockRenderingCycle.Wait(5);
-            PlayAudio();
+            AudioRenderer.Play();
             MediaState = MediaState.Play;
         }
 
         public void Pause()
         {
-            PauseAudio();
+            AudioRenderer.Pause();
             BlockRenderingCycle.Wait(5);
             Clock.Pause();
             MediaState = MediaState.Pause;
@@ -426,7 +422,7 @@
 
         public void Stop()
         {
-            StopAudio();
+            AudioRenderer.Stop();
             Clock.Reset();
             Seek(TimeSpan.Zero);
         }

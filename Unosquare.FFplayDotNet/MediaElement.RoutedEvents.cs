@@ -30,7 +30,7 @@
         /// </summary>
         /// <param name="action">The action.</param>
         /// <returns></returns>
-        private void InvokeOnUI(Action action)
+        internal void InvokeOnUI(Action action)
         {
             if (Dispatcher == null || Dispatcher.CurrentDispatcher == Dispatcher)
             {

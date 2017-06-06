@@ -83,6 +83,8 @@
         {
             e.Options.LogMessageCallback = new Action<MediaLogMessageType, string>((t, m) =>
             {
+                if (t == MediaLogMessageType.Trace) return;
+
                 Debug.WriteLine($"{t} - {m}");
                 //Terminal.Log(m, nameof(MediaElement), (LogMessageType)t);
             });

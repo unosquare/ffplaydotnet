@@ -47,6 +47,7 @@
         private readonly Clock Clock = new Clock();
 
         private AudioRenderer AudioRenderer;
+        private VideoRenderer VideoRenderer;
 
         private readonly Dictionary<MediaType, MediaFrameQueue> Frames
             = new Dictionary<MediaType, MediaFrameQueue>(StateDictionaryCapacity);
@@ -142,36 +143,11 @@
         {
             if (block.MediaType == MediaType.Audio)
             {
-                AudioRenderer.Render(block as AudioBlock, clockPosition, renderIndex);
+                AudioRenderer.Render(block, clockPosition, renderIndex);
             }
             else if (block.MediaType == MediaType.Video)
             {
-                InvokeOnUI(() =>
-                {
-
-                    var e = block as VideoBlock;
-                    TargetBitmap.Lock();
-
-                    if (TargetBitmap.BackBufferStride != e.BufferStride)
-                    {
-                        var sourceBase = e.Buffer;
-                        var targetBase = TargetBitmap.BackBuffer;
-
-                        for (var y = 0; y < TargetBitmap.PixelHeight; y++)
-                        {
-                            var sourceAddress = sourceBase + (e.BufferStride * y);
-                            var targetAddress = targetBase + (TargetBitmap.BackBufferStride * y);
-                            Utils.CopyMemory(targetAddress, sourceAddress, (uint)e.BufferStride);
-                        }
-                    }
-                    else
-                    {
-                        Utils.CopyMemory(TargetBitmap.BackBuffer, e.Buffer, (uint)e.BufferLength);
-                    }
-
-                    TargetBitmap.AddDirtyRect(new Int32Rect(0, 0, e.PixelWidth, e.PixelHeight));
-                    TargetBitmap.Unlock();
-                });
+                VideoRenderer.Render(block, clockPosition, renderIndex);
             }
 
             try
@@ -274,12 +250,6 @@
         {
             try
             {
-                if (AudioRenderer != null)
-                {
-                    AudioRenderer.Dispose();
-                    AudioRenderer = null;
-                }
-
                 await Task.Run(() =>
                 {
                     var mediaUrl = uri.IsFile ? uri.LocalPath : uri.ToString();
@@ -288,20 +258,6 @@
                     RaiseMediaOpeningEvent();
                     Container.Log(MediaLogMessageType.Debug, $"{nameof(OpenAsync)}: Entered");
                     Container.Initialize();
-                });
-
-                InvokeOnUI(() =>
-                {
-                    var visual = PresentationSource.FromVisual(this);
-                    var dpiX = 96.0 * visual?.CompositionTarget?.TransformToDevice.M11 ?? 96.0;
-                    var dpiY = 96.0 * visual?.CompositionTarget?.TransformToDevice.M22 ?? 96;
-
-                    if (HasVideo)
-                        TargetBitmap = new WriteableBitmap(NaturalVideoWidth, NaturalVideoHeight, dpiX, dpiY, PixelFormats.Bgr24, null);
-                    else
-                        TargetBitmap = new WriteableBitmap(1, 1, dpiX, dpiY, PixelFormats.Bgr24, null);
-
-                    ViewBox.Source = TargetBitmap;
                 });
 
                 foreach (var t in Container.Components.MediaTypes)
@@ -325,7 +281,14 @@
                 FrameDecodingTask.Start();
                 BlockRenderingTask.Start();
 
+                if (AudioRenderer != null)
+                {
+                    AudioRenderer.Dispose();
+                    AudioRenderer = null;
+                }
+
                 AudioRenderer = new AudioRenderer(this);
+                VideoRenderer = new VideoRenderer(this);
 
                 RaiseMediaOpenedEvent();
 
@@ -348,11 +311,11 @@
             Container?.Log(MediaLogMessageType.Debug, $"{nameof(CloseAsync)}: Entered");
             Clock.Pause();
 
-            if (AudioRenderer != null)
-            {
-                AudioRenderer.Dispose();
-                AudioRenderer = null;
-            }
+            AudioRenderer?.Close();
+            AudioRenderer = null;
+
+            VideoRenderer?.Close();
+            VideoRenderer = null;
 
             IsTaskCancellationPending = true;
 

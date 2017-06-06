@@ -24,6 +24,11 @@
         void Stop();
 
         /// <summary>
+        /// Executed when the Close method is called on the parent MediaElement
+        /// </summary>
+        void Close();
+
+        /// <summary>
         /// Renders the specified media block.
         /// </summary>
         /// <param name="mediaBlock">The media block.</param>

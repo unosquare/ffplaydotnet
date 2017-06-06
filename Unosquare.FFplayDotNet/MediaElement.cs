@@ -24,7 +24,7 @@
         #region Property Backing
 
         // This is the image that will display the video from a Writeable Bitmap
-        private readonly Image ViewBox = new Image();
+        internal readonly Image ViewBox = new Image();
 
         // The target bitmap is where the video image will be held
         private WriteableBitmap TargetBitmap = null;

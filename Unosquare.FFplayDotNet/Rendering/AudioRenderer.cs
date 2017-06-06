@@ -125,26 +125,23 @@
 
         public void Play()
         {
-            if (AudioDevice == null)
-                Initialize();
-
-            AudioDevice.Play();
+            AudioDevice?.Play();
         }
 
         public void Pause()
         {
-            if (AudioDevice == null)
-                Initialize();
-
-            AudioDevice.Pause();
+            AudioDevice?.Pause();
         }
 
         public void Stop()
         {
-            if (AudioDevice == null)
-                Initialize();
+            AudioDevice?.Stop();
+            AudioBuffer.Clear();
+        }
 
-            AudioDevice.Stop();
+        public void Close()
+        {
+            Destroy();
         }
 
         #endregion

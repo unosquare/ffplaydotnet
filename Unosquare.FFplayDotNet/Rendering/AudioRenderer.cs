@@ -16,7 +16,7 @@
         #region Private Members
 
         private readonly MediaElement MediaElement;
-        private WaveOut AudioDevice;
+        private WaveOutEvent AudioDevice;
         private IWaveProvider AudioSamplesProvider;
         private CircularBuffer AudioBuffer;
         private bool IsDisposed = false;
@@ -57,9 +57,9 @@
             if (AudioSamplesProvider == null)
                 AudioSamplesProvider = new CallbackWaveProvider(ProvideAudioSamplesCallback);
 
-            AudioDevice = new WaveOut(WaveCallbackInfo.FunctionCallback())
+            AudioDevice = new WaveOutEvent()
             {
-                DesiredLatency = 80,
+                DesiredLatency = 200,
                 NumberOfBuffers = 2,
             };
 

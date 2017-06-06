@@ -117,6 +117,7 @@
     <Compile Include="MediaElement.MediaProperties.cs" />
     <Compile Include="MediaElement.RoutedEvents.cs" />
     <Compile Include="MediaOpeningRoutedEventArgs.cs" />
+    <Compile Include="NAudio\WaveOutEvent.cs" />
     <Compile Include="NAudio\WaveOutSupport.cs" />
     <Compile Include="NAudio\WaveWindow.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

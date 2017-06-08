@@ -53,19 +53,14 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="MediaElement.Workers.cs" />
-    <Compile Include="NAudio\IWaveProvider.cs" />
-    <Compile Include="NAudio\MmException.cs" />
-    <Compile Include="NAudio\MmResult.cs" />
-    <Compile Include="NAudio\MmTime.cs" />
-    <Compile Include="NAudio\PlaybackState.cs" />
-    <Compile Include="NAudio\StoppedEventArgs.cs" />
-    <Compile Include="NAudio\WaveFormat.cs" />
-    <Compile Include="NAudio\WaveFormatEncoding.cs" />
-    <Compile Include="NAudio\WaveHeader.cs" />
-    <Compile Include="NAudio\WaveHeaderFlags.cs" />
-    <Compile Include="NAudio\WaveInterop.cs" />
-    <Compile Include="NAudio\WaveOutBuffer.cs" />
-    <Compile Include="NAudio\WaveOutCapabilities.cs" />
+    <Compile Include="Rendering\Wave\IWaveProvider.cs" />
+    <Compile Include="Rendering\Wave\PlaybackState.cs" />
+    <Compile Include="Rendering\Wave\WaveFormat.cs" />
+    <Compile Include="Rendering\Wave\WaveHeader.cs" />
+    <Compile Include="Rendering\Wave\WaveHeaderFlags.cs" />
+    <Compile Include="Rendering\Wave\WaveInterop.cs" />
+    <Compile Include="Rendering\Wave\WaveOutBuffer.cs" />
+    <Compile Include="Rendering\Wave\WaveOutCapabilities.cs" />
     <Compile Include="Core\CircularBuffer.cs" />
     <Compile Include="Core\Clock.cs" />
     <Compile Include="Core\Constants.cs" />
@@ -90,7 +85,7 @@
     <Compile Include="Decoding\MediaContainer.cs" />
     <Compile Include="MediaOptions.cs" />
     <Compile Include="Decoding\PacketQueue.cs" />
-    <Compile Include="CodecOptions.cs" />
+    <Compile Include="MediaCodecOptions.cs" />
     <Compile Include="FFmpeg.Autogen\ConstCharPtrMarshaler.cs" />
     <Compile Include="FFmpeg.Autogen\FFmpeg.arrays.g.cs" />
     <Compile Include="FFmpeg.Autogen\FFmpeg.delegates.g.cs" />
@@ -108,8 +103,7 @@
     <Compile Include="MediaElement.MediaProperties.cs" />
     <Compile Include="MediaElement.RoutedEvents.cs" />
     <Compile Include="MediaOpeningRoutedEventArgs.cs" />
-    <Compile Include="NAudio\WaveOutEvent.cs" />
-    <Compile Include="NAudio\WaveOutSupport.cs" />
+    <Compile Include="Rendering\Wave\WavePlayer.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />
     <Compile Include="Core\StreamSpecifier.cs" />
     <Compile Include="Decoding\SubtitleComponent.cs" />
@@ -147,9 +141,9 @@
     <None Include="Resources\ffme-preview.png" />
   </ItemGroup>
   <ItemGroup>
-    <Content Include="NAudio\license.txt" />
-    <Content Include="NAudio\version.txt" />
+    <Content Include="Rendering\Wave\license.txt" />
   </ItemGroup>
+  <ItemGroup />
   <Import Project="$(MSBuildToolsPath)\Microsoft.CSharp.targets" />
   <!-- To modify your build process, add your task inside one of the targets below and uncomment it. 
        Other similar extension points exist, see Microsoft.Common.targets.

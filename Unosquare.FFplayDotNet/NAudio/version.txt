@@ -1,3 +1,0 @@
-﻿NAudio stripped down version to essentials from GitHub
-Commit URL (May 13, 2017):
-https://github.com/naudio/NAudio/commit/17c8ca2ff8c64ce1f5e6b00f74e54d7e9bccaa03

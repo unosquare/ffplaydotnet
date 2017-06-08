@@ -55,7 +55,7 @@
         /// Codec options are documented here: https://www.ffmpeg.org/ffmpeg-codecs.html#Codec-Options
         /// Port of codec_opts
         /// </summary>
-        public CodecOptions CodecOptions { get; } = new CodecOptions();
+        public MediaCodecOptions CodecOptions { get; } = new MediaCodecOptions();
 
         /// <summary>
         /// Gets or sets a value indicating whether PTS are generated automatically and not read

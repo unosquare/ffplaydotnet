@@ -1,33 +1,34 @@
 ﻿namespace Unosquare.FFplayDotNet.Rendering
 {
-    using NAudio.Wave;
+    using Core;
+    using Decoding;
+    using Rendering.Wave;
     using System;
     using System.Windows;
-    using Unosquare.FFplayDotNet.Core;
-    using Unosquare.FFplayDotNet.Decoding;
 
     /// <summary>
-    /// Provides Audio Output capabilities
+    /// Provides Audio Output capabilities by writing samples to the default audio output device.
     /// </summary>
+    /// <seealso cref="Unosquare.FFplayDotNet.Rendering.Wave.IWaveProvider" />
+    /// <seealso cref="Unosquare.FFplayDotNet.Rendering.IRenderer" />
     /// <seealso cref="System.IDisposable" />
     internal sealed class AudioRenderer : IDisposable, IRenderer, IWaveProvider
     {
-
         #region Private Members
 
         private readonly MediaElement MediaElement;
-        private WaveOutEvent AudioDevice;
+        private WavePlayer AudioDevice;
         private CircularBuffer AudioBuffer;
         private bool IsDisposed = false;
 
-        private WaveFormat m_Format = null;
         private byte[] SilenceBuffer = null;
         private byte[] ReadBuffer = null;
+        private double LeftVolume = 1.0d;
+        private double RightVolume = 1.0d;
 
+        private WaveFormat m_Format = null;
         private double m_Volume = 1.0d;
         private double m_Balance = 0.0d;
-        private double m_LeftVolume = 1.0d;
-        private double m_RightVolume = 1.0d;
 
         #endregion
 
@@ -69,7 +70,7 @@
         {
             Destroy();
 
-            AudioDevice = new WaveOutEvent()
+            AudioDevice = new WavePlayer()
             {
                 DesiredLatency = 200,
                 NumberOfBuffers = 2,
@@ -106,11 +107,8 @@
         #region Properties
 
         /// <summary>
-        /// Gets the WaveFormat of this WaveProvider.
+        /// Gets the output format of the audio
         /// </summary>
-        /// <value>
-        /// The wave format.
-        /// </value>
         public WaveFormat WaveFormat
         {
             get { return m_Format; }
@@ -134,22 +132,22 @@
                 var leftFactor = m_Balance > 0 ? 1d - m_Balance : 1d;
                 var rightFactor = m_Balance < 0 ? 1d + m_Balance : 1d;
 
-                m_LeftVolume = leftFactor * value;
-                m_RightVolume = rightFactor * value;
+                LeftVolume = leftFactor * value;
+                RightVolume = rightFactor * value;
                 m_Volume = value;
             }
         }
 
         /// <summary>
-        /// Gets or sets the balance (-1 to 1).
+        /// Gets or sets the balance (-1.0 to 1.0).
         /// </summary>
         public double Balance
         {
             get { return m_Balance; }
             set
             {
-                if (value < -1) value = -1;
-                if (value > 1) value = 1;
+                if (value < -1.0) value = -1.0;
+                if (value > 1.0) value = 1.0;
                 m_Balance = value;
                 Volume = m_Volume;
             }
@@ -228,10 +226,11 @@
 
         #endregion
 
-        #region Methods
+        #region IWaveProvider Support
 
         /// <summary>
-        /// Called whenever the audio driver requests samples
+        /// Called whenever the audio driver requests samples.
+        /// Do not call this method directly.
         /// </summary>
         /// <param name="renderBuffer">The render buffer.</param>
         /// <param name="renderBufferOffset">The render buffer offset.</param>
@@ -239,7 +238,7 @@
         /// <returns></returns>
         public int Read(byte[] renderBuffer, int renderBufferOffset, int requestedBytes)
         {
-            if (MediaElement.IsPlaying == false || MediaElement.HasAudio == false || AudioBuffer.ReadableCount < requestedBytes)
+            if (MediaElement.IsPlaying == false || MediaElement.HasAudio == false || AudioBuffer.ReadableCount <= 0)
             {
                 Buffer.BlockCopy(SilenceBuffer, 0, renderBuffer, renderBufferOffset, Math.Min(SilenceBuffer.Length, renderBuffer.Length));
                 return SilenceBuffer.Length;
@@ -248,18 +247,19 @@
             if (ReadBuffer == null || ReadBuffer.Length != requestedBytes)
                 ReadBuffer = new byte[requestedBytes];
 
-            AudioBuffer.Read(requestedBytes, ReadBuffer);
+            requestedBytes = Math.Min(requestedBytes, AudioBuffer.ReadableCount);
+            AudioBuffer.Read(requestedBytes, ReadBuffer, 0);
 
+            // Samples are interleaved (left and right in 16-bit)
             var isLeftSample = true;
             for (var baseIndex = 0; baseIndex < ReadBuffer.Length; baseIndex += WaveFormat.BitsPerSample / 8)
             {
-
                 var sample = BitConverter.ToInt16(ReadBuffer, baseIndex);
 
-                if (isLeftSample && m_LeftVolume != 1.0)
-                    sample = (short)(sample * m_LeftVolume);
-                else if (isLeftSample == false && m_RightVolume != 1.0)
-                    sample = (short)(sample * m_RightVolume);
+                if (isLeftSample && LeftVolume != 1.0)
+                    sample = (short)(sample * LeftVolume);
+                else if (isLeftSample == false && RightVolume != 1.0)
+                    sample = (short)(sample * RightVolume);
 
                 renderBuffer[baseIndex] = (byte)(sample & 0xff);
                 renderBuffer[baseIndex + 1] = (byte)(sample >> 8);

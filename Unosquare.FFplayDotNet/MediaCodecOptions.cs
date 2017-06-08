@@ -7,7 +7,7 @@
     /// <summary>
     /// Represents a set of codec options associated with a stream specifier.
     /// </summary>
-    public class CodecOptions
+    public class MediaCodecOptions
     {
         #region Private Members
 
@@ -21,9 +21,9 @@
         #region Constructor
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="CodecOptions"/> class.
+        /// Initializes a new instance of the <see cref="MediaCodecOptions"/> class.
         /// </summary>
-        public CodecOptions()
+        public MediaCodecOptions()
         {
             // Placeholder
         }

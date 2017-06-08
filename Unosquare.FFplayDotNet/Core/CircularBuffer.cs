@@ -82,47 +82,13 @@
         #region Methods
 
         /// <summary>
-        /// Reads the specified requested bytes.
-        /// </summary>
-        /// <param name="requestedBytes">The requested bytes.</param>
-        /// <returns></returns>
-        /// <exception cref="System.InvalidOperationException"></exception>
-        public byte[] Read(int requestedBytes)
-        {
-            lock (SyncLock)
-            {
-                if (requestedBytes > ReadableCount)
-                    throw new InvalidOperationException(
-                        $"Unable to read {requestedBytes} bytes. Only {ReadableCount} bytes are available");
-
-                var result = new byte[requestedBytes];
-
-                var readCount = 0;
-                while (readCount < requestedBytes)
-                {
-                    var copyLength = Math.Min(Length - ReadIndex, requestedBytes - readCount);
-                    var sourcePtr = Buffer + ReadIndex;
-                    Marshal.Copy(sourcePtr, result, readCount, copyLength);
-
-                    readCount += copyLength;
-                    ReadIndex += copyLength;
-                    ReadableCount -= copyLength;
-
-                    if (ReadIndex >= Length)
-                        ReadIndex = 0;
-                }
-
-                return result;
-            }
-        }
-
-        /// <summary>
         /// Reads the specified number of bytes into the target array.
         /// </summary>
         /// <param name="requestedBytes">The requested bytes.</param>
         /// <param name="target">The target.</param>
+        /// <param name="targetOffset">The target offset.</param>
         /// <exception cref="System.InvalidOperationException"></exception>
-        public void Read(int requestedBytes, byte[] target)
+        public void Read(int requestedBytes, byte[] target, int targetOffset)
         {
             lock (SyncLock)
             {
@@ -135,7 +101,7 @@
                 {
                     var copyLength = Math.Min(Length - ReadIndex, requestedBytes - readCount);
                     var sourcePtr = Buffer + ReadIndex;
-                    Marshal.Copy(sourcePtr, target, readCount, copyLength);
+                    Marshal.Copy(sourcePtr, target, targetOffset + readCount, copyLength);
 
                     readCount += copyLength;
                     ReadIndex += copyLength;

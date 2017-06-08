@@ -121,7 +121,6 @@
       <DependentUpon>Resources.resx</DependentUpon>
     </Compile>
     <Compile Include="Rendering\AudioRenderer.cs" />
-    <Compile Include="Rendering\CallbackWaveProvider.cs" />
     <Compile Include="Rendering\IRenderer.cs" />
     <Compile Include="Rendering\SubtitleRenderer.cs" />
     <Compile Include="Rendering\VideoRenderer.cs" />

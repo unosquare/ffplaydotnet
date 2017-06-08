@@ -10,16 +10,24 @@
     /// Provides Audio Output capabilities
     /// </summary>
     /// <seealso cref="System.IDisposable" />
-    internal sealed class AudioRenderer : IDisposable, IRenderer
+    internal sealed class AudioRenderer : IDisposable, IRenderer, IWaveProvider
     {
 
         #region Private Members
 
         private readonly MediaElement MediaElement;
         private WaveOutEvent AudioDevice;
-        private IWaveProvider AudioSamplesProvider;
         private CircularBuffer AudioBuffer;
         private bool IsDisposed = false;
+
+        private WaveFormat m_Format = null;
+        private byte[] SilenceBuffer = null;
+        private byte[] ReadBuffer = null;
+
+        private double m_Volume = 1.0d;
+        private double m_Balance = 0.0d;
+        private double m_LeftVolume = 1.0d;
+        private double m_RightVolume = 1.0d;
 
         #endregion
 
@@ -32,6 +40,13 @@
         public AudioRenderer(MediaElement mediaElement)
         {
             MediaElement = mediaElement;
+
+            m_Format = new WaveFormat(AudioParams.Output.SampleRate, AudioParams.OutputBitsPerSample, AudioParams.Output.ChannelCount);
+            if (WaveFormat.BitsPerSample != 16 || WaveFormat.Channels != 2)
+                throw new NotSupportedException("Wave Format has to be 16-bit and 2-channel.");
+
+            SilenceBuffer = new byte[m_Format.BitsPerSample / 8 * m_Format.Channels * 2];
+
             if (MediaElement.HasAudio)
                 Initialize();
 
@@ -54,18 +69,15 @@
         {
             Destroy();
 
-            if (AudioSamplesProvider == null)
-                AudioSamplesProvider = new CallbackWaveProvider(ProvideAudioSamplesCallback);
-
             AudioDevice = new WaveOutEvent()
             {
                 DesiredLatency = 200,
                 NumberOfBuffers = 2,
             };
 
-            var bufferLength = AudioSamplesProvider.WaveFormat.ConvertLatencyToByteSize(AudioDevice.DesiredLatency) * MediaElement.Blocks[MediaType.Audio].Capacity / 2;
+            var bufferLength = WaveFormat.ConvertLatencyToByteSize(AudioDevice.DesiredLatency) * MediaElement.Blocks[MediaType.Audio].Capacity / 2;
             AudioBuffer = new CircularBuffer(bufferLength);
-            AudioDevice.Init(AudioSamplesProvider);
+            AudioDevice.Init(this);
         }
 
 
@@ -86,6 +98,60 @@
             {
                 AudioBuffer.Dispose();
                 AudioBuffer = null;
+            }
+        }
+
+        #endregion
+
+        #region Properties
+
+        /// <summary>
+        /// Gets the WaveFormat of this WaveProvider.
+        /// </summary>
+        /// <value>
+        /// The wave format.
+        /// </value>
+        public WaveFormat WaveFormat
+        {
+            get { return m_Format; }
+        }
+
+
+        /// <summary>
+        /// Gets or sets the volume.
+        /// </summary>
+        /// <value>
+        /// The volume.
+        /// </value>
+        public double Volume
+        {
+            get { return m_Volume; }
+            set
+            {
+                if (value < 0) value = 0;
+                if (value > 1) value = 1;
+
+                var leftFactor = m_Balance > 0 ? 1d - m_Balance : 1d;
+                var rightFactor = m_Balance < 0 ? 1d + m_Balance : 1d;
+
+                m_LeftVolume = leftFactor * value;
+                m_RightVolume = rightFactor * value;
+                m_Volume = value;
+            }
+        }
+
+        /// <summary>
+        /// Gets or sets the balance (-1 to 1).
+        /// </summary>
+        public double Balance
+        {
+            get { return m_Balance; }
+            set
+            {
+                if (value < -1) value = -1;
+                if (value > 1) value = 1;
+                m_Balance = value;
+                Volume = m_Volume;
             }
         }
 
@@ -165,17 +231,41 @@
         #region Methods
 
         /// <summary>
-        /// Callback providing the audio samples.
+        /// Called whenever the audio driver requests samples
         /// </summary>
+        /// <param name="renderBuffer">The render buffer.</param>
+        /// <param name="renderBufferOffset">The render buffer offset.</param>
         /// <param name="requestedBytes">The requested bytes.</param>
         /// <returns></returns>
-        private byte[] ProvideAudioSamplesCallback(int requestedBytes)
+        public int Read(byte[] renderBuffer, int renderBufferOffset, int requestedBytes)
         {
-            if (MediaElement.IsPlaying == false || MediaElement.HasAudio == false)
-                return null;
+            if (MediaElement.IsPlaying == false || MediaElement.HasAudio == false || AudioBuffer.ReadableCount < requestedBytes)
+            {
+                Buffer.BlockCopy(SilenceBuffer, 0, renderBuffer, renderBufferOffset, Math.Min(SilenceBuffer.Length, renderBuffer.Length));
+                return SilenceBuffer.Length;
+            }
 
-            var result = AudioBuffer.ReadableCount >= requestedBytes ? AudioBuffer.Read(requestedBytes) : null;
-            return result;
+            if (ReadBuffer == null || ReadBuffer.Length != requestedBytes)
+                ReadBuffer = new byte[requestedBytes];
+
+            AudioBuffer.Read(requestedBytes, ReadBuffer);
+
+            var isLeftSample = true;
+            for (var baseIndex = 0; baseIndex < ReadBuffer.Length; baseIndex += WaveFormat.BitsPerSample / 8)
+            {
+
+                var sample = BitConverter.ToInt16(ReadBuffer, baseIndex);
+
+                if (isLeftSample && m_LeftVolume != 1.0)
+                    sample = (short)(sample * m_LeftVolume);
+                else if (isLeftSample == false && m_RightVolume != 1.0)
+                    sample = (short)(sample * m_RightVolume);
+
+                renderBuffer[baseIndex] = (byte)(sample & 0xff);
+                renderBuffer[baseIndex + 1] = (byte)(sample >> 8);
+            }
+
+            return requestedBytes;
         }
 
         #endregion

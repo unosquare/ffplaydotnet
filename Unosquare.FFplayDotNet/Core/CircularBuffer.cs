@@ -114,7 +114,37 @@
 
                 return result;
             }
+        }
 
+        /// <summary>
+        /// Reads the specified number of bytes into the target array.
+        /// </summary>
+        /// <param name="requestedBytes">The requested bytes.</param>
+        /// <param name="target">The target.</param>
+        /// <exception cref="System.InvalidOperationException"></exception>
+        public void Read(int requestedBytes, byte[] target)
+        {
+            lock (SyncLock)
+            {
+                if (requestedBytes > ReadableCount)
+                    throw new InvalidOperationException(
+                        $"Unable to read {requestedBytes} bytes. Only {ReadableCount} bytes are available");
+
+                var readCount = 0;
+                while (readCount < requestedBytes)
+                {
+                    var copyLength = Math.Min(Length - ReadIndex, requestedBytes - readCount);
+                    var sourcePtr = Buffer + ReadIndex;
+                    Marshal.Copy(sourcePtr, target, readCount, copyLength);
+
+                    readCount += copyLength;
+                    ReadIndex += copyLength;
+                    ReadableCount -= copyLength;
+
+                    if (ReadIndex >= Length)
+                        ReadIndex = 0;
+                }
+            }
         }
 
         /// <summary>

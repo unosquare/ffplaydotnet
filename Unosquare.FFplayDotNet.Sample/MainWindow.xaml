@@ -194,6 +194,7 @@
             </DockPanel>
 
             <DockPanel LastChildFill="True" Grid.Row="1">
+                <CheckBox IsChecked="{Binding ElementName=Media, Path=IsMuted}" VerticalAlignment="Center" />
                 <Slider TickFrequency="0.1" TickPlacement="TopLeft" Width="250"
                         Minimum="-1.0" Maximum="1.0" Value="{Binding ElementName=Media, Path=Balance}"
                         SmallChange="0.1" LargeChange="0.1" />

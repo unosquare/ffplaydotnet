@@ -29,6 +29,7 @@
         private WaveFormat m_Format = null;
         private double m_Volume = 1.0d;
         private double m_Balance = 0.0d;
+        private bool m_IsMuted = false;
 
         #endregion
 
@@ -153,6 +154,15 @@
             }
         }
 
+        /// <summary>
+        /// Gets or sets a value indicating whether the wave output is muted.
+        /// </summary>
+        public bool IsMuted
+        {
+            get { return m_IsMuted; }
+            set { m_IsMuted = value; }
+        }
+
         #endregion
 
         #region Public API
@@ -256,10 +266,17 @@
             {
                 var sample = BitConverter.ToInt16(ReadBuffer, baseIndex);
 
-                if (isLeftSample && LeftVolume != 1.0)
-                    sample = (short)(sample * LeftVolume);
-                else if (isLeftSample == false && RightVolume != 1.0)
-                    sample = (short)(sample * RightVolume);
+                if (IsMuted)
+                {
+                    sample = 0;
+                }
+                else
+                {
+                    if (isLeftSample && LeftVolume != 1.0)
+                        sample = (short)(sample * LeftVolume);
+                    else if (isLeftSample == false && RightVolume != 1.0)
+                        sample = (short)(sample * RightVolume);
+                }
 
                 renderBuffer[baseIndex] = (byte)(sample & 0xff);
                 renderBuffer[baseIndex + 1] = (byte)(sample >> 8);

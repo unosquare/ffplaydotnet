@@ -50,7 +50,7 @@
             if (element == null) return null;
 
             return baseValue;
-            // Not sure why there was coersion before...
+            // TODO: Not sure why there was coersion in previous version...
         }
 
         /// <summary>
@@ -207,7 +207,6 @@
 
         public static object CoerceBalanceProperty(DependencyObject d, object value)
         {
-
             var element = d as MediaElement;
             if (element == null) return Constants.DefaultBalance;
             if (element.HasAudio == false) return Constants.DefaultBalance;
@@ -240,6 +239,56 @@
         }
 
         #endregion
+
+        #region IsMuted
+
+        /// <summary> 
+        /// The DependencyProperty for the MediaElement.IsMuted property.
+        /// </summary> 
+        public static readonly DependencyProperty IsMutedProperty
+            = DependencyProperty.Register(
+                        nameof(IsMuted),
+                        typeof(bool),
+                        typeof(MediaElement),
+                        new FrameworkPropertyMetadata(
+                            false,
+                            FrameworkPropertyMetadataOptions.None,
+                            new PropertyChangedCallback(IsMutedPropertyChanged),
+                            new CoerceValueCallback(CoerceIsMutedProperty)));
+
+        public static object CoerceIsMutedProperty(DependencyObject d, object value)
+        {
+
+            var element = d as MediaElement;
+            if (element == null) return false;
+            if (element.HasAudio == false) return false;
+
+            var audioRenderer = element.Renderers[MediaType.Audio] as AudioRenderer;
+            return audioRenderer == null ? false : (bool)value;
+        }
+
+        private static void IsMutedPropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        {
+            var element = d as MediaElement;
+            if (element == null) return;
+            if (element.HasAudio == false) return;
+
+            var audioRenderer = element.Renderers[MediaType.Audio] as AudioRenderer;
+            if (audioRenderer != null)
+                audioRenderer.IsMuted = (bool)e.NewValue;
+        }
+
+        /// <summary>
+        /// Gets/Sets the IsMuted property on the MediaElement.
+        /// </summary> 
+        public bool IsMuted
+        {
+            get { return (bool)GetValue(IsMutedProperty); }
+            set { SetValue(IsMutedProperty, value); }
+        }
+
+        #endregion
+
 
         #region ScrubbingEnabled
 
@@ -344,55 +393,6 @@
         {
             get { return (MediaState)GetValue(LoadedBehaviorProperty); }
             set { SetValue(LoadedBehaviorProperty, value); }
-        }
-
-        #endregion
-
-        #region IsMuted
-
-        /// <summary> 
-        /// The DependencyProperty for the MediaElement.IsMuted property.
-        /// </summary> 
-        public static readonly DependencyProperty IsMutedProperty
-            = DependencyProperty.Register(
-                        nameof(IsMuted),
-                        typeof(bool),
-                        typeof(MediaElement),
-                        new FrameworkPropertyMetadata(
-                            false,
-                            FrameworkPropertyMetadataOptions.None,
-                            new PropertyChangedCallback(IsMutedPropertyChanged)));
-
-        /// <summary>
-        /// Gets/Sets the IsMuted property on the MediaElement.
-        /// Note: Muting Sets the Volume to 0; Unmuting set the volume to what
-        /// it originally was before muting.
-        /// </summary> 
-        public bool IsMuted
-        {
-            get { return (bool)GetValue(IsMutedProperty); }
-            set { SetValue(IsMutedProperty, value); }
-        }
-
-        private double VolumeBeforeMuting = 0;
-        private static void IsMutedPropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
-        {
-            var element = d as MediaElement;
-            if (element == null) return;
-            if (element.Container == null) return;
-
-            var newValue = (bool)e.NewValue;
-            var oldValue = (bool)e.OldValue;
-            if (newValue)
-            {
-                element.VolumeBeforeMuting = element.Volume;
-                element.Volume = 0d;
-            }
-            else
-            {
-                if (element.VolumeBeforeMuting > 0.0d)
-                    element.Volume = element.VolumeBeforeMuting;
-            }
         }
 
         #endregion

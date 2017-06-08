@@ -1,7 +1,8 @@
-using System;
-
 namespace NAudio
 {
+    using System;
+
+
     /// <summary>
     /// Summary description for MmException.
     /// </summary>

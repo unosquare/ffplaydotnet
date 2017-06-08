@@ -12,6 +12,8 @@
     <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
     <FileAlignment>512</FileAlignment>
     <TargetFrameworkProfile />
+    <NuGetPackageImportStamp>
+    </NuGetPackageImportStamp>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -51,9 +53,7 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="MediaElement.Workers.cs" />
-    <Compile Include="NAudio\IWavePlayer.cs" />
     <Compile Include="NAudio\IWaveProvider.cs" />
-    <Compile Include="NAudio\MarshalHelpers.cs" />
     <Compile Include="NAudio\MmException.cs" />
     <Compile Include="NAudio\MmResult.cs" />
     <Compile Include="NAudio\MmTime.cs" />
@@ -61,7 +61,6 @@
     <Compile Include="NAudio\StoppedEventArgs.cs" />
     <Compile Include="NAudio\WaveFormat.cs" />
     <Compile Include="NAudio\WaveFormatEncoding.cs" />
-    <Compile Include="NAudio\WaveFormatExtraData.cs" />
     <Compile Include="NAudio\WaveHeader.cs" />
     <Compile Include="NAudio\WaveHeaderFlags.cs" />
     <Compile Include="NAudio\WaveInterop.cs" />

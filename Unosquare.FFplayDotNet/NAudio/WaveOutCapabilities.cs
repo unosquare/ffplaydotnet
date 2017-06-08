@@ -64,15 +64,34 @@ namespace NAudio.Wave
         }
 
         /// <summary>
-        /// Whether playback control is supported
+        /// Whether playback rate control is supported
         /// </summary>
-        public bool SupportsPlaybackRateControl
-        {
-            get
-            {
-                return (support & WaveOutSupport.PlaybackRate) == WaveOutSupport.PlaybackRate;
-            }
-        }
+        public bool SupportsPlaybackRateControl { get { return support.HasFlag(WaveOutSupport.PlaybackRate); } }
+
+        /// <summary>
+        /// Whether volume control is supported
+        /// </summary>
+        public bool SupportsVolumeControl { get { return support.HasFlag(WaveOutSupport.Volume); } }
+
+        /// <summary>
+        /// Gets a value indicating whether this device supports independent channel volume control.
+        /// </summary>
+        public bool SupportsChannelVolumeControl { get { return support.HasFlag(WaveOutSupport.LRVolume); } }
+
+        /// <summary>
+        /// Gets a value indicating whether this device supports pitch control.
+        /// </summary>
+        public bool SupportsPitchControl { get { return support.HasFlag(WaveOutSupport.Pitch); } }
+
+        /// <summary>
+        /// Gets a value indicating whether the device returns sample-accurate position information.
+        /// </summary>
+        public bool SupportsSampleAccuratePosition { get { return support.HasFlag(WaveOutSupport.SampleAccurate); } }
+
+        /// <summary>
+        /// Gets a value indicating whether the driver is synchronous and will block while playing a buffer.
+        /// </summary>
+        public bool IsSynchronousOutput { get { return support.HasFlag(WaveOutSupport.Sync); } }
 
         /// <summary>
         /// The product name

@@ -30,7 +30,7 @@
         {
             Output = new AudioParams();
             Output.ChannelCount = 2;
-            Output.SampleRate = 44100;
+            Output.SampleRate = 48000;
             Output.Format = AVSampleFormat.AV_SAMPLE_FMT_S16;
             Output.ChannelLayout = ffmpeg.av_get_default_channel_layout(Output.ChannelCount);
             Output.SamplesPerChannel = Output.SampleRate;

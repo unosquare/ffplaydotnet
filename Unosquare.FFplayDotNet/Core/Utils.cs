@@ -335,6 +335,7 @@
         internal static void LogRenderBlock(this MediaContainer container, MediaBlock block, TimeSpan clockPosition, int renderIndex)
         {
             if (Debugger.IsAttached == false) return;
+
             try
             {
                 var drift = TimeSpan.FromTicks(clockPosition.Ticks - block.StartTime.Ticks);

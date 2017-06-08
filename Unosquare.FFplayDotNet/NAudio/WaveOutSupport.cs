@@ -1,11 +1,11 @@
-using System;
-
 namespace NAudio.Wave
 {
-	/// <summary>
-	/// Flags indicating what features this WaveOut device supports
-	/// </summary>
-	[Flags]
+    using System;
+
+    /// <summary>
+    /// Flags indicating what features this WaveOut device supports
+    /// </summary>
+    [Flags]
 	enum WaveOutSupport
 	{
 		/// <summary>supports pitch control (WAVECAPS_PITCH)</summary>

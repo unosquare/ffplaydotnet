@@ -1,8 +1,8 @@
-using System;
-using System.Runtime.InteropServices;
-
 namespace NAudio.Wave 
 {
+    using System;
+    using System.Runtime.InteropServices;
+
     /// <summary>
     /// A buffer of Wave samples for streaming to a Wave Output device
     /// </summary>

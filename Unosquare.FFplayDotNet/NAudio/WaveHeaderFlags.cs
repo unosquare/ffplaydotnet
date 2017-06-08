@@ -1,9 +1,7 @@
-using System;
-using System.Collections.Generic;
-using System.Text;
-
 namespace NAudio.Wave
 {
+    using System;
+
     /// <summary>
     /// Wave Header Flags enumeration
     /// </summary>

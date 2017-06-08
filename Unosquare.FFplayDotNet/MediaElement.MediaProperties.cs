@@ -2,9 +2,9 @@
 {
     using Core;
     using System;
+    using System.Collections.ObjectModel;
     using System.Windows;
     using System.Windows.Controls;
-    using System.Windows.Threading;
 
     partial class MediaElement
     {
@@ -20,6 +20,12 @@
         #endregion
 
         #region Notification Properties
+
+        /// <summary>
+        /// Provides key-value pairs of the metadata contained in the media.
+        /// Returns null when media has no been loaded.
+        /// </summary>
+        public ReadOnlyDictionary<string, string> Metadata { get { return Container == null ? null : Container.Metadata; } }
 
         /// <summary> 
         /// Returns whether the given media has audio. 
@@ -183,6 +189,7 @@
         /// </summary>
         private void UpdateMediaProperties()
         {
+            OnPropertyChanged(nameof(Metadata));
             OnPropertyChanged(nameof(HasAudio));
             OnPropertyChanged(nameof(HasVideo));
             OnPropertyChanged(nameof(VideoCodec));

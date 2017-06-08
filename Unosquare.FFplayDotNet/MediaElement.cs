@@ -19,8 +19,6 @@
     [Localizability(LocalizationCategory.NeverLocalize)]
     public sealed partial class MediaElement : UserControl, IDisposable, INotifyPropertyChanged, IUriContext
     {
-        // TODO: Implement Metadata property (already in Container)
-
         #region Property Backing
 
         // This is the image that will display the video from a Writeable Bitmap
@@ -237,8 +235,6 @@
                     System.Diagnostics.Debug.WriteLine("{0}{1}{2}", kvp.Key, paddingString, kvp.Value);
                 }
             }
-
-
 
             return dict;
 

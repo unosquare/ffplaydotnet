@@ -1,12 +1,11 @@
 ﻿namespace Unosquare.FFplayDotNet
 {
     using Core;
+    using Rendering;
     using System;
-    using System.Threading.Tasks;
     using System.Windows;
     using System.Windows.Controls;
     using System.Windows.Media;
-    using System.Windows.Threading;
 
     partial class MediaElement
     {
@@ -42,7 +41,7 @@
             {
                 await element.CloseAsync();
             }
-                
+
         }
 
         private static object OnSourcePropertyCoerce(DependencyObject dependencyObject, object baseValue)
@@ -152,15 +151,29 @@
                         new FrameworkPropertyMetadata(
                               Constants.DefaultVolume,
                               FrameworkPropertyMetadataOptions.None,
-                              new PropertyChangedCallback(VolumePropertyChanged)));
+                              new PropertyChangedCallback(VolumePropertyChanged),
+                              new CoerceValueCallback(CoerceVolumeProperty)));
+
+        public static object CoerceVolumeProperty(DependencyObject d, object value)
+        {
+
+            var element = d as MediaElement;
+            if (element == null) return Constants.DefaultVolume;
+            if (element.HasAudio == false) return Constants.DefaultVolume;
+
+            var audioRenderer = element.Renderers[MediaType.Audio] as AudioRenderer;
+            return audioRenderer == null ? Constants.DefaultVolume : (double)value;
+        }
 
         private static void VolumePropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         {
             var element = d as MediaElement;
             if (element == null) return;
+            if (element.HasAudio == false) return;
 
-            //if (element.Media != null)
-            //    element.Media.Volume = Convert.ToDecimal((double)e.NewValue);
+            var audioRenderer = element.Renderers[MediaType.Audio] as AudioRenderer;
+            if (audioRenderer != null)
+                audioRenderer.Volume = (double)e.NewValue;
         }
 
 
@@ -192,16 +205,29 @@
                               new PropertyChangedCallback(BalancePropertyChanged),
                               new CoerceValueCallback(CoerceBalanceProperty)));
 
+        public static object CoerceBalanceProperty(DependencyObject d, object value)
+        {
+
+            var element = d as MediaElement;
+            if (element == null) return Constants.DefaultBalance;
+            if (element.HasAudio == false) return Constants.DefaultBalance;
+
+            var audioRenderer = element.Renderers[MediaType.Audio] as AudioRenderer;
+            return audioRenderer == null ? Constants.DefaultBalance : (double)value;
+        }
+
         private static void BalancePropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         {
             var element = d as MediaElement;
             if (element == null) return;
+            if (element.HasAudio == false) return;
+
+            var audioRenderer = element.Renderers[MediaType.Audio] as AudioRenderer;
+            if (audioRenderer != null)
+                audioRenderer.Balance = (double)e.NewValue;
         }
 
-        public static object CoerceBalanceProperty(DependencyObject d, object value)
-        {
-            return Constants.DefaultBalance; // TODO: balance changes are not supported.
-        }
+
 
         /// <summary>
         /// Gets/Sets the Balance property on the MediaElement. 
@@ -426,7 +452,7 @@
         /// <param name="comesFromSetter">if set to <c>true</c> [comes from setter].</param>
         private void UpdatePosition(TimeSpan currentPosition, bool comesFromSetter)
         {
-            
+
             if (comesFromSetter)
             {
                 // If the update is coming from the property setter, we request to perfom a seek operation
@@ -436,7 +462,8 @@
             else
             {
                 // if the update is NOT coming from the setter, then it means we are calling it internally
-                InvokeOnUI(() => {
+                InvokeOnUI(() =>
+                {
                     SetValue(PositionProperty, currentPosition);
                 });
             }

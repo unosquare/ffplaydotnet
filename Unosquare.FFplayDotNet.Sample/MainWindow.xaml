@@ -193,6 +193,15 @@
                 <TextBox Name="UrlTextBox" Padding="6,3,0,0" VerticalContentAlignment="Top" Foreground="#FF666666" FontWeight="Bold" FontSize="14">This is some sample text</TextBox>
             </DockPanel>
 
+            <DockPanel LastChildFill="True" Grid.Row="1">
+                <Slider TickFrequency="0.1" TickPlacement="TopLeft" Width="250"
+                        Minimum="-1.0" Maximum="1.0" Value="{Binding ElementName=Media, Path=Balance}"
+                        SmallChange="0.1" LargeChange="0.1" />
+                <Slider TickFrequency="0.05" TickPlacement="TopLeft"
+                        Minimum="0.0" Maximum="1.0" Value="{Binding ElementName=Media, Path=Volume}"
+                        SmallChange="0.05" LargeChange="0.1" />
+            </DockPanel>
+
             <DockPanel LastChildFill="true" Grid.Row="2">
                 <Button Command="{Binding ElementName=window, Mode=OneWay, Path=PlayCommand}">
                     <Path Data="{Binding Source={StaticResource PlayIcon}, Path=Data}"/>

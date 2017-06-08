@@ -263,6 +263,7 @@
 
                 renderBuffer[baseIndex] = (byte)(sample & 0xff);
                 renderBuffer[baseIndex + 1] = (byte)(sample >> 8);
+                isLeftSample = !isLeftSample;
             }
 
             return requestedBytes;

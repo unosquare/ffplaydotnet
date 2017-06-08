@@ -41,7 +41,7 @@
 
         public const double DefaultSpeedRatio = 1.0d;
         public const double DefaultBalance = 0.0d;
-        public const double DefaultVolume = 0.5d;
+        public const double DefaultVolume = 1.0d;
 
         public const decimal MaxVolume = 1.0M;
         public const decimal MinVolume = 0.0M;

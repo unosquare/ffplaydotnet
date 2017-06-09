@@ -243,7 +243,7 @@
                 throw new ArgumentNullException($"{nameof(mediaUrl)}");
 
             // Initialize the library (if not already done)
-            Utils.RegisterFFmpeg();
+            Utils.RegisterFFmpeg(null);
 
             // Create the options object
             MediaUrl = mediaUrl;

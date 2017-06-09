@@ -325,7 +325,7 @@
                         LastRenderTime[t] = renderBlock[t].StartTime;
                         hasRendered[t] = true;
                         // Update the position;
-                        if (t == main) UpdatePosition(clockPosition, false);
+                        if (t == main) UpdatePosition(clockPosition);
                         RenderBlock(renderBlock[t], clockPosition, renderIndex[t]);
                     }
 
@@ -356,7 +356,7 @@
                         Clock.Pause();
                         Clock.Position = Blocks[main].RangeEndTime;
                         MediaState = MediaState.Pause;
-                        UpdatePosition(Clock.Position, false);
+                        UpdatePosition(Clock.Position);
                         HasMediaEnded = true;
                         RaiseMediaEndedEvent();
                     }

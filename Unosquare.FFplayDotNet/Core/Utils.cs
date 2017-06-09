@@ -24,6 +24,7 @@
         static private bool HasFFmpegRegistered = false;
         static private bool? isInDesignTime;
         static private readonly object FFmpegRegisterLock = new object();
+        static private string FFmpegRegisterPath = null;
 
         #endregion
 
@@ -225,48 +226,6 @@
         #region Registration
 
         /// <summary>
-        /// Extracts the FFmpeg Dlls.
-        /// </summary>
-        /// <param name="resourcePrefix">The resource prefix.</param>
-        /// <returns></returns>
-        private static string ExtractFFmpegDlls(string resourcePrefix)
-        {
-            var assembly = typeof(Utils).Assembly;
-            var resourceNames = assembly.GetManifestResourceNames().Where(r => r.Contains(resourcePrefix)).ToArray();
-            var targetDirectory = Path.Combine(Path.GetTempPath(), assembly.GetName().Name, assembly.GetName().Version.ToString(), resourcePrefix);
-
-            if (Directory.Exists(targetDirectory) == false)
-                Directory.CreateDirectory(targetDirectory);
-
-            foreach (var dllResourceName in resourceNames)
-            {
-                var dllFilenameParts = dllResourceName.Split(new string[] { "." }, StringSplitOptions.RemoveEmptyEntries);
-                var dllFilename = dllFilenameParts[dllFilenameParts.Length - 2] + "." + dllFilenameParts[dllFilenameParts.Length - 1];
-                var targetFileName = Path.Combine(targetDirectory, dllFilename);
-
-                if (File.Exists(targetFileName))
-                    continue;
-
-                byte[] dllContents = null;
-
-                // read the contents of the resource into a byte array
-                using (var stream = assembly.GetManifestResourceStream(dllResourceName))
-                {
-                    dllContents = new byte[(int)stream.Length];
-                    stream.Read(dllContents, 0, Convert.ToInt32(stream.Length));
-                }
-
-                // check the hash and overwrite the file if the file does not exist.
-                File.WriteAllBytes(targetFileName, dllContents);
-
-            }
-
-            // This now holds the name of the temp directory where files got extracted.
-            var directoryInfo = new System.IO.DirectoryInfo(targetDirectory);
-            return directoryInfo.FullName;
-        }
-
-        /// <summary>
         /// Gets the assembly location.
         /// </summary>
         /// <value>
@@ -283,30 +242,34 @@
         /// <summary>
         /// Registers FFmpeg library and initializes its components.
         /// It only needs to be called once but calling it more than once
-        /// has no effect.
+        /// has no effect. Returns the path that FFmpeg was registered from.
         /// </summary>
-        /// <exception cref="System.BadImageFormatException"></exception>
-        public static void RegisterFFmpeg()
+        /// <param name="overridePath">The override path.</param>
+        /// <returns>Returns the path that FFmpeg was registered from.</returns>
+        /// <exception cref="System.IO.FileNotFoundException"></exception>
+        public static string RegisterFFmpeg(string overridePath)
         {
             lock (FFmpegRegisterLock)
             {
                 if (HasFFmpegRegistered)
-                    return;
+                    return FFmpegRegisterPath;
 
-                var resourceFolderName = string.Empty;
-                var assemblyMachineType = typeof(Utils).Assembly.GetName().ProcessorArchitecture;
-                if (assemblyMachineType == ProcessorArchitecture.X86 || assemblyMachineType == ProcessorArchitecture.MSIL || assemblyMachineType == ProcessorArchitecture.Amd64)
-                    resourceFolderName = "ffmpeg32";
-                else
-                    throw new BadImageFormatException(
-                        string.Format("Cannot load FFmpeg for architecture '{0}'", assemblyMachineType.ToString()));
+                var expectedFilenames = new[] { "avcodec-57.dll", "avdevice-57.dll", "avfilter-6.dll", "avformat-57.dll",
+                    "avutil-55.dll", "postproc-54.dll", "swresample-2.dll", "swscale-4.dll" };
 
-                Paths.BasePath = ExtractFFmpegDlls(resourceFolderName);
-                Paths.FFmpeg = Path.Combine(Paths.BasePath, "ffmpeg.exe");
-                Paths.FFplay = Path.Combine(Paths.BasePath, "ffplay.exe");
-                Paths.FFprobe = Path.Combine(Paths.BasePath, "ffprobe.exe");
+                var architecture = IntPtr.Size == 4 ? ProcessorArchitecture.X86 : ProcessorArchitecture.Amd64;
+                var ffmpegFolderName = architecture == ProcessorArchitecture.X86 ? "ffmpeg32" : "ffmpeg64";
+                var ffmpegPath = string.IsNullOrWhiteSpace(overridePath) == false ? 
+                    overridePath : Path.GetFullPath(Path.Combine(AssemblyLocation, ffmpegFolderName));
 
-                SetDllDirectory(Paths.BasePath);
+                // Ensure all files exist
+                foreach (var fileName in expectedFilenames)
+                {
+                    if (File.Exists(Path.Combine(ffmpegPath, fileName)) == false)
+                        throw new FileNotFoundException($"Unable to load FFmpeg binaries from folder '{ffmpegPath}'. File '{fileName}' is missing");
+                }
+
+                SetDllDirectory(ffmpegPath);
 
                 ffmpeg.av_log_set_flags(ffmpeg.AV_LOG_SKIP_REPEATED);
 
@@ -316,6 +279,9 @@
                 ffmpeg.avformat_network_init();
 
                 HasFFmpegRegistered = true;
+
+                FFmpegRegisterPath = ffmpegPath;
+                return FFmpegRegisterPath;
             }
 
         }

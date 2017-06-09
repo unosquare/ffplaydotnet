@@ -19,6 +19,13 @@
     [Localizability(LocalizationCategory.NeverLocalize)]
     public sealed partial class MediaElement : UserControl, IDisposable, INotifyPropertyChanged, IUriContext
     {
+        #region Static Definitions
+
+        private static string m_FFmpegDirectory = null;
+        private static bool IsFFmpegLoaded = false;
+
+        #endregion
+
         #region Property Backing
 
         // This is the image that will display the video from a Writeable Bitmap
@@ -80,6 +87,27 @@
             else
             {
                 //InitializeSeekPositionTimer();
+            }
+        }
+
+        #endregion
+
+        #region FFmpeg Registration
+
+        /// <summary>
+        /// Gets or sets the FFmpeg path from which to load the FFmpeg binaries.
+        /// You must set this path before setting the Source property for the first time on any instance of this control.
+        /// Settng this property when FFmpeg binaries have been registered will throw an exception.
+        /// </summary>
+        public static string FFmpegDirectory
+        {
+            get { return m_FFmpegDirectory; }
+            set
+            {
+                if (IsFFmpegLoaded == false)
+                    m_FFmpegDirectory = value;
+                else
+                    throw new InvalidOperationException($"Unable to set a new FFmpeg registration path: {value}. FFmpeg binaries have already been registered.");
             }
         }
 

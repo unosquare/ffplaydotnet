@@ -73,10 +73,20 @@
 
         public MainWindow()
         {
+            // Change the default location of the ffmpeg binaries
+            // You can get the binaries here: http://ffmpeg.zeranoe.com/builds/win32/shared/ffmpeg-3.2.2-win32-shared.zip
+            Unosquare.FFplayDotNet.MediaElement.FFmpegDirectory = @"C:\ffmpeg";
             //ConsoleManager.ShowConsole();
             InitializeComponent();
             UrlTextBox.Text = TestInputs.YoutubeLocalFile;
             Media.MediaOpening += Media_MediaOpening;
+            Media.MediaFailed += Media_MediaFailed;
+        }
+
+        private void Media_MediaFailed(object sender, ExceptionRoutedEventArgs e)
+        {
+            MessageBox.Show($"Media Failed: {e.ErrorException.GetType()}\r\n{e.ErrorException.Message}", 
+                "MediaElement Error", MessageBoxButton.OK, MessageBoxImage.Error, MessageBoxResult.OK);
         }
 
         private void Media_MediaOpening(object sender, MediaOpeningRoutedEventArgs e)

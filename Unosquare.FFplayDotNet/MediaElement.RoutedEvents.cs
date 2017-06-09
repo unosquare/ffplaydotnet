@@ -76,6 +76,7 @@
         /// <param name="ex">The ex.</param>
         private void RaiseMediaFailedEvent(Exception ex)
         {
+            Container?.Log(MediaLogMessageType.Error, $"Media Failure - {ex?.GetType()}: {ex?.Message}");
             InvokeOnUI(() => { RaiseEvent(CreateExceptionRoutedEventArgs(MediaFailedEvent, this, ex)); });
         }
 

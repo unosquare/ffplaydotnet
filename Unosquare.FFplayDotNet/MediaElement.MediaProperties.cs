@@ -8,7 +8,6 @@
 
     partial class MediaElement
     {
-
         #region Property Backing
 
         private bool m_HasMediaEnded = false;
@@ -170,6 +169,9 @@
             private set { SetProperty(ref m_IsBuffering, value); }
         }
 
+        /// <summary>
+        /// Gets the current playback state.
+        /// </summary>
         public MediaState MediaState
         {
             get { return m_MediaState; }
@@ -205,9 +207,12 @@
             OnPropertyChanged(nameof(AudioBitsPerSample));
             OnPropertyChanged(nameof(NaturalDuration));
 
+
             if (Container == null)
             {
-                Volume = 0;
+                Volume = Constants.DefaultVolume;
+                Balance = Constants.DefaultBalance;
+                IsMuted = false;
                 Position = TimeSpan.Zero;
             }
             else

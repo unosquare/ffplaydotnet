@@ -24,7 +24,7 @@
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
-    <PlatformTarget>x86</PlatformTarget>
+    <PlatformTarget>AnyCPU</PlatformTarget>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Release|AnyCPU' ">
     <DebugType>pdbonly</DebugType>
@@ -33,7 +33,7 @@
     <DefineConstants>TRACE</DefineConstants>
     <ErrorReport>prompt</ErrorReport>
     <WarningLevel>4</WarningLevel>
-    <PlatformTarget>x86</PlatformTarget>
+    <PlatformTarget>AnyCPU</PlatformTarget>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
   </PropertyGroup>
   <ItemGroup>
@@ -94,7 +94,6 @@
     <Compile Include="FFmpeg.Autogen\FFmpeg.macros.g.cs" />
     <Compile Include="FFmpeg.Autogen\FFmpeg.structs.g.cs" />
     <Compile Include="FFmpeg.Autogen\FFmpeg.structs.incomplete.g.cs" />
-    <Compile Include="Core\Paths.cs" />
     <Compile Include="Core\FFDictionaryEntry.cs" />
     <Compile Include="Core\FFDictionary.cs" />
     <Compile Include="MediaElement.Controller.cs" />
@@ -120,22 +119,10 @@
     <Compile Include="Rendering\VideoRenderer.cs" />
   </ItemGroup>
   <ItemGroup>
-    <EmbeddedResource Include="ffmpeg32\avcodec-57.dll" />
-    <EmbeddedResource Include="ffmpeg32\avdevice-57.dll" />
-    <EmbeddedResource Include="ffmpeg32\avfilter-6.dll" />
-    <EmbeddedResource Include="ffmpeg32\avformat-57.dll" />
-    <EmbeddedResource Include="ffmpeg32\avutil-55.dll" />
-    <EmbeddedResource Include="ffmpeg32\ffmpeg.exe" />
-    <EmbeddedResource Include="ffmpeg32\ffplay.exe" />
-    <EmbeddedResource Include="ffmpeg32\ffprobe.exe" />
-    <EmbeddedResource Include="ffmpeg32\postproc-54.dll" />
-    <EmbeddedResource Include="ffmpeg32\swresample-2.dll" />
-    <EmbeddedResource Include="ffmpeg32\swscale-4.dll" />
     <EmbeddedResource Include="Properties\Resources.resx">
       <Generator>ResXFileCodeGenerator</Generator>
       <LastGenOutput>Resources.Designer.cs</LastGenOutput>
     </EmbeddedResource>
-    <None Include="ffmpeg32\_readme.txt" />
   </ItemGroup>
   <ItemGroup>
     <None Include="Resources\ffme-preview.png" />

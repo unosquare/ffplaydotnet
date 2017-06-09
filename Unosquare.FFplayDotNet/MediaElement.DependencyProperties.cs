@@ -449,8 +449,8 @@
         /// Wehn not coming from public setter, it means we simply need to update the property as we are just reporting on the current position.
         /// </summary>
         /// <param name="currentPosition">The current position.</param>
-        /// <param name="comesFromSetter">if set to <c>true</c> [comes from setter].</param>
-        private void UpdatePosition(TimeSpan currentPosition, bool comesFromSetter)
+        /// <param name="comesFromSetter">If you are calling this method directly, then leave it as false.</param>
+        private void UpdatePosition(TimeSpan currentPosition, bool comesFromSetter = false)
         {
 
             if (comesFromSetter)

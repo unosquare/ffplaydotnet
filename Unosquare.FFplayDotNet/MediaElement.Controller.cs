@@ -98,6 +98,12 @@
         {
             try
             {
+                // Register FFmpeg if not already done
+                if (IsFFmpegLoaded == false)
+                    FFmpegDirectory = Utils.RegisterFFmpeg(FFmpegDirectory);
+
+                IsFFmpegLoaded = true;
+
                 await Task.Run(() =>
                 {
                     var mediaUrl = uri.IsFile ? uri.LocalPath : uri.ToString();
@@ -142,7 +148,7 @@
             finally
             {
                 UpdateMediaProperties();
-                Container.Log(MediaLogMessageType.Debug, $"{nameof(OpenAsync)}: Completed");
+                Container?.Log(MediaLogMessageType.Debug, $"{nameof(OpenAsync)}: Completed");
             }
         }
 
@@ -150,6 +156,7 @@
         {
             Container?.Log(MediaLogMessageType.Debug, $"{nameof(CloseAsync)}: Entered");
             Clock.Pause();
+            UpdatePosition(TimeSpan.Zero);
 
             IsTaskCancellationPending = true;
 

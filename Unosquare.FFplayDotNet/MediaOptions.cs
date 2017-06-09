@@ -85,6 +85,12 @@
         public bool IsSubtitleDisabled { get; set; } = true;
 
         /// <summary>
+        /// Allows for a custom video filter string.
+        /// Please see: https://ffmpeg.org/ffmpeg-filters.html#Video-Filters
+        /// </summary>
+        public string VideoFilter { get; set; } = string.Empty;
+
+        /// <summary>
         /// Set this callback to handle log messages.
         /// </summary>
         public Action<MediaLogMessageType, string> LogMessageCallback = null;

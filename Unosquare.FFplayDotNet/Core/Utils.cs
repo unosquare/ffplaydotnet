@@ -274,6 +274,7 @@
                 ffmpeg.av_log_set_flags(ffmpeg.AV_LOG_SKIP_REPEATED);
 
                 ffmpeg.avdevice_register_all();
+                ffmpeg.avfilter_register_all();
                 ffmpeg.av_register_all();
                 ffmpeg.avcodec_register_all();
                 ffmpeg.avformat_network_init();

@@ -18,6 +18,12 @@
         /// </summary>
         private SwsContext* Scaler = null;
         private AVFilterGraph* FilterGraph = null;
+        private AVFilterContext* SourceFilter = null;
+        private AVFilterContext* SinkFilter = null;
+        private AVFilterInOut* SinkInput = null;
+        private AVFilterInOut* SourceOutput = null;
+        private AVRational BaseFrameRateQ;
+        private string CurrentInputArguments = null;
 
         #endregion
 
@@ -33,6 +39,16 @@
         /// </summary>
         public const AVPixelFormat OutputPixelFormat = AVPixelFormat.AV_PIX_FMT_BGR24;
 
+        /// <summary>
+        /// The filter pixel formats
+        /// </summary>
+        [StructLayout(LayoutKind.Sequential)]
+        private struct FilterFormats
+        {
+            public IntPtr F0;
+            public IntPtr F1;
+        }
+
         #endregion
 
         #region Constructors
@@ -45,18 +61,16 @@
         internal VideoComponent(MediaContainer container, int streamIndex)
             : base(container, streamIndex)
         {
-            BaseFrameRate = Stream->codec->framerate.ToDouble();
+            BaseFrameRateQ = ffmpeg.av_guess_frame_rate(container.InputContext, Stream, null);
             if (double.IsNaN(BaseFrameRate))
-                BaseFrameRate = Stream->r_frame_rate.ToDouble();
+                BaseFrameRateQ = Stream->r_frame_rate;
 
-            CurrentFrameRate = Stream->avg_frame_rate.ToDouble();
+            CurrentFrameRate = BaseFrameRate;
             if (double.IsNaN(CurrentFrameRate))
-                CurrentFrameRate = BaseFrameRate;
+                CurrentFrameRate = Stream->avg_frame_rate.ToDouble();
 
             FrameWidth = Stream->codec->width;
             FrameHeight = Stream->codec->height;
-
-            InitializeFilterGraph();
         }
 
         #endregion
@@ -67,7 +81,7 @@
         /// Gets the base frame rate as reported by the stream component.
         /// All discrete timestamps can be represented in this framerate.
         /// </summary>
-        public double BaseFrameRate { get; }
+        public double BaseFrameRate { get { return BaseFrameRateQ.ToDouble(); } }
 
         /// <summary>
         /// Gets the current frame rate as guessed by the last processed frame.
@@ -90,11 +104,87 @@
         #region Methods
 
         /// <summary>
-        /// Initializes the filter graph.
+        /// Computes the frame filter arguments that are appropriate for the video filtering chain.
         /// </summary>
-        private void InitializeFilterGraph()
+        /// <param name="frame">The frame.</param>
+        /// <returns></returns>
+        private string ComputeFrameFilterArguments(AVFrame* frame)
         {
+            var arguments =
+                 $"video_size={frame->width}x{frame->height}:pix_fmt={frame->format}:" +
+                 $"time_base={Stream->time_base.num}/{Stream->time_base.den}:" +
+                 $"pixel_aspect={CodecContext->sample_aspect_ratio.num}/{Math.Max(CodecContext->sample_aspect_ratio.den, 1)}";
+
+            if (BaseFrameRateQ.num != 0 && BaseFrameRateQ.den != 0)
+                arguments = $"{arguments}:frame_rate={BaseFrameRateQ.num}/{BaseFrameRateQ.den}";
+
+            return arguments;
+        }
+
+        /// <summary>
+        /// If necessary, disposes the existing filtergraph and creates a new one based on the frame arguments.
+        /// </summary>
+        private void EnsureInitializedFilterGraph(AVFrame* frame)
+        {
+
+            // WIP. References:
+            // http://libav-users.943685.n4.nabble.com/Libav-user-yadif-deinterlace-how-td3606561.html
+            // https://www.ffmpeg.org/doxygen/trunk/filtering_8c-source.html
+            // https://raw.githubusercontent.com/FFmpeg/FFmpeg/release/3.2/ffplay.c
+
+
+            var frameArguments = ComputeFrameFilterArguments(frame);
+            if (string.IsNullOrWhiteSpace(CurrentInputArguments) || frameArguments.Equals(CurrentInputArguments) == false)
+                DestroyFiltergraph();
+            else
+                return;
+
             FilterGraph = ffmpeg.avfilter_graph_alloc();
+            CurrentInputArguments = frameArguments;
+            var result = 0;
+
+            fixed (AVFilterContext** source = &SourceFilter)
+            fixed (AVFilterContext** sink = &SinkFilter)
+            {
+                result = ffmpeg.avfilter_graph_create_filter(source, ffmpeg.avfilter_get_by_name("buffer"), "video_buffer", CurrentInputArguments, null, FilterGraph);
+                result = ffmpeg.avfilter_graph_create_filter(sink, ffmpeg.avfilter_get_by_name("buffersink"), "video_buffersink", null, null, FilterGraph);
+
+                // TODO: from ffplay, ffmpeg.av_opt_set_int_list(sink, "pix_fmts", (byte*)&f0, 1, ffmpeg.AV_OPT_SEARCH_CHILDREN);
+            }
+
+            if (string.IsNullOrWhiteSpace(Container.MediaOptions.VideoFilter))
+            {
+                result = ffmpeg.avfilter_link(SourceFilter, 0, SinkFilter, 0);
+            }
+            else
+            {
+                var initFilterCount = FilterGraph->nb_filters;
+
+                SourceOutput = ffmpeg.avfilter_inout_alloc();
+                SourceOutput->name = ffmpeg.av_strdup("in");
+                SourceOutput->filter_ctx = SourceFilter;
+                SourceOutput->pad_idx = 0;
+                SourceOutput->next = null;
+
+                SinkInput = ffmpeg.avfilter_inout_alloc();
+                SinkInput->name = ffmpeg.av_strdup("out");
+                SinkInput->filter_ctx = SinkFilter;
+                SinkInput->pad_idx = 0;
+                SinkInput->next = null;
+
+                result = ffmpeg.avfilter_graph_parse(FilterGraph, Container.MediaOptions.VideoFilter, SinkInput, SourceOutput, null);
+
+                // Reorder the filters to ensure that inputs of the custom filters are merged first
+                for (var i = 0; i < FilterGraph->nb_filters - initFilterCount; i++)
+                {
+                    var sourceAddress = FilterGraph->filters[i];
+                    var targetAddress = FilterGraph->filters[i + initFilterCount];
+                    FilterGraph->filters[i] = targetAddress;
+                    FilterGraph->filters[i + initFilterCount] = sourceAddress;
+                }
+            }
+
+            result = ffmpeg.avfilter_graph_config(FilterGraph, null);
 
         }
 
@@ -126,7 +216,20 @@
         /// <returns></returns>
         protected override unsafe MediaFrame CreateFrameSource(AVFrame* frame)
         {
-            var frameHolder = new VideoFrame(frame, this);
+            EnsureInitializedFilterGraph(frame);
+
+            var filterStart = DateTime.UtcNow;
+            var result = ffmpeg.av_buffersrc_add_frame(SourceFilter, frame);
+            while (result >= 0)
+                result = ffmpeg.av_buffersink_get_frame_flags(SinkFilter, frame, 0);
+
+            // Check if the frame is valid
+            if (frame->width <= 0 || frame->height <= 0)
+                return null;
+
+            var filterDelay = DateTime.UtcNow.Subtract(filterStart);
+
+            var frameHolder = new VideoFrame(frame, filterDelay, this);
             CurrentFrameRate = ffmpeg.av_guess_frame_rate(Container.InputContext, Stream, frame).ToDouble();
             return frameHolder;
         }
@@ -196,20 +299,12 @@
 
         #region IDisposable Support
 
-        /// <summary>
-        /// Releases unmanaged and - optionally - managed resources.
-        /// </summary>
-        /// <param name="alsoManaged"><c>true</c> to release both managed and unmanaged resources; <c>false</c> to release only unmanaged resources.</param>
-        protected override void Dispose(bool alsoManaged)
-        {
-            base.Dispose(alsoManaged);
-            if (Scaler != null)
-            {
-                ffmpeg.sws_freeContext(Scaler);
-                Scaler = null;
-            }
-                
 
+        /// <summary>
+        /// Destroys the filtergraph releasing unmanaged resources.
+        /// </summary>
+        private void DestroyFiltergraph()
+        {
             if (FilterGraph != null)
             {
                 fixed (AVFilterGraph** filterGraph = &FilterGraph)
@@ -217,7 +312,41 @@
 
                 FilterGraph = null;
             }
-                
+
+            if (SinkInput != null)
+            {
+                fixed (AVFilterInOut** filterInput = &SinkInput)
+                    ffmpeg.avfilter_inout_free(filterInput);
+
+                SinkInput = null;
+            }
+
+            if (SourceOutput != null)
+            {
+                fixed (AVFilterInOut** filterOutput = &SourceOutput)
+                    ffmpeg.avfilter_inout_free(filterOutput);
+
+                SourceOutput = null;
+            }
+        }
+
+
+        /// <summary>
+        /// Releases unmanaged and - optionally - managed resources.
+        /// </summary>
+        /// <param name="alsoManaged"><c>true</c> to release both managed and unmanaged resources; <c>false</c> to release only unmanaged resources.</param>
+        protected override void Dispose(bool alsoManaged)
+        {
+            base.Dispose(alsoManaged);
+
+            if (Scaler != null)
+            {
+                ffmpeg.sws_freeContext(Scaler);
+                Scaler = null;
+            }
+
+            DestroyFiltergraph();
+
         }
 
         #endregion

@@ -79,6 +79,7 @@
             //ConsoleManager.ShowConsole();
             InitializeComponent();
             UrlTextBox.Text = TestInputs.YoutubeLocalFile;
+
             Media.MediaOpening += Media_MediaOpening;
             Media.MediaFailed += Media_MediaFailed;
         }
@@ -91,6 +92,7 @@
 
         private void Media_MediaOpening(object sender, MediaOpeningRoutedEventArgs e)
         {
+            e.Options.VideoFilter = "hue=s=0";
             //e.Options.IsAudioDisabled = true;
             e.Options.LogMessageCallback = new Action<MediaLogMessageType, string>((t, m) =>
             {

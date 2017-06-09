@@ -340,9 +340,10 @@
                         {
                             // Send the frame to processing
                             var managedFrame = CreateFrameSource(outputFrame);
-                            if (managedFrame == null)
-                                throw new MediaContainerException($"{MediaType} Component does not implement {nameof(CreateFrameSource)}");
-                            result.Add(managedFrame);
+                            if (managedFrame != null)
+                                result.Add(managedFrame);
+                            else
+                                ffmpeg.av_frame_free(&outputFrame);
                         }
                     }
                     catch

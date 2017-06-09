@@ -4,6 +4,7 @@
     using Decoding;
     using Rendering.Wave;
     using System;
+    using System.Threading;
     using System.Windows;
 
     /// <summary>
@@ -29,7 +30,7 @@
         private WaveFormat m_Format = null;
         private double m_Volume = 1.0d;
         private double m_Balance = 0.0d;
-        private bool m_IsMuted = false;
+        private volatile bool m_IsMuted = false;
 
         #endregion
 
@@ -124,7 +125,7 @@
         /// </value>
         public double Volume
         {
-            get { return m_Volume; }
+            get { return Thread.VolatileRead(ref m_Volume); }
             set
             {
                 if (value < 0) value = 0;
@@ -135,7 +136,7 @@
 
                 LeftVolume = leftFactor * value;
                 RightVolume = rightFactor * value;
-                m_Volume = value;
+                Thread.VolatileWrite(ref m_Volume, value);
             }
         }
 
@@ -144,13 +145,13 @@
         /// </summary>
         public double Balance
         {
-            get { return m_Balance; }
+            get { return Thread.VolatileRead(ref m_Balance); }
             set
             {
                 if (value < -1.0) value = -1.0;
                 if (value > 1.0) value = 1.0;
-                m_Balance = value;
-                Volume = m_Volume;
+                Thread.VolatileWrite(ref m_Balance, value);
+                Volume = Thread.VolatileRead(ref m_Volume);
             }
         }
 

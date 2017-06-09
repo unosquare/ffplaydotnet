@@ -251,9 +251,7 @@
             if (frame->width <= 0 || frame->height <= 0)
                 return null;
 
-            var filterDelay = DateTime.UtcNow.Subtract(filterStart);
-
-            var frameHolder = new VideoFrame(frame, filterDelay, this);
+            var frameHolder = new VideoFrame(frame, this);
             CurrentFrameRate = ffmpeg.av_guess_frame_rate(Container.InputContext, Stream, frame).ToDouble();
             return frameHolder;
         }
@@ -314,7 +312,6 @@
             target.Duration = source.Duration;
             target.PixelHeight = source.Pointer->height;
             target.PixelWidth = source.Pointer->width;
-
 
             return target;
         }

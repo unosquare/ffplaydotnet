@@ -92,7 +92,7 @@
 
         private void Media_MediaOpening(object sender, MediaOpeningRoutedEventArgs e)
         {
-            e.Options.VideoFilter = "scale=101:-1";
+            e.Options.VideoFilter = string.Empty; //"scale=101:-1,noise=alls=20:allf=t+u";
             //e.Options.IsAudioDisabled = true;
             e.Options.LogMessageCallback = new Action<MediaLogMessageType, string>((t, m) =>
             {

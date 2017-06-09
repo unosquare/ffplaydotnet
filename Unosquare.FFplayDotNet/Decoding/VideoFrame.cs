@@ -23,7 +23,7 @@
         /// </summary>
         /// <param name="frame">The frame.</param>
         /// <param name="component">The component.</param>
-        internal VideoFrame(AVFrame* frame, TimeSpan filterDelay, MediaComponent component)
+        internal VideoFrame(AVFrame* frame, MediaComponent component)
             : base(frame, component)
         {
             m_Pointer = (AVFrame*)InternalPointer;
@@ -34,10 +34,6 @@
             StartTime = frame->pts == Constants.AV_NOPTS ?
                 TimeSpan.FromTicks(component.Container.MediaStartTimeOffset.Ticks) :
                 TimeSpan.FromTicks(frame->pts.ToTimeSpan(StreamTimeBase).Ticks - component.Container.MediaStartTimeOffset.Ticks);
-
-            // Subtract the delay to attempt earlier presentation
-            if (filterDelay.Ticks > 0)
-                StartTime = TimeSpan.FromTicks(StartTime.Ticks - filterDelay.Ticks);
 
             var repeatFactor = 1d + (0.5d * frame->repeat_pict);
             var timeBase = ffmpeg.av_guess_frame_rate(component.Container.InputContext, component.Stream, frame);

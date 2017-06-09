@@ -38,6 +38,10 @@
             InitializeTargetBitmap(null);
         }
 
+        /// <summary>
+        /// Initializes the target bitmap. Pass a null block to initialize with the default video properties.
+        /// </summary>
+        /// <param name="block">The block.</param>
         private void InitializeTargetBitmap(VideoBlock block)
         {
             Application.Current.Dispatcher.Invoke(() =>

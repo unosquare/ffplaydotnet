@@ -24,7 +24,7 @@
         private AVFilterInOut* SourceOutput = null;
         private AVRational BaseFrameRateQ;
         private string CurrentInputArguments = null;
-
+        private string VideoFilterString = null;
         #endregion
 
         #region Constants
@@ -62,6 +62,8 @@
             : base(container, streamIndex)
         {
             BaseFrameRateQ = ffmpeg.av_guess_frame_rate(container.InputContext, Stream, null);
+            VideoFilterString = container.MediaOptions.VideoFilter;
+
             if (double.IsNaN(BaseFrameRate))
                 BaseFrameRateQ = Stream->r_frame_rate;
 
@@ -124,14 +126,12 @@
         /// <summary>
         /// If necessary, disposes the existing filtergraph and creates a new one based on the frame arguments.
         /// </summary>
-        private void EnsureInitializedFilterGraph(AVFrame* frame)
+        private void InitializeFilterGraph(AVFrame* frame)
         {
-
-            // WIP. References:
+            // References:
             // http://libav-users.943685.n4.nabble.com/Libav-user-yadif-deinterlace-how-td3606561.html
             // https://www.ffmpeg.org/doxygen/trunk/filtering_8c-source.html
             // https://raw.githubusercontent.com/FFmpeg/FFmpeg/release/3.2/ffplay.c
-
 
             var frameArguments = ComputeFrameFilterArguments(frame);
             if (string.IsNullOrWhiteSpace(CurrentInputArguments) || frameArguments.Equals(CurrentInputArguments) == false)
@@ -160,7 +160,7 @@
                     // TODO: from ffplay, ffmpeg.av_opt_set_int_list(sink, "pix_fmts", (byte*)&f0, 1, ffmpeg.AV_OPT_SEARCH_CHILDREN);
                 }
 
-                if (string.IsNullOrWhiteSpace(Container.MediaOptions.VideoFilter))
+                if (string.IsNullOrWhiteSpace(VideoFilterString))
                 {
                     result = ffmpeg.avfilter_link(SourceFilter, 0, SinkFilter, 0);
                     if (result != 0)
@@ -182,7 +182,7 @@
                     SinkInput->pad_idx = 0;
                     SinkInput->next = null;
 
-                    result = ffmpeg.avfilter_graph_parse(FilterGraph, Container.MediaOptions.VideoFilter, SinkInput, SourceOutput, null);
+                    result = ffmpeg.avfilter_graph_parse(FilterGraph, VideoFilterString, SinkInput, SourceOutput, null);
                     if (result != 0)
                         throw new MediaContainerException($"{nameof(ffmpeg.avfilter_graph_parse)} failed. Error {result}: {Utils.FFErrorMessage(result)}");
 
@@ -202,7 +202,7 @@
             }
             catch (Exception ex)
             {
-                Container.Log(MediaLogMessageType.Error, $"Video filter graph could not be built: {Container.MediaOptions.VideoFilter}.\r\n{ex.Message}");
+                Container.Log(MediaLogMessageType.Error, $"Video filter graph could not be built: {VideoFilterString}.\r\n{ex.Message}");
                 DestroyFiltergraph();
             }
         }
@@ -235,7 +235,8 @@
         /// <returns></returns>
         protected override unsafe MediaFrame CreateFrameSource(AVFrame* frame)
         {
-            EnsureInitializedFilterGraph(frame);
+            if (string.IsNullOrWhiteSpace(VideoFilterString) == false)
+                InitializeFilterGraph(frame);
 
             var filterStart = DateTime.UtcNow;
 

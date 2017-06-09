@@ -74,7 +74,7 @@
         public MainWindow()
         {
             // Change the default location of the ffmpeg binaries
-            // You can get the binaries here: http://ffmpeg.zeranoe.com/builds/win32/shared/ffmpeg-3.2.2-win32-shared.zip
+            // You can get the binaries here: http://ffmpeg.zeranoe.com/builds/win32/shared/ffmpeg-3.2.4-win32-shared.zip
             Unosquare.FFplayDotNet.MediaElement.FFmpegDirectory = @"C:\ffmpeg";
             //ConsoleManager.ShowConsole();
             InitializeComponent();
@@ -92,7 +92,7 @@
 
         private void Media_MediaOpening(object sender, MediaOpeningRoutedEventArgs e)
         {
-            e.Options.VideoFilter = string.Empty; //"scale=101:-1,noise=alls=20:allf=t+u";
+            e.Options.VideoFilter = string.Empty; // "scale=-1:720"; //string.Empty; // "yadif"; // "selectivecolor=greens=.5 0 -.33 0:blues=0 .27"; //"scale=101:-1,noise=alls=20:allf=t+u";
             //e.Options.IsAudioDisabled = true;
             e.Options.LogMessageCallback = new Action<MediaLogMessageType, string>((t, m) =>
             {

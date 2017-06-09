@@ -17,7 +17,7 @@
         /// Holds a reference to the video scaler
         /// </summary>
         private SwsContext* Scaler = null;
-
+        private AVFilterGraph* FilterGraph = null;
 
         #endregion
 
@@ -55,6 +55,8 @@
 
             FrameWidth = Stream->codec->width;
             FrameHeight = Stream->codec->height;
+
+            InitializeFilterGraph();
         }
 
         #endregion
@@ -86,6 +88,15 @@
         #endregion
 
         #region Methods
+
+        /// <summary>
+        /// Initializes the filter graph.
+        /// </summary>
+        private void InitializeFilterGraph()
+        {
+            FilterGraph = ffmpeg.avfilter_graph_alloc();
+
+        }
 
         /// <summary>
         /// Gets the pixel format replacing deprecated pixel formats.
@@ -193,7 +204,20 @@
         {
             base.Dispose(alsoManaged);
             if (Scaler != null)
+            {
                 ffmpeg.sws_freeContext(Scaler);
+                Scaler = null;
+            }
+                
+
+            if (FilterGraph != null)
+            {
+                fixed (AVFilterGraph** filterGraph = &FilterGraph)
+                    ffmpeg.avfilter_graph_free(filterGraph);
+
+                FilterGraph = null;
+            }
+                
         }
 
         #endregion

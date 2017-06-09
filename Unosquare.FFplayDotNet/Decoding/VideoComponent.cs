@@ -141,51 +141,70 @@
 
             FilterGraph = ffmpeg.avfilter_graph_alloc();
             CurrentInputArguments = frameArguments;
-            var result = 0;
 
-            fixed (AVFilterContext** source = &SourceFilter)
-            fixed (AVFilterContext** sink = &SinkFilter)
+            try
             {
-                result = ffmpeg.avfilter_graph_create_filter(source, ffmpeg.avfilter_get_by_name("buffer"), "video_buffer", CurrentInputArguments, null, FilterGraph);
-                result = ffmpeg.avfilter_graph_create_filter(sink, ffmpeg.avfilter_get_by_name("buffersink"), "video_buffersink", null, null, FilterGraph);
+                var result = 0;
 
-                // TODO: from ffplay, ffmpeg.av_opt_set_int_list(sink, "pix_fmts", (byte*)&f0, 1, ffmpeg.AV_OPT_SEARCH_CHILDREN);
-            }
-
-            if (string.IsNullOrWhiteSpace(Container.MediaOptions.VideoFilter))
-            {
-                result = ffmpeg.avfilter_link(SourceFilter, 0, SinkFilter, 0);
-            }
-            else
-            {
-                var initFilterCount = FilterGraph->nb_filters;
-
-                SourceOutput = ffmpeg.avfilter_inout_alloc();
-                SourceOutput->name = ffmpeg.av_strdup("in");
-                SourceOutput->filter_ctx = SourceFilter;
-                SourceOutput->pad_idx = 0;
-                SourceOutput->next = null;
-
-                SinkInput = ffmpeg.avfilter_inout_alloc();
-                SinkInput->name = ffmpeg.av_strdup("out");
-                SinkInput->filter_ctx = SinkFilter;
-                SinkInput->pad_idx = 0;
-                SinkInput->next = null;
-
-                result = ffmpeg.avfilter_graph_parse(FilterGraph, Container.MediaOptions.VideoFilter, SinkInput, SourceOutput, null);
-
-                // Reorder the filters to ensure that inputs of the custom filters are merged first
-                for (var i = 0; i < FilterGraph->nb_filters - initFilterCount; i++)
+                fixed (AVFilterContext** source = &SourceFilter)
+                fixed (AVFilterContext** sink = &SinkFilter)
                 {
-                    var sourceAddress = FilterGraph->filters[i];
-                    var targetAddress = FilterGraph->filters[i + initFilterCount];
-                    FilterGraph->filters[i] = targetAddress;
-                    FilterGraph->filters[i + initFilterCount] = sourceAddress;
+                    result = ffmpeg.avfilter_graph_create_filter(source, ffmpeg.avfilter_get_by_name("buffer"), "video_buffer", CurrentInputArguments, null, FilterGraph);
+                    if (result != 0)
+                        throw new MediaContainerException($"{nameof(ffmpeg.avfilter_graph_create_filter)} (buffer) failed. Error {result}: {Utils.FFErrorMessage(result)}");
+
+                    result = ffmpeg.avfilter_graph_create_filter(sink, ffmpeg.avfilter_get_by_name("buffersink"), "video_buffersink", null, null, FilterGraph);
+                    if (result != 0)
+                        throw new MediaContainerException($"{nameof(ffmpeg.avfilter_graph_create_filter)} (buffersink) failed. Error {result}: {Utils.FFErrorMessage(result)}");
+
+                    // TODO: from ffplay, ffmpeg.av_opt_set_int_list(sink, "pix_fmts", (byte*)&f0, 1, ffmpeg.AV_OPT_SEARCH_CHILDREN);
                 }
+
+                if (string.IsNullOrWhiteSpace(Container.MediaOptions.VideoFilter))
+                {
+                    result = ffmpeg.avfilter_link(SourceFilter, 0, SinkFilter, 0);
+                    if (result != 0)
+                        throw new MediaContainerException($"{nameof(ffmpeg.avfilter_link)} failed. Error {result}: {Utils.FFErrorMessage(result)}");
+                }
+                else
+                {
+                    var initFilterCount = FilterGraph->nb_filters;
+
+                    SourceOutput = ffmpeg.avfilter_inout_alloc();
+                    SourceOutput->name = ffmpeg.av_strdup("in");
+                    SourceOutput->filter_ctx = SourceFilter;
+                    SourceOutput->pad_idx = 0;
+                    SourceOutput->next = null;
+
+                    SinkInput = ffmpeg.avfilter_inout_alloc();
+                    SinkInput->name = ffmpeg.av_strdup("out");
+                    SinkInput->filter_ctx = SinkFilter;
+                    SinkInput->pad_idx = 0;
+                    SinkInput->next = null;
+
+                    result = ffmpeg.avfilter_graph_parse(FilterGraph, Container.MediaOptions.VideoFilter, SinkInput, SourceOutput, null);
+                    if (result != 0)
+                        throw new MediaContainerException($"{nameof(ffmpeg.avfilter_graph_parse)} failed. Error {result}: {Utils.FFErrorMessage(result)}");
+
+                    // Reorder the filters to ensure that inputs of the custom filters are merged first
+                    for (var i = 0; i < FilterGraph->nb_filters - initFilterCount; i++)
+                    {
+                        var sourceAddress = FilterGraph->filters[i];
+                        var targetAddress = FilterGraph->filters[i + initFilterCount];
+                        FilterGraph->filters[i] = targetAddress;
+                        FilterGraph->filters[i + initFilterCount] = sourceAddress;
+                    }
+                }
+
+                result = ffmpeg.avfilter_graph_config(FilterGraph, null);
+                if (result != 0)
+                    throw new MediaContainerException($"{nameof(ffmpeg.avfilter_graph_config)} failed. Error {result}: {Utils.FFErrorMessage(result)}");
             }
-
-            result = ffmpeg.avfilter_graph_config(FilterGraph, null);
-
+            catch (Exception ex)
+            {
+                Container.Log(MediaLogMessageType.Error, $"Video filter graph could not be built: {Container.MediaOptions.VideoFilter}.\r\n{ex.Message}");
+                DestroyFiltergraph();
+            }
         }
 
         /// <summary>
@@ -219,9 +238,14 @@
             EnsureInitializedFilterGraph(frame);
 
             var filterStart = DateTime.UtcNow;
-            var result = ffmpeg.av_buffersrc_add_frame(SourceFilter, frame);
-            while (result >= 0)
-                result = ffmpeg.av_buffersink_get_frame_flags(SinkFilter, frame, 0);
+
+            if (FilterGraph != null)
+            {
+                var result = ffmpeg.av_buffersrc_add_frame(SourceFilter, frame);
+                while (result >= 0)
+                    result = ffmpeg.av_buffersink_get_frame_flags(SinkFilter, frame, 0);
+
+            }
 
             // Check if the frame is valid
             if (frame->width <= 0 || frame->height <= 0)
@@ -311,21 +335,7 @@
                     ffmpeg.avfilter_graph_free(filterGraph);
 
                 FilterGraph = null;
-            }
-
-            if (SinkInput != null)
-            {
-                fixed (AVFilterInOut** filterInput = &SinkInput)
-                    ffmpeg.avfilter_inout_free(filterInput);
-
                 SinkInput = null;
-            }
-
-            if (SourceOutput != null)
-            {
-                fixed (AVFilterInOut** filterOutput = &SourceOutput)
-                    ffmpeg.avfilter_inout_free(filterOutput);
-
                 SourceOutput = null;
             }
         }

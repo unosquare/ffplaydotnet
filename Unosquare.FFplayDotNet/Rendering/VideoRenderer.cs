@@ -35,6 +35,11 @@
         public VideoRenderer(MediaElement mediaElement)
         {
             MediaElement = mediaElement;
+            InitializeTargetBitmap(null);
+        }
+
+        private void InitializeTargetBitmap(VideoBlock block)
+        {
             Application.Current.Dispatcher.Invoke(() =>
             {
                 var visual = PresentationSource.FromVisual(MediaElement);
@@ -43,7 +48,9 @@
 
                 if (MediaElement.HasVideo)
                     TargetBitmap = new WriteableBitmap(
-                        MediaElement.NaturalVideoWidth, MediaElement.NaturalVideoHeight, dpiX, dpiY, PixelFormats.Bgr24, null);
+                        block?.PixelWidth ?? MediaElement.NaturalVideoWidth, 
+                        block?.PixelHeight ?? MediaElement.NaturalVideoHeight, 
+                        dpiX, dpiY, PixelFormats.Bgr24, null);
                 else
                     TargetBitmap = new WriteableBitmap(1, 1, dpiX, dpiY, PixelFormats.Bgr24, null);
 
@@ -83,10 +90,12 @@
             if (block == null) return;
 
             MediaElement.InvokeOnUI(() => {
+                if (TargetBitmap.PixelWidth != block.PixelWidth || TargetBitmap.PixelHeight != block.PixelHeight)
+                    InitializeTargetBitmap(block);
+
                 var updateRect = new Int32Rect(0, 0, block.PixelWidth, block.PixelHeight);
                 TargetBitmap.WritePixels(updateRect, block.Buffer, block.BufferLength, block.BufferStride);
             });
-            
         }
 
         /// <summary>

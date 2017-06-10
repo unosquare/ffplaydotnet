@@ -45,17 +45,17 @@
 
         #region State Variables
 
-        private readonly Dictionary<MediaType, MediaFrameQueue> Frames
-            = new Dictionary<MediaType, MediaFrameQueue>(StateDictionaryCapacity);
+        private readonly ObjectDictionary<MediaType, MediaFrameQueue> Frames
+            = new ObjectDictionary<MediaType, MediaFrameQueue>(StateDictionaryCapacity);
 
-        internal readonly Dictionary<MediaType, MediaBlockBuffer> Blocks
-            = new Dictionary<MediaType, MediaBlockBuffer>(StateDictionaryCapacity);
+        internal readonly ObjectDictionary<MediaType, MediaBlockBuffer> Blocks
+            = new ObjectDictionary<MediaType, MediaBlockBuffer>(StateDictionaryCapacity);
 
-        private readonly Dictionary<MediaType, IRenderer> Renderers
-            = new Dictionary<MediaType, IRenderer>(StateDictionaryCapacity);
+        private readonly ObjectDictionary<MediaType, IRenderer> Renderers
+            = new ObjectDictionary<MediaType, IRenderer>(StateDictionaryCapacity);
 
-        private readonly Dictionary<MediaType, TimeSpan> LastRenderTime
-            = new Dictionary<MediaType, TimeSpan>(StateDictionaryCapacity);
+        private readonly ObjectDictionary<MediaType, TimeSpan> LastRenderTime
+            = new ObjectDictionary<MediaType, TimeSpan>(StateDictionaryCapacity);
 
         private volatile bool IsTaskCancellationPending = false;
 
@@ -108,12 +108,13 @@
         /// more room is provided automatically.
         /// </summary>
         /// <param name="t">The media type.</param>
-        private void AddNextBlock(MediaType t)
+        private MediaBlock AddNextBlock(MediaType t)
         {
             var frame = Frames[t].Dequeue();
-            if (frame == null) return;
+            if (frame == null) return null;
 
             var addedBlock = Blocks[t].Add(frame, Container);
+            return addedBlock;
         }
 
         /// <summary>
@@ -311,6 +312,15 @@
                 {
                     var blocks = Blocks[t];
                     renderIndex[t] = blocks.IndexOf(clockPosition);
+
+                    while (t != main && blocks.RangeEndTime <= Blocks[main].RangeStartTime && renderIndex[t] >= blocks.Count - 1)
+                    {
+                        if (AddNextBlock(t) == null)
+                            break;
+                        else
+                            renderIndex[t] = blocks.IndexOf(clockPosition);
+                    } 
+                    
                     if (renderIndex[t] < 0)
                         continue;
 
@@ -334,15 +344,14 @@
                     // If the render index is greater than half, the capacity, add a new block
                     if (hasRendered[t])
                     {
-                        if (Blocks[t].IsFull == false || renderIndex[t] + 1 > Blocks[t].Capacity / 2)
-                            AddNextBlock(t);
+                        while (Blocks[t].IsFull == false || renderIndex[t] + 1 > Blocks[t].Capacity / 2)
+                        {
+                            if (AddNextBlock(t) == null) break;
+                            renderIndex[t] = blocks.IndexOf(clockPosition);
+                        }
 
                         hasRendered[t] = false;
                         renderIndex[t] = Blocks[t].IndexOf(clockPosition);
-
-                        // Stop the loop if we can't reach the conditions.
-                        if (Frames[t].Count == 0)
-                            break;
                     }
 
                 }

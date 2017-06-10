@@ -47,10 +47,14 @@
             Application.Current.Dispatcher.Invoke(() =>
             {
                 var visual = PresentationSource.FromVisual(MediaElement);
+
                 var dpiX = 96.0 * visual?.CompositionTarget?.TransformToDevice.M11 ?? 96.0;
                 var dpiY = 96.0 * visual?.CompositionTarget?.TransformToDevice.M22 ?? 96.0;
 
-                if (MediaElement.HasVideo)
+                var pixelWidth = block?.PixelWidth ?? MediaElement.NaturalVideoWidth;
+                var pixelHeight = block?.PixelHeight ?? MediaElement.NaturalVideoHeight;
+
+                if (MediaElement.HasVideo && pixelWidth > 0 && pixelHeight > 0)
                     TargetBitmap = new WriteableBitmap(
                         block?.PixelWidth ?? MediaElement.NaturalVideoWidth, 
                         block?.PixelHeight ?? MediaElement.NaturalVideoHeight, 

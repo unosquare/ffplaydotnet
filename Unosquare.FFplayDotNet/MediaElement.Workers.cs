@@ -20,7 +20,6 @@
 
         #region Constants
 
-        private static readonly int StateDictionaryCapacity = Constants.MediaTypes.Count - 1;
         private const int MaxPacketBufferLength = 1024 * 1024 * 8; // TODO: 8MB buffer adjust according to the bitrate if available.
         private const int WaitPacketBufferLength = 512 * 1024; // TODO: adjust this to a multiple of bitrate if available
         private const int PacketReadBatchCount = 10; // Read 10 packets at a time
@@ -45,17 +44,17 @@
 
         #region State Variables
 
-        private readonly ObjectDictionary<MediaType, MediaFrameQueue> Frames
-            = new ObjectDictionary<MediaType, MediaFrameQueue>(StateDictionaryCapacity);
+        private readonly MediaTypeDictionary<MediaFrameQueue> Frames
+            = new MediaTypeDictionary<MediaFrameQueue>();
 
-        internal readonly ObjectDictionary<MediaType, MediaBlockBuffer> Blocks
-            = new ObjectDictionary<MediaType, MediaBlockBuffer>(StateDictionaryCapacity);
+        internal readonly MediaTypeDictionary<MediaBlockBuffer> Blocks
+            = new MediaTypeDictionary<MediaBlockBuffer>();
 
-        private readonly ObjectDictionary<MediaType, IRenderer> Renderers
-            = new ObjectDictionary<MediaType, IRenderer>(StateDictionaryCapacity);
+        private readonly MediaTypeDictionary<IRenderer> Renderers
+            = new MediaTypeDictionary<IRenderer>();
 
-        private readonly ObjectDictionary<MediaType, TimeSpan> LastRenderTime
-            = new ObjectDictionary<MediaType, TimeSpan>(StateDictionaryCapacity);
+        private readonly MediaTypeDictionary<TimeSpan> LastRenderTime
+            = new MediaTypeDictionary<TimeSpan>();
 
         private volatile bool IsTaskCancellationPending = false;
 
@@ -264,13 +263,11 @@
         /// <returns></returns>
         private void RunBlockRenderingWorker()
         {
-
-            var mediaTypeCount = Container.Components.MediaTypes.Length;
             var main = Container.Components.Main.MediaType;
 
-            var hasRendered = new Dictionary<MediaType, bool>(mediaTypeCount);
-            var renderIndex = new Dictionary<MediaType, int>(mediaTypeCount);
-            var renderBlock = new Dictionary<MediaType, MediaBlock>(mediaTypeCount);
+            var hasRendered = new MediaTypeDictionary<bool>();
+            var renderIndex = new MediaTypeDictionary<int>();
+            var renderBlock = new MediaTypeDictionary<MediaBlock>();
 
             foreach (var t in Container.Components.MediaTypes)
             {
@@ -313,14 +310,16 @@
                     var blocks = Blocks[t];
                     renderIndex[t] = blocks.IndexOf(clockPosition);
 
+                    // If it's a secondary stream, try to catch up as quickly as possible
                     while (t != main && blocks.RangeEndTime <= Blocks[main].RangeStartTime && renderIndex[t] >= blocks.Count - 1)
                     {
+                        LastRenderTime[t] = TimeSpan.MinValue;
                         if (AddNextBlock(t) == null)
                             break;
                         else
                             renderIndex[t] = blocks.IndexOf(clockPosition);
-                    } 
-                    
+                    }
+
                     if (renderIndex[t] < 0)
                         continue;
 
@@ -329,7 +328,7 @@
                     hasRendered[t] = false;
 
                     // render the frame if we have not rendered
-                    if (renderBlock[t].StartTime != LastRenderTime[t]
+                    if ((renderBlock[t].StartTime != LastRenderTime[t] || LastRenderTime[t] == TimeSpan.MinValue)
                         && renderBlock[t].StartTime.Ticks <= clockPosition.Ticks)
                     {
                         LastRenderTime[t] = renderBlock[t].StartTime;

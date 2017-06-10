@@ -1,27 +1,24 @@
 ﻿namespace Unosquare.FFplayDotNet.Core
 {
+    using System;
     using System.Collections.Generic;
 
     /// <summary>
-    /// Represents a very simple dictionary wrapper
+    /// Represents a very simple dictionary for MediaType keys
     /// </summary>
     /// <typeparam name="TKey">The type of the key.</typeparam>
     /// <typeparam name="TValue">The type of the value.</typeparam>
     /// <seealso cref="System.Collections.Generic.Dictionary{TKey, TValue}" />
-    internal sealed class ObjectDictionary<TKey, TValue>
-        : Dictionary<TKey, TValue>
+    internal sealed class MediaTypeDictionary<TValue>
+        : Dictionary<MediaType, TValue>
     {
-
-        private readonly object SyncRoot = new object();
-
         /// <summary>
-        /// Initializes a new instance of the <see cref="ObjectDictionary{TKey, TValue}"/> class.
+        /// Initializes a new instance of the <see cref="MediaTypeDictionary{TValue}"/> class.
         /// </summary>
-        /// <param name="initialCapacity">The initial capacity.</param>
-        public ObjectDictionary(int initialCapacity)
-            : base(initialCapacity)
+        public MediaTypeDictionary()
+            : base(Enum.GetValues(typeof(MediaType)).Length)
         {
-
+            // placeholder
         }
 
         /// <summary>
@@ -33,25 +30,18 @@
         /// </value>
         /// <param name="key">The key.</param>
         /// <returns></returns>
-        public new TValue this[TKey key]
+        public new TValue this[MediaType key]
         {
             get
             {
-                lock (SyncRoot)
-                {
-                    if (ContainsKey(key) == false)
-                        return default(TValue);
+                if (ContainsKey(key) == false)
+                    return default(TValue);
 
-                    return base[key];
-                }
-
+                return base[key];
             }
             set
             {
-                lock (SyncRoot)
-                {
-                    base[key] = value;
-                }
+                base[key] = value;
             }
         }
     }

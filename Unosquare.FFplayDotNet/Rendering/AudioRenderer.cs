@@ -32,6 +32,8 @@
         private double m_Balance = 0.0d;
         private volatile bool m_IsMuted = false;
 
+        private int BytesPerSample = 2;
+
         #endregion
 
         #region Constructors
@@ -48,6 +50,7 @@
             if (WaveFormat.BitsPerSample != 16 || WaveFormat.Channels != 2)
                 throw new NotSupportedException("Wave Format has to be 16-bit and 2-channel.");
 
+            BytesPerSample = WaveFormat.BitsPerSample / 8;
             SilenceBuffer = new byte[m_Format.BitsPerSample / 8 * m_Format.Channels * 2];
 
             if (MediaElement.HasAudio)
@@ -261,12 +264,15 @@
             requestedBytes = Math.Min(requestedBytes, AudioBuffer.ReadableCount);
             AudioBuffer.Read(requestedBytes, ReadBuffer, 0);
 
-            // Samples are interleaved (left and right in 16-bit)
+            // Samples are interleaved (left and right in 16-bit each)
             var isLeftSample = true;
-            for (var baseIndex = 0; baseIndex < ReadBuffer.Length; baseIndex += WaveFormat.BitsPerSample / 8)
+            for (var baseIndex = 0; baseIndex < ReadBuffer.Length; baseIndex += BytesPerSample)
             {
-                var sample = BitConverter.ToInt16(ReadBuffer, baseIndex);
-
+                // The sample has 2 bytes: at the base index is the LSB and at the baseIndex + 1 is the MSB
+                // this obviously only holds true for Little Endian architectures, and thus, the current code is not portable.
+                // This replaces BitConverter.ToInt16(ReadBuffer, baseIndex); which is obviously much slower.
+                var sample = (short)(ReadBuffer[baseIndex] + (short)(ReadBuffer[baseIndex + 1] << 8));  
+                
                 if (IsMuted)
                 {
                     sample = 0;

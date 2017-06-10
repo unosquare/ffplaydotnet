@@ -4,6 +4,7 @@
     using System.Diagnostics;
     using System.Runtime.InteropServices;
     using System.Threading;
+    using System.Threading.Tasks;
 
     /// <summary>
     /// A wave player that opens an audio device and continuously feeds it
@@ -296,7 +297,7 @@
                 {
                     // we got to the end
                     m_PlaybackState = PlaybackState.Stopped;
-                    CallbackEvent.Set();
+                    CallbackEvent?.Set();
                 }
             }
         }

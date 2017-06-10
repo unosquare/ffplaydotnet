@@ -8,6 +8,7 @@
     using System.Diagnostics;
     using System.Linq;
     using System.Threading;
+    using System.Threading.Tasks;
 
     /// <summary>
     /// A container capable of opening an input url,
@@ -666,7 +667,7 @@
 
                 // wait at least 10 ms to avoid trying to get another packet
                 if (sleepMilliseconds > 0)
-                    Thread.Sleep(sleepMilliseconds); // XXX: horrible
+                    Task.Delay(sleepMilliseconds).Wait(); // XXX: horrible
             }
 
             if (RequiresPictureAttachments)

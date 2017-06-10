@@ -7,6 +7,7 @@
     using System.Collections.Generic;
     using System.Linq;
     using System.Threading;
+    using System.Threading.Tasks;
     using System.Windows.Controls;
 
     partial class MediaElement
@@ -172,7 +173,7 @@
         /// <summary>
         /// Runs the read task which keeps a packet buffer as full as possible.
         /// </summary>
-        private void RunPacketReadingWorker()
+        private async void RunPacketReadingWorker()
         {
             var packetsRead = 0;
 
@@ -197,7 +198,7 @@
 
 
                 if (!CanReadMorePackets || Container.Components.PacketBufferLength > MaxPacketBufferLength)
-                    Thread.Sleep(1);
+                    await Task.Delay(1);
 
             }
 
@@ -209,7 +210,7 @@
         /// many frames as possible in each frame queue and 
         /// up to the MaxFrames on each component
         /// </summary>
-        private void RunFrameDecodingWorker()
+        private async void RunFrameDecodingWorker()
         {
             while (IsTaskCancellationPending == false)
             {
@@ -246,7 +247,7 @@
 
                 // Give it a break if there wa snothing to decode.
                 if (decodedFrames <= 0)
-                    Thread.Sleep(1);
+                    await Task.Delay(1);
 
             }
 
@@ -261,7 +262,7 @@
         /// </summary>
         /// <param name="control">The control.</param>
         /// <returns></returns>
-        private void RunBlockRenderingWorker()
+        private async void RunBlockRenderingWorker()
         {
             var main = Container.Components.Main.MediaType;
 
@@ -376,7 +377,7 @@
                 }
 
                 BlockRenderingCycle.Set();
-                Thread.Sleep(1);
+                await Task.Delay(1);
             }
 
             BlockRenderingCycle.Set();

@@ -489,11 +489,10 @@
                 if (ffmpeg.avformat_find_stream_info(InputContext, null) < 0)
                     Log(MediaLogMessageType.Warning, $"{MediaUrl}: could read stream info.");
 
-                // TODO: FIXME hack, ffplay maybe should not use avio_feof() to test for the end
+                // HACK: From ffplay.c: maybe should not use avio_feof() to test for the end
                 if (InputContext->pb != null) InputContext->pb->eof_reached = 0;
 
                 // Setup initial state variables
-
                 {
                     var metadataDictionary = new Dictionary<string, string>();
 

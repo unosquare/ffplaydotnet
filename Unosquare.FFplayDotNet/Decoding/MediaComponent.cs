@@ -284,10 +284,7 @@
         /// <param name="packet">The packet.</param>
         internal void SendPacket(AVPacket* packet)
         {
-            // TODO: check if packet is in play range
-            // ffplay.c reference: pkt_in_play_range
             if (packet == null) return;
-
             Packets.Push(packet);
             ReceivedPacketCount += 1;
         }

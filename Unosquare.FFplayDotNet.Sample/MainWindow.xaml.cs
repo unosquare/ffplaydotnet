@@ -78,7 +78,7 @@
             Unosquare.FFplayDotNet.MediaElement.FFmpegDirectory = @"C:\ffmpeg";
             //ConsoleManager.ShowConsole();
             InitializeComponent();
-            UrlTextBox.Text = TestInputs.FinlandiaMp3LocalFile;
+            UrlTextBox.Text = TestInputs.MatroskaLocalFile;
 
             Media.MediaOpening += Media_MediaOpening;
             Media.MediaFailed += Media_MediaFailed;
@@ -94,7 +94,7 @@
         {
             
             // The yadif filter deinterlaces the video
-            e.Options.VideoFilter = "yadif"; // "selectivecolor=greens=.5 0 -.33 0:blues=0 .27"; //"scale=101:-1,noise=alls=20:allf=t+u";
+            // e.Options.VideoFilter = "yadif";
             
             //e.Options.IsAudioDisabled = true;
             e.Options.LogMessageCallback = new Action<MediaLogMessageType, string>((t, m) =>

@@ -103,7 +103,11 @@
         /// <returns></returns>
         static internal AudioParams CreateSource(AVFrame* frame)
         {
-            return new AudioParams(frame);
+            var spec = new AudioParams(frame);
+            if (spec.ChannelLayout == 0)
+                spec.ChannelLayout = ffmpeg.av_get_default_channel_layout(spec.ChannelCount);
+
+            return spec;
         }
 
         /// <summary>

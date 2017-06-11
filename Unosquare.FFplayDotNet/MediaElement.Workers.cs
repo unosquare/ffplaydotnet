@@ -296,6 +296,9 @@
                 renderIndex[main] = Blocks[main].IndexOf(clockPosition);
 
                 // Check for out-of sync issues (i.e. after seeking)
+                // TODO: this is buggy with sine.wav or short files. It gets triggered even when we have reached the end of file.
+                // Maybe we should check EOF conditions before anything else?
+                // or maybe try to sync after we've checked for EOF. This needs more carful studying.
                 if (Blocks[main].IsInRange(clockPosition) == false || renderIndex[main] < 0)
                 {
                     BufferBlocks(BufferCacheLength);
@@ -313,8 +316,8 @@
                     renderIndex[t] = blocks.IndexOf(clockPosition);
 
                     // If it's a secondary stream, try to catch up with the primary stream as quickly as possible
-                    while (t != main 
-                        && blocks.RangeEndTime <= Blocks[main].RangeStartTime 
+                    while (t != main
+                        && blocks.RangeEndTime <= Blocks[main].RangeStartTime
                         && renderIndex[t] >= blocks.Count - 1
                         && CanReadMoreBlocksOf(t))
                     {

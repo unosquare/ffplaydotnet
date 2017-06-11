@@ -25,7 +25,7 @@
         {
             var m = MediaElement;
 
-            if (m.IsOpened == false || m.IsOpening) return;
+            if (m.IsOpen == false || m.IsOpening) return;
 
             m.Container?.Log(MediaLogMessageType.Debug, $"{nameof(CloseCommand)}: Entered");
             m.Clock.Pause();
@@ -77,7 +77,7 @@
             // Update notification properties
             m.InvokeOnUI(() =>
             {
-                MediaElement.UpdateMediaProperties();
+                MediaElement.NotifyPropertyChanges();
             });
 
             m.MediaState = System.Windows.Controls.MediaState.Close;

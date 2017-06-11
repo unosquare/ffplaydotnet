@@ -78,7 +78,7 @@
             Unosquare.FFplayDotNet.MediaElement.FFmpegDirectory = @"C:\ffmpeg";
             //ConsoleManager.ShowConsole();
             InitializeComponent();
-            UrlTextBox.Text = TestInputs.YoutubeLocalFile;
+            UrlTextBox.Text = TestInputs.FinlandiaMp3LocalFile;
 
             Media.MediaOpening += Media_MediaOpening;
             Media.MediaFailed += Media_MediaFailed;
@@ -92,7 +92,7 @@
 
         private void Media_MediaOpening(object sender, MediaOpeningRoutedEventArgs e)
         {
-            e.Options.VideoFilter = "yadif"; // "selectivecolor=greens=.5 0 -.33 0:blues=0 .27"; //"scale=101:-1,noise=alls=20:allf=t+u";
+            //e.Options.VideoFilter = "yadif"; // "selectivecolor=greens=.5 0 -.33 0:blues=0 .27"; //"scale=101:-1,noise=alls=20:allf=t+u";
             //e.Options.IsAudioDisabled = true;
             e.Options.LogMessageCallback = new Action<MediaLogMessageType, string>((t, m) =>
             {

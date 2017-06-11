@@ -21,8 +21,7 @@
 
         #region Constants
 
-        private const int MaxPacketBufferLength = 1024 * 1024 * 8; // TODO: 8MB buffer adjust according to the bitrate if available.
-        private const int WaitPacketBufferLength = 512 * 1024; // TODO: adjust this to a multiple of bitrate if available
+
         private const int PacketReadBatchCount = 10; // Read 10 packets at a time
 
         internal static readonly Dictionary<MediaType, int> MaxBlocks
@@ -186,17 +185,18 @@
                 packetsRead = 0;
                 while (CanReadMorePackets
                     && packetsRead < PacketReadBatchCount
-                    && Container.Components.PacketBufferLength < MaxPacketBufferLength)
+                    && Container.Components.PacketBufferLength < DownloadCacheLength)
                 {
                     Container.Read();
                     packetsRead++;
                 }
 
-                DownloadProgress = Math.Min(1d, Math.Round((double)Container.Components.PacketBufferLength / MaxPacketBufferLength, 3));
+                DownloadProgress = Math.Min(1d, Math.Round(
+                    (double)Container.Components.PacketBufferLength / DownloadCacheLength, 3));
+
                 PacketReadingCycle.Set();
 
-
-                if (!CanReadMorePackets || Container.Components.PacketBufferLength > MaxPacketBufferLength)
+                if (!CanReadMorePackets || Container.Components.PacketBufferLength >= DownloadCacheLength)
                     await Task.Delay(1);
 
             }
@@ -277,7 +277,7 @@
             }
 
             // Buffer some blocks
-            BufferBlocks(WaitPacketBufferLength);
+            BufferBlocks(BufferCacheLength);
             Clock.Position = Blocks[main].RangeStartTime;
             var clockPosition = Clock.Position;
 
@@ -298,7 +298,7 @@
                 // Check for out-of sync issues (i.e. after seeking)
                 if (Blocks[main].IsInRange(clockPosition) == false || renderIndex[main] < 0)
                 {
-                    BufferBlocks(WaitPacketBufferLength);
+                    BufferBlocks(BufferCacheLength);
                     Clock.Position = Blocks[main].RangeStartTime;
                     Container.Log(MediaLogMessageType.Warning,
                         $"SYNC              CLK: {clockPosition.Debug()} | TGT: {Blocks[main].RangeStartTime.Debug()} | SET: {Clock.Position.Debug()}");
@@ -313,7 +313,10 @@
                     renderIndex[t] = blocks.IndexOf(clockPosition);
 
                     // If it's a secondary stream, try to catch up as quickly as possible
-                    while (t != main && blocks.RangeEndTime <= Blocks[main].RangeStartTime && renderIndex[t] >= blocks.Count - 1)
+                    while (t != main 
+                        && blocks.RangeEndTime <= Blocks[main].RangeStartTime 
+                        && renderIndex[t] >= blocks.Count - 1
+                        && CanReadMoreBlocksOf(t))
                     {
                         LastRenderTime[t] = TimeSpan.MinValue;
                         if (AddNextBlock(t) == null)
@@ -380,7 +383,7 @@
                 BlockRenderingCycle.Set();
 
                 // Pause for a bit if we have no more commands to process.
-                if (Commands.Count <= 0)
+                if (Commands.PendingCount <= 0)
                     await Task.Delay(1);
             }
 

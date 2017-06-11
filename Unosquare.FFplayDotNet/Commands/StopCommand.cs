@@ -22,6 +22,9 @@ namespace Unosquare.FFplayDotNet.Commands
 
         }
 
+        /// <summary>
+        /// Performs the actions that this command implements.
+        /// </summary>
         protected override void Execute()
         {
             foreach (var renderer in MediaElement.Renderers.Values)

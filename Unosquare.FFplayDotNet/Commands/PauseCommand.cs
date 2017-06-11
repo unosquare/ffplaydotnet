@@ -20,7 +20,7 @@
         /// </summary>
         protected override void Execute()
         {
-            if (MediaElement.IsOpened == false) return;
+            if (MediaElement.IsOpen == false) return;
             if (MediaElement.CanPause == false) return;
 
             MediaElement.Clock.Pause();

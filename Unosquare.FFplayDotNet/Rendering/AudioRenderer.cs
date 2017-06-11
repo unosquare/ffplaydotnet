@@ -57,12 +57,16 @@
                 Initialize();
 
             if (Application.Current != null)
-                mediaElement.InvokeOnUI(() => {
-                    Application.Current.Exit += (s, e) =>
-                    {
-                        Destroy();
-                    };
+                MediaElement.InvokeOnUI(() =>
+                {
+                    Application.Current.Exit += OnApplicationExit;
                 });
+        }
+
+        private void OnApplicationExit(object sender, ExitEventArgs e)
+        {
+            try { Dispose(); }
+            catch { }
         }
 
         #endregion
@@ -95,6 +99,17 @@
         /// </summary>
         private void Destroy()
         {
+            try
+            {
+                // Remove the event handler
+                if (Application.Current != null)
+                    MediaElement.InvokeOnUI(() =>
+                    {
+                        Application.Current.Exit -= OnApplicationExit;
+                    });
+            }
+            catch { }
+
             if (AudioDevice != null)
             {
                 AudioDevice.Stop();
@@ -240,6 +255,14 @@
             Destroy();
         }
 
+        /// <summary>
+        /// Executed after a Seek operation is performed on the parent MediaElement
+        /// </summary>
+        public void Seek()
+        {
+            AudioBuffer.Clear();
+        }
+
         #endregion
 
         #region IWaveProvider Support
@@ -273,8 +296,8 @@
                 // The sample has 2 bytes: at the base index is the LSB and at the baseIndex + 1 is the MSB
                 // this obviously only holds true for Little Endian architectures, and thus, the current code is not portable.
                 // This replaces BitConverter.ToInt16(ReadBuffer, baseIndex); which is obviously much slower.
-                var sample = (short)(ReadBuffer[baseIndex] + (short)(ReadBuffer[baseIndex + 1] << 8));  
-                
+                var sample = (short)(ReadBuffer[baseIndex] + (short)(ReadBuffer[baseIndex + 1] << 8));
+
                 if (IsMuted)
                 {
                     sample = 0;

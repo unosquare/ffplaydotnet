@@ -44,6 +44,22 @@
         }
 
         /// <summary>
+        /// Executed when the Pause method is called on the parent MediaElement
+        /// </summary>
+        public void Stop()
+        {
+            //placeholder
+        }
+
+        /// <summary>
+        /// Executed after a Seek operation is performed on the parent MediaElement
+        /// </summary>
+        public void Seek()
+        {
+            // placeholder
+        }
+
+        /// <summary>
         /// Renders the specified media block.
         /// </summary>
         /// <param name="mediaBlock">The media block.</param>
@@ -54,12 +70,6 @@
             //placeholder
         }
 
-        /// <summary>
-        /// Executed when the Pause method is called on the parent MediaElement
-        /// </summary>
-        public void Stop()
-        {
-            //placeholder
-        }
+
     }
 }

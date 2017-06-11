@@ -32,9 +32,6 @@
         // This is the image that will display the video from a Writeable Bitmap
         internal readonly Image ViewBox = new Image();
 
-        // The target bitmap is where the video image will be held
-        private WriteableBitmap TargetBitmap = null;
-
         /// <summary>
         /// Gets or sets the horizontal alignment characteristics applied to this element when it is composed within a parent element, such as a panel or items control.
         /// </summary>
@@ -83,12 +80,8 @@
                 var bitmap = Properties.Resources.FFmpegMediaElementBackground;
                 var bitmapSource = Imaging.CreateBitmapSourceFromHBitmap(bitmap.GetHbitmap(), IntPtr.Zero,
                     Int32Rect.Empty, BitmapSizeOptions.FromEmptyOptions());
-                TargetBitmap = new WriteableBitmap(bitmapSource);
-                ViewBox.Source = TargetBitmap;
-            }
-            else
-            {
-                //InitializeSeekPositionTimer();
+                var targetBitmap = new WriteableBitmap(bitmapSource);
+                ViewBox.Source = targetBitmap;
             }
         }
 

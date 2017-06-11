@@ -240,6 +240,8 @@
 
             var filterStart = DateTime.UtcNow;
 
+            // TODO: Support real-time changes in Video Filtergraph by checking if MediaOptions.VideoFilterGraph has changed
+            // Expose the VideoFilterGraph string as a MediaElementProperty
             if (FilterGraph != null)
             {
                 var result = ffmpeg.av_buffersrc_add_frame(SourceFilter, frame);

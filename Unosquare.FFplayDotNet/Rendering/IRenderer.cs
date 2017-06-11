@@ -29,6 +29,12 @@
         void Close();
 
         /// <summary>
+        /// Executed after a Seek operation is performed on the parent MediaElement
+        /// </summary>
+        void Seek();
+
+
+        /// <summary>
         /// Renders the specified media block.
         /// </summary>
         /// <param name="mediaBlock">The media block.</param>

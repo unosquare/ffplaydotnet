@@ -96,7 +96,7 @@
             finally
             {
                 m.IsOpening = false;
-                m.InvokeOnUI(() => { m.UpdateMediaProperties(); });
+                m.InvokeOnUI(() => { m.NotifyPropertyChanges(); });
                 m.Container?.Log(MediaLogMessageType.Debug, $"{nameof(OpenCommand)}: Completed");
             }
         }

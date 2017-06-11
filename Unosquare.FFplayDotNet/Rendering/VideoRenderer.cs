@@ -56,11 +56,11 @@
 
                 if (MediaElement.HasVideo && pixelWidth > 0 && pixelHeight > 0)
                     TargetBitmap = new WriteableBitmap(
-                        block?.PixelWidth ?? MediaElement.NaturalVideoWidth, 
-                        block?.PixelHeight ?? MediaElement.NaturalVideoHeight, 
+                        block?.PixelWidth ?? MediaElement.NaturalVideoWidth,
+                        block?.PixelHeight ?? MediaElement.NaturalVideoHeight,
                         dpiX, dpiY, PixelFormats.Bgr24, null);
                 else
-                    TargetBitmap = new WriteableBitmap(1, 1, dpiX, dpiY, PixelFormats.Bgr24, null);
+                    TargetBitmap = null; // new WriteableBitmap(1, 1, dpiX, dpiY, PixelFormats.Bgr24, null);
 
                 MediaElement.ViewBox.Source = TargetBitmap;
             });
@@ -71,6 +71,14 @@
         #region Public API
 
         /// <summary>
+        /// Executed when the Play method is called on the parent MediaElement
+        /// </summary>
+        public void Play()
+        {
+            // placeholder
+        }
+
+        /// <summary>
         /// Executed when the Pause method is called on the parent MediaElement
         /// </summary>
         public void Pause()
@@ -78,10 +86,32 @@
             // placeholder
         }
 
+
         /// <summary>
-        /// Executed when the Play method is called on the parent MediaElement
+        /// Executed when the Pause method is called on the parent MediaElement
         /// </summary>
-        public void Play()
+        public void Stop()
+        {
+            // placeholder
+        }
+
+        /// <summary>
+        /// Executed when the Close method is called on the parent MediaElement
+        /// </summary>
+        public void Close()
+        {
+            MediaElement.InvokeOnUI(() =>
+            {
+                if (TargetBitmap == null) return;
+                TargetBitmap = null;
+                MediaElement.ViewBox.Source = TargetBitmap;
+            });
+        }
+
+        /// <summary>
+        /// Executed after a Seek operation is performed on the parent MediaElement
+        /// </summary>
+        public void Seek()
         {
             // placeholder
         }
@@ -97,29 +127,16 @@
             var block = mediaBlock as VideoBlock;
             if (block == null) return;
 
-            MediaElement.InvokeOnUI(() => {
+            MediaElement.InvokeOnUI(() =>
+            {
+                if (TargetBitmap == null) return;
+
                 if (TargetBitmap.PixelWidth != block.PixelWidth || TargetBitmap.PixelHeight != block.PixelHeight)
                     InitializeTargetBitmap(block);
 
                 var updateRect = new Int32Rect(0, 0, block.PixelWidth, block.PixelHeight);
                 TargetBitmap.WritePixels(updateRect, block.Buffer, block.BufferLength, block.BufferStride);
             });
-        }
-
-        /// <summary>
-        /// Executed when the Pause method is called on the parent MediaElement
-        /// </summary>
-        public void Stop()
-        {
-            // placeholder
-        }
-
-        /// <summary>
-        /// Executed when the Close method is called on the parent MediaElement
-        /// </summary>
-        public void Close()
-        {
-            // TODO: Clear all pixels
         }
 
         #endregion

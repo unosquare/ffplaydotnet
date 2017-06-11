@@ -65,8 +65,28 @@
                 </DockPanel>
 
                 <DockPanel>
+                    <Label Style="{StaticResource Key}">Is Open</Label>
+                    <Label Style="{StaticResource Value}" Content="{Binding ElementName=Media, Path=IsOpen}" />
+                </DockPanel>
+
+                <DockPanel>
+                    <Label Style="{StaticResource Key}">Is Opening</Label>
+                    <Label Style="{StaticResource Value}" Content="{Binding ElementName=Media, Path=IsOpening}" />
+                </DockPanel>
+
+                <DockPanel>
+                    <Label Style="{StaticResource Key}">Is Live Stream</Label>
+                    <Label Style="{StaticResource Value}" Content="{Binding ElementName=Media, Path=IsLiveStream}" />
+                </DockPanel>
+
+                <DockPanel>
                     <Label Style="{StaticResource Key}">Can Pause</Label>
                     <Label Style="{StaticResource Value}" Content="{Binding ElementName=Media, Path=CanPause}" />
+                </DockPanel>
+
+                <DockPanel>
+                    <Label Style="{StaticResource Key}">Is Seekable</Label>
+                    <Label Style="{StaticResource Value}" Content="{Binding ElementName=Media, Path=IsSeekable}" />
                 </DockPanel>
 
                 <DockPanel>
@@ -100,8 +120,18 @@
                 </DockPanel>
 
                 <DockPanel>
+                    <Label Style="{StaticResource Key}">Max Buffer</Label>
+                    <Label Style="{StaticResource Value}" Content="{Binding ElementName=Media, Path=BufferCacheLength}" />
+                </DockPanel>
+
+                <DockPanel>
                     <Label Style="{StaticResource Key}">Download Progress</Label>
                     <Label Style="{StaticResource Value}" Content="{Binding ElementName=Media, Path=DownloadProgress}" />
+                </DockPanel>
+
+                <DockPanel>
+                    <Label Style="{StaticResource Key}">Max Download</Label>
+                    <Label Style="{StaticResource Value}" Content="{Binding ElementName=Media, Path=DownloadCacheLength}" />
                 </DockPanel>
 
                 <DockPanel Background="LightBlue">

@@ -312,13 +312,12 @@
                     var blocks = Blocks[t];
                     renderIndex[t] = blocks.IndexOf(clockPosition);
 
-                    // If it's a secondary stream, try to catch up as quickly as possible
+                    // If it's a secondary stream, try to catch up with the primary stream as quickly as possible
                     while (t != main 
                         && blocks.RangeEndTime <= Blocks[main].RangeStartTime 
                         && renderIndex[t] >= blocks.Count - 1
                         && CanReadMoreBlocksOf(t))
                     {
-                        // TODO: there seems to be a bug with this when mp3 has cover art -- see finlandia.mp3
                         LastRenderTime[t] = TimeSpan.MinValue;
                         if (AddNextBlock(t) == null)
                             break;
@@ -326,7 +325,8 @@
                             renderIndex[t] = blocks.IndexOf(clockPosition);
                     }
 
-                    if (renderIndex[t] < 0)
+                    // Skip to next stream component if we have nothing left to do here :(
+                    if ((renderIndex[t] = blocks.IndexOf(clockPosition)) < 0)
                         continue;
 
                     // Retrieve the render block

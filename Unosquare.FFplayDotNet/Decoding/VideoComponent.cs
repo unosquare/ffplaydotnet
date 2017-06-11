@@ -238,24 +238,45 @@
             if (string.IsNullOrWhiteSpace(VideoFilterString) == false)
                 InitializeFilterGraph(frame);
 
-            var filterStart = DateTime.UtcNow;
+            AVFrame* outputFrame = null;
 
             // TODO: Support real-time changes in Video Filtergraph by checking if MediaOptions.VideoFilterGraph has changed
             // Expose the VideoFilterGraph string as a MediaElementProperty
             if (FilterGraph != null)
             {
-                var result = ffmpeg.av_buffersrc_add_frame(SourceFilter, frame);
+                // Allocate the output frame
+                outputFrame = ffmpeg.av_frame_clone(frame);
+
+                var result = ffmpeg.av_buffersrc_add_frame(SourceFilter, outputFrame);
                 while (result >= 0)
-                    result = ffmpeg.av_buffersink_get_frame_flags(SinkFilter, frame, 0);
+                    result = ffmpeg.av_buffersink_get_frame_flags(SinkFilter, outputFrame, 0);
+
+                if (outputFrame->width <= 0 || outputFrame->height <= 0)
+                {
+                    // If we don't have a valid output frame simply release it and 
+                    // return the original input frame
+                    ffmpeg.av_frame_free(&outputFrame);
+                    outputFrame = frame;
+                }
+                else
+                {
+                    // the output frame is the new valid frame (output frame).
+                    // threfore, we need to release the original
+                    ffmpeg.av_frame_free(&frame);
+                }
 
             }
+            else
+            {
+                outputFrame = frame;
+            }
 
-            // Check if the frame is valid
-            if (frame->width <= 0 || frame->height <= 0)
+            // Check if the output frame is valid
+            if (outputFrame->width <= 0 || outputFrame->height <= 0)
                 return null;
-
-            var frameHolder = new VideoFrame(frame, this);
-            CurrentFrameRate = ffmpeg.av_guess_frame_rate(Container.InputContext, Stream, frame).ToDouble();
+            
+            var frameHolder = new VideoFrame(outputFrame, this);
+            CurrentFrameRate = ffmpeg.av_guess_frame_rate(Container.InputContext, Stream, outputFrame).ToDouble();
             return frameHolder;
         }
 

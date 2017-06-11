@@ -1,6 +1,6 @@
 NAudio modified, optimized and stripped down to essentials from GitHub
 Commit URL (May 13, 2017): https://github.com/naudio/NAudio/commit/17c8ca2ff8c64ce1f5e6b00f74e54d7e9bccaa03
-License continues to be Ms-PL
+Files under this folder (even when they have been heavily modified) are distributed under the Ms-PL license
 
 Original License from NAudio (May 13, 2017):
 ---------------------------------------------

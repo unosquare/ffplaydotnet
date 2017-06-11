@@ -23,9 +23,14 @@
 
         /// <summary>
         /// Provides key-value pairs of the metadata contained in the media.
-        /// Returns null when media has no been loaded.
+        /// Returns null when media has not been loaded.
         /// </summary>
         public ReadOnlyDictionary<string, string> Metadata { get { return Container == null ? null : Container.Metadata; } }
+
+        /// <summary>
+        /// Gets the media format. Returns null when media has not been loaded.
+        /// </summary>
+        public string MediaFormat { get { return Container == null ? null : Container.MediaFormatName; } }
 
         /// <summary> 
         /// Returns whether the given media has audio. 
@@ -43,7 +48,7 @@
         /// Gets the video codec.
         /// Only valid after the MediaOpened event has fired.
         /// </summary>
-        public string VideoCodec { get { return Container?.Components?.Video?.Codec; } }
+        public string VideoCodec { get { return Container?.Components?.Video?.CodecName; } }
 
         /// <summary>
         /// Gets the video bitrate.
@@ -79,7 +84,7 @@
         /// Gets the audio codec.
         /// Only valid after the MediaOpened event has fired.
         /// </summary>
-        public string AudioCodec { get { return Container?.Components?.Audio?.Codec; } }
+        public string AudioCodec { get { return Container?.Components?.Audio?.CodecName; } }
 
         /// <summary>
         /// Gets the audio bitrate.
@@ -256,6 +261,7 @@
         /// </summary>
         internal void NotifyPropertyChanges()
         {
+            OnPropertyChanged(nameof(MediaFormat));
             OnPropertyChanged(nameof(Metadata));
             OnPropertyChanged(nameof(HasAudio));
             OnPropertyChanged(nameof(HasVideo));

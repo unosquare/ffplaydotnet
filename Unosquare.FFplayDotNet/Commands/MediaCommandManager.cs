@@ -11,6 +11,7 @@
         private readonly object SyncLock = new object();
         private readonly List<MediaCommand> Commands = new List<MediaCommand>();
         private readonly MediaElement MediaElement;
+        private MediaCommand m_ExecutingCommand = null;
 
         #endregion
 
@@ -34,6 +35,16 @@
         /// </summary>
         public int PendingCount { get { lock (SyncLock) return Commands.Count; } }
 
+        /// <summary>
+        /// Gets or sets the currently executing command.
+        /// If there are no commands being executed, then it returns null;
+        /// </summary>
+        public MediaCommand ExecutingCommand
+        {
+            get { lock (SyncLock) { return m_ExecutingCommand; } }
+            set { lock (SyncLock) { m_ExecutingCommand = value; } }
+        }
+
         #endregion
 
         #region Methods
@@ -49,7 +60,8 @@
             {
                 Commands.Clear();
                 var command = new OpenCommand(MediaElement, uri);
-                return command.ExecuteAsync();
+                var task = command.ExecuteAsync();
+                return task;
             }
         }
 
@@ -108,7 +120,8 @@
             {
                 Commands.Clear();
                 var command = new CloseCommand(MediaElement);
-                return command.ExecuteAsync();
+                var task = command.ExecuteAsync();
+                return task;
             }
         }
 

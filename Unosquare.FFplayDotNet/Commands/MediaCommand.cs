@@ -51,8 +51,13 @@
         /// <returns></returns>
         public async Task ExecuteAsync()
         {
+            if (MediaElement.Commands.ExecutingCommand != null)
+                await MediaElement.Commands.ExecutingCommand.Promise;
+
+            MediaElement.Commands.ExecutingCommand = this;
             Promise.Start();
             await Promise;
+            MediaElement.Commands.ExecutingCommand = null;
         }
 
         /// <summary>

@@ -235,17 +235,17 @@
             dict["MediaElement/NotificationProperties/IsPlaying"] = string.Format("{0}", IsPlaying);
             dict["MediaElement/NotificationProperties/HasMediaEnded"] = string.Format("{0}", HasMediaEnded);
 
-            dict["MediaElement/DependencyProperties/Source"] = string.Format("{0}", Source);
+            dict["MediaElement/DependencyProperties/Source"] = string.Format("{0}", Source); // TODO: minor work required (prevent concurrent opening/closing)
             dict["MediaElement/DependencyProperties/Stretch"] = string.Format("{0}", Stretch);
             dict["MediaElement/DependencyProperties/StretchDirection"] = string.Format("{0}", StretchDirection);
             dict["MediaElement/DependencyProperties/Volume"] = string.Format("{0}", Volume);
             dict["MediaElement/DependencyProperties/Balance"] = string.Format("{0}", Balance);
-            dict["MediaElement/DependencyProperties/ScrubbingEnabled"] = string.Format("{0}", ScrubbingEnabled);
-            dict["MediaElement/DependencyProperties/UnloadedBehavior"] = string.Format("{0}", UnloadedBehavior);
+            dict["MediaElement/DependencyProperties/ScrubbingEnabled"] = string.Format("{0}", ScrubbingEnabled); // TODO: not yet implemented
+            dict["MediaElement/DependencyProperties/UnloadedBehavior"] = string.Format("{0}", UnloadedBehavior); // TODO: not yet implemented
             dict["MediaElement/DependencyProperties/LoadedBehavior"] = string.Format("{0}", LoadedBehavior);
             dict["MediaElement/DependencyProperties/IsMuted"] = string.Format("{0}", IsMuted);
-            dict["MediaElement/DependencyProperties/Position"] = string.Format("{0}", Position);
-            dict["MediaElement/DependencyProperties/SpeedRatio"] = string.Format("{0}", SpeedRatio);
+            dict["MediaElement/DependencyProperties/Position"] = string.Format("{0}", Position); // TODO: needs work with seeking
+            dict["MediaElement/DependencyProperties/SpeedRatio"] = string.Format("{0}", SpeedRatio); //TODO: needs implementation
 
             const int keyStringLength = 80;
             if (printToDebuggingConsole)

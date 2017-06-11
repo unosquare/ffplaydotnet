@@ -60,6 +60,11 @@
                 </StackPanel.Resources>
 
                 <DockPanel Background="LightBlue">
+                    <Label Style="{StaticResource Key}">Media Format</Label>
+                    <Label Style="{StaticResource Value}" Content="{Binding ElementName=Media, Path=MediaFormat}" />
+                </DockPanel>
+
+                <DockPanel>
                     <Label Style="{StaticResource Key}">Duration</Label>
                     <Label Style="{StaticResource Value}" Content="{Binding ElementName=Media, Path=NaturalDuration}" />
                 </DockPanel>

@@ -112,9 +112,14 @@
         public int PacketBufferCount { get { return Packets.Count; } }
 
         /// <summary>
+        /// Gets the ID of the codec for this component.
+        /// </summary>
+        public AVCodecID CodecId { get; }
+
+        /// <summary>
         /// Gets the name of the codec for this component.
         /// </summary>
-        public string Codec { get; }
+        public string CodecName { get; }
 
         /// <summary>
         /// Gets the bitrate of this component. Return 0 for unknown.
@@ -221,7 +226,8 @@
             else
                 Duration = Stream->duration.ToTimeSpan(Stream->time_base);
 
-            Codec = Stream->codec->codec_id.ToString();
+            CodecId = Stream->codec->codec_id;
+            CodecName = ffmpeg.avcodec_get_name(CodecId);
             Bitrate = (int)Stream->codec->bit_rate;
             Container.Log(MediaLogMessageType.Trace, $"{MediaType}: Start Offset: {StartTimeOffset.Debug()}; Duration: {Duration.Debug()}");
 

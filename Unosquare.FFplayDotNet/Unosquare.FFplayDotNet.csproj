@@ -52,6 +52,15 @@
     <Reference Include="WindowsBase" />
   </ItemGroup>
   <ItemGroup>
+    <Compile Include="Commands\CloseCommand.cs" />
+    <Compile Include="Commands\OpenCommand.cs" />
+    <Compile Include="Commands\PauseCommand.cs" />
+    <Compile Include="Commands\PlayCommand.cs" />
+    <Compile Include="Commands\MediaCommand.cs" />
+    <Compile Include="Commands\MediaCommandManager.cs" />
+    <Compile Include="Commands\MediaCommandType.cs" />
+    <Compile Include="Commands\SeekCommand.cs" />
+    <Compile Include="Commands\StopCommand.cs" />
     <Compile Include="Core\MediaTypeDictionary.cs" />
     <Compile Include="MediaElement.Workers.cs" />
     <Compile Include="Rendering\Wave\IWaveProvider.cs" />

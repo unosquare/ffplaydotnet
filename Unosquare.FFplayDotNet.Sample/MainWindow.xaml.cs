@@ -92,7 +92,7 @@
 
         private void Media_MediaOpening(object sender, MediaOpeningRoutedEventArgs e)
         {
-            //e.Options.VideoFilter = "yadif"; // "selectivecolor=greens=.5 0 -.33 0:blues=0 .27"; //"scale=101:-1,noise=alls=20:allf=t+u";
+            e.Options.VideoFilter = "yadif"; // "selectivecolor=greens=.5 0 -.33 0:blues=0 .27"; //"scale=101:-1,noise=alls=20:allf=t+u";
             //e.Options.IsAudioDisabled = true;
             e.Options.LogMessageCallback = new Action<MediaLogMessageType, string>((t, m) =>
             {

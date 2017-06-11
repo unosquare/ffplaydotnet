@@ -57,10 +57,12 @@
                 Initialize();
 
             if (Application.Current != null)
-                Application.Current.Exit += (s, e) =>
-                {
-                    Destroy();
-                };
+                mediaElement.InvokeOnUI(() => {
+                    Application.Current.Exit += (s, e) =>
+                    {
+                        Destroy();
+                    };
+                });
         }
 
         #endregion

@@ -21,6 +21,15 @@
                 null, FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsRender,
                 OnSourcePropertyChanged, OnSourcePropertyCoerce));
 
+        private static object OnSourcePropertyCoerce(DependencyObject dependencyObject, object baseValue)
+        {
+            var element = dependencyObject as MediaElement;
+            if (element == null) return null;
+
+            return baseValue;
+            // TODO: Not sure why there was coersion in previous version...
+        }
+
         /// <summary>
         /// Called when [source property changed].
         /// </summary>
@@ -32,25 +41,24 @@
             if (element == null) return;
 
             var uri = e.NewValue as Uri;
+
+            // TODO: Calling this multiple times while an operation is in progress breaks the control :(
+            // for now let's throw an exception but ideally we want the user NOT to be able to change the value in the first place.
+            if (element.IsOpening)
+                throw new InvalidOperationException($"Unable to change {nameof(Source)} to '{uri}' because {nameof(IsOpening)} is currently set to true.");
+
             if (uri != null)
             {
-                await element.CloseAsync();
-                await element.OpenAsync(uri);
+                await element.Commands.Close();
+                await element.Commands.Open(uri);
+
+                if (element.LoadedBehavior == System.Windows.Controls.MediaState.Play || element.CanPause == false)
+                    await element.Commands.Play();
             }
             else
             {
-                await element.CloseAsync();
+                await element.Commands.Close();
             }
-
-        }
-
-        private static object OnSourcePropertyCoerce(DependencyObject dependencyObject, object baseValue)
-        {
-            var element = dependencyObject as MediaElement;
-            if (element == null) return null;
-
-            return baseValue;
-            // TODO: Not sure why there was coersion in previous version...
         }
 
         /// <summary>
@@ -409,19 +417,24 @@
                         typeof(MediaElement),
                         new FrameworkPropertyMetadata(
                               TimeSpan.Zero,
-                              FrameworkPropertyMetadataOptions.AffectsMeasure | FrameworkPropertyMetadataOptions.AffectsRender,
+                              FrameworkPropertyMetadataOptions.AffectsMeasure
+                            | FrameworkPropertyMetadataOptions.AffectsRender
+                            | FrameworkPropertyMetadataOptions.BindsTwoWayByDefault,
                               new PropertyChangedCallback(PositionPropertyChanged),
                               new CoerceValueCallback(CoercePositionProperty)));
 
 
 
-        private static void PositionPropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
+        private static async void PositionPropertyChanged(DependencyObject d, DependencyPropertyChangedEventArgs e)
         {
             var element = d as MediaElement;
             if (element == null) return;
             if (element.Container == null) return;
 
-            // TODO: Implement here
+            if (element.IsPositionUpdating || element.Container.IsStreamSeekable == false) return;
+
+            await element.Commands.Pause();
+            await element.Commands.Seek((TimeSpan)e.NewValue);
         }
 
         public static object CoercePositionProperty(DependencyObject d, object value)
@@ -429,7 +442,8 @@
             var element = d as MediaElement;
             if (element == null) return TimeSpan.Zero;
             if (element.Container == null) return TimeSpan.Zero;
-            //if (element.Media.IsStreamRealtime) return element.Media.Position;
+
+            if (element.Container.IsStreamRealtime) return element.Clock.Position;
 
             return (TimeSpan)value;
         }
@@ -440,33 +454,25 @@
         public TimeSpan Position
         {
             get { return (TimeSpan)GetValue(PositionProperty); }
-            set { UpdatePosition(value, true); }
+            set { SetValue(PositionProperty, value); }
         }
 
+
         /// <summary>
-        /// Updates the position property.
-        /// When coming from the public setter of the position property, it means we require a seek.
-        /// Wehn not coming from public setter, it means we simply need to update the property as we are just reporting on the current position.
+        /// Updates the position property signaling the update is
+        /// coming internally. This is to distinguish between user/binding 
+        /// written value to the Position Porperty and value set by this control's
+        /// internal clock.
         /// </summary>
         /// <param name="currentPosition">The current position.</param>
-        /// <param name="comesFromSetter">If you are calling this method directly, then leave it as false.</param>
-        private void UpdatePosition(TimeSpan currentPosition, bool comesFromSetter = false)
+        internal void UpdatePosition(TimeSpan currentPosition)
         {
-
-            if (comesFromSetter)
+            IsPositionUpdating = true;
+            InvokeOnUI(() =>
             {
-                // If the update is coming from the property setter, we request to perfom a seek operation
-                // TODO: enqueue a seek operation here
-
-            }
-            else
-            {
-                // if the update is NOT coming from the setter, then it means we are calling it internally
-                InvokeOnUI(() =>
-                {
-                    SetValue(PositionProperty, currentPosition);
-                });
-            }
+                SetValue(PositionProperty, currentPosition);
+            });
+            IsPositionUpdating = false;
         }
 
         #endregion

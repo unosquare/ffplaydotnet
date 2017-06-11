@@ -25,7 +25,7 @@
         private const int WaitPacketBufferLength = 512 * 1024; // TODO: adjust this to a multiple of bitrate if available
         private const int PacketReadBatchCount = 10; // Read 10 packets at a time
 
-        private static readonly Dictionary<MediaType, int> MaxBlocks
+        internal static readonly Dictionary<MediaType, int> MaxBlocks
             = new Dictionary<MediaType, int>()
         {
             { MediaType.Video, 12 },
@@ -45,32 +45,31 @@
 
         #region State Variables
 
-        private readonly MediaTypeDictionary<MediaFrameQueue> Frames
+        internal readonly MediaTypeDictionary<MediaFrameQueue> Frames
             = new MediaTypeDictionary<MediaFrameQueue>();
 
         internal readonly MediaTypeDictionary<MediaBlockBuffer> Blocks
             = new MediaTypeDictionary<MediaBlockBuffer>();
 
-        private readonly MediaTypeDictionary<IRenderer> Renderers
+        internal readonly MediaTypeDictionary<IRenderer> Renderers
             = new MediaTypeDictionary<IRenderer>();
 
-        private readonly MediaTypeDictionary<TimeSpan> LastRenderTime
+        internal readonly MediaTypeDictionary<TimeSpan> LastRenderTime
             = new MediaTypeDictionary<TimeSpan>();
 
-        private volatile bool IsTaskCancellationPending = false;
+        internal volatile bool IsTaskCancellationPending = false;
 
 
-        private Thread PacketReadingTask;
-        private readonly ManualResetEventSlim PacketReadingCycle = new ManualResetEventSlim(true);
+        internal Thread PacketReadingTask;
+        internal readonly ManualResetEventSlim PacketReadingCycle = new ManualResetEventSlim(true);
 
-        private Thread FrameDecodingTask;
-        private readonly ManualResetEventSlim FrameDecodingCycle = new ManualResetEventSlim(true);
+        internal Thread FrameDecodingTask;
+        internal readonly ManualResetEventSlim FrameDecodingCycle = new ManualResetEventSlim(true);
 
-        private Thread BlockRenderingTask;
-        private readonly ManualResetEventSlim BlockRenderingCycle = new ManualResetEventSlim(true);
+        internal Thread BlockRenderingTask;
+        internal readonly ManualResetEventSlim BlockRenderingCycle = new ManualResetEventSlim(true);
 
-        private readonly ManualResetEventSlim SeekingDone = new ManualResetEventSlim(true);
-        private TimeSpan? RequestedSeekPosition = null;
+        internal readonly ManualResetEventSlim SeekingDone = new ManualResetEventSlim(true);
 
         #endregion
 
@@ -173,7 +172,7 @@
         /// <summary>
         /// Runs the read task which keeps a packet buffer as full as possible.
         /// </summary>
-        private async void RunPacketReadingWorker()
+        internal async void RunPacketReadingWorker()
         {
             var packetsRead = 0;
 
@@ -210,7 +209,7 @@
         /// many frames as possible in each frame queue and 
         /// up to the MaxFrames on each component
         /// </summary>
-        private async void RunFrameDecodingWorker()
+        internal async void RunFrameDecodingWorker()
         {
             while (IsTaskCancellationPending == false)
             {
@@ -262,7 +261,7 @@
         /// </summary>
         /// <param name="control">The control.</param>
         /// <returns></returns>
-        private async void RunBlockRenderingWorker()
+        internal async void RunBlockRenderingWorker()
         {
             var main = Container.Components.Main.MediaType;
 
@@ -282,10 +281,12 @@
             Clock.Position = Blocks[main].RangeStartTime;
             var clockPosition = Clock.Position;
 
-            while (IsTaskCancellationPending == false)
+            while (true)
             {
-                if (RequestedSeekPosition != null)
-                    Seek(RequestedSeekPosition.Value);
+                await Commands.ProcessNext();
+
+                if (IsTaskCancellationPending)
+                    break;
 
                 SeekingDone.Wait();
                 BlockRenderingCycle.Reset();
@@ -377,7 +378,10 @@
                 }
 
                 BlockRenderingCycle.Set();
-                await Task.Delay(1);
+
+                // Pause for a bit if we have no more commands to process.
+                if (Commands.Count <= 0)
+                    await Task.Delay(1);
             }
 
             BlockRenderingCycle.Set();

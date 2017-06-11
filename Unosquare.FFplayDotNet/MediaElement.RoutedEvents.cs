@@ -74,7 +74,7 @@
         /// Raises the media failed event.
         /// </summary>
         /// <param name="ex">The ex.</param>
-        private void RaiseMediaFailedEvent(Exception ex)
+        internal void RaiseMediaFailedEvent(Exception ex)
         {
             Container?.Log(MediaLogMessageType.Error, $"Media Failure - {ex?.GetType()}: {ex?.Message}");
             InvokeOnUI(() => { RaiseEvent(CreateExceptionRoutedEventArgs(MediaFailedEvent, this, ex)); });
@@ -83,7 +83,7 @@
         /// <summary>
         /// Raises the media opened event.
         /// </summary>
-        private void RaiseMediaOpenedEvent()
+        internal void RaiseMediaOpenedEvent()
         {
             InvokeOnUI(() => { RaiseEvent(new RoutedEventArgs(MediaOpenedEvent, this)); });
         }
@@ -91,7 +91,7 @@
         /// <summary>
         /// Raises the media opening event.
         /// </summary>
-        private void RaiseMediaOpeningEvent()
+        internal void RaiseMediaOpeningEvent()
         {
             InvokeOnUI(() =>
             {

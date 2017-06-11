@@ -15,6 +15,7 @@
         private double m_DownloadProgress = 0;
         private bool m_IsBuffering = false;
         private MediaState m_MediaState = MediaState.Close;
+        private bool m_IsOpening = false;
 
         #endregion
 
@@ -170,12 +171,30 @@
         }
 
         /// <summary>
+        /// Gets a value indicating whether the media is in the process of opening.
+        /// </summary>
+        public bool IsOpening
+        {
+            get { return m_IsOpening; }
+            internal set { SetProperty(ref m_IsOpening, value); }
+        }
+
+        /// <summary>
+        /// Gets a value indicating whether this media element
+        /// currently has an open media url.
+        /// </summary>
+        public bool IsOpened
+        {
+            get { return Container != null; }
+        }
+
+        /// <summary>
         /// Gets the current playback state.
         /// </summary>
         public MediaState MediaState
         {
             get { return m_MediaState; }
-            private set
+            internal set
             {
                 SetProperty(ref m_MediaState, value);
                 OnPropertyChanged(nameof(IsPlaying));
@@ -189,7 +208,7 @@
         /// <summary>
         /// Updates the media properties.
         /// </summary>
-        private void UpdateMediaProperties()
+        internal void UpdateMediaProperties()
         {
             OnPropertyChanged(nameof(Metadata));
             OnPropertyChanged(nameof(HasAudio));
@@ -206,7 +225,7 @@
             OnPropertyChanged(nameof(AudioSampleRate));
             OnPropertyChanged(nameof(AudioBitsPerSample));
             OnPropertyChanged(nameof(NaturalDuration));
-
+            OnPropertyChanged(nameof(IsOpened));
 
             if (Container == null)
             {

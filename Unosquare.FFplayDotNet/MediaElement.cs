@@ -1,5 +1,6 @@
 ﻿namespace Unosquare.FFplayDotNet
 {
+    using Commands;
     using Core;
     using System;
     using System.Collections.Generic;
@@ -22,7 +23,7 @@
         #region Static Definitions
 
         private static string m_FFmpegDirectory = null;
-        private static bool IsFFmpegLoaded = false;
+        internal static bool IsFFmpegLoaded = false;
 
         #endregion
 
@@ -74,6 +75,7 @@
             Content = ViewBox;
             Stretch = ViewBox.Stretch;
             StretchDirection = ViewBox.StretchDirection;
+            Commands = new MediaCommandManager(this);
 
             if (Utils.IsInDesignTime)
             {

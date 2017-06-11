@@ -318,6 +318,7 @@
                         && renderIndex[t] >= blocks.Count - 1
                         && CanReadMoreBlocksOf(t))
                     {
+                        // TODO: there seems to be a bug with this when mp3 has cover art -- see finlandia.mp3
                         LastRenderTime[t] = TimeSpan.MinValue;
                         if (AddNextBlock(t) == null)
                             break;

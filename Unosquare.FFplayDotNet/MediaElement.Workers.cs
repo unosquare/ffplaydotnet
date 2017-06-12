@@ -338,6 +338,13 @@
                     if ((renderBlock[t].StartTime != LastRenderTime[t] || LastRenderTime[t] == TimeSpan.MinValue)
                         && clockPosition.Ticks >= renderBlock[t].StartTime.Ticks)
                     {
+                        // only render a secondary block if the primary block has been rendered first
+                        // otherwise, wait for the primary block to occur and skip rendering of secondary block.
+                        // TODO: still needs more logic for lip-sync quality sync :)
+                        var skewTime = TimeSpan.FromTicks(renderBlock[t].StartTime.Ticks - LastRenderTime[main].Ticks);
+                        if (t != main && IsPlaying && skewTime.TotalMilliseconds <= 0)
+                            continue;
+
                         // Record the render time
                         LastRenderTime[t] = renderBlock[t].StartTime;
 
@@ -380,7 +387,6 @@
                         HasMediaEnded = true;
                         RaiseMediaEndedEvent();
                     }
-
                 }
                 else
                 {

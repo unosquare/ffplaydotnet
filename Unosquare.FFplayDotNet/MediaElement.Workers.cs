@@ -373,7 +373,8 @@
                     {
                         // Rendered all and nothing else to read
                         Clock.Pause();
-                        Clock.Position = Blocks[main].RangeEndTime;
+                        Clock.Position = NaturalDuration.HasTimeSpan ? 
+                            NaturalDuration.TimeSpan : Blocks[main].RangeEndTime;
                         MediaState = MediaState.Pause;
                         UpdatePosition(Clock.Position);
                         HasMediaEnded = true;

@@ -1,6 +1,7 @@
 ﻿namespace Unosquare.FFplayDotNet.Commands
 {
     using System;
+    using System.Linq;
     using Unosquare.FFplayDotNet.Core;
 
     /// <summary>
@@ -36,6 +37,13 @@
 
             try
             {
+                var main = m.Container.Components.Main.MediaType;
+                if (m.Blocks[main].IsInRange(TargetPosition))
+                {
+                    m.Clock.Position = TargetPosition;
+                    return;
+                }
+
                 m.PacketReadingCycle.Wait();
                 m.FrameDecodingCycle.Wait();
 
@@ -47,14 +55,28 @@
                     m.LastRenderTime[t] = TimeSpan.MinValue;
                 }
 
-                // Populate frame with after-seek operation
+                // Populate frame queues with after-seek operation
                 var frames = m.Container.Seek(TargetPosition);
+
                 foreach (var frame in frames)
                     m.Frames[frame.MediaType].Push(frame);
+
+                if (frames.Count > 0)
+                {
+                    var minStartTime = frames.Min(f => f.StartTime.Ticks);
+                    var maxStartTime = frames.Max(f => f.StartTime.Ticks);
+
+                    if (TargetPosition.Ticks < minStartTime)
+                        m.Clock.Position = TimeSpan.FromTicks(minStartTime);
+                    else if (TargetPosition.Ticks > maxStartTime)
+                        m.Clock.Position = TimeSpan.FromTicks(maxStartTime);
+                    else
+                        m.Clock.Position = TargetPosition;
+                }
             }
             catch (Exception)
             {
-
+                // swallow
             }
             finally
             {

@@ -7,11 +7,11 @@
     internal sealed class PlayCommand : MediaCommand
     {
         /// <summary>
-        /// Initializes a new instance of the <see cref="PlayCommand"/> class.
+        /// Initializes a new instance of the <see cref="PlayCommand" /> class.
         /// </summary>
-        /// <param name="mediaElement">The media element.</param>
-        public PlayCommand(MediaElement mediaElement) 
-            : base(mediaElement, MediaCommandType.Play)
+        /// <param name="manager">The media element.</param>
+        public PlayCommand(MediaCommandManager manager) 
+            : base(manager, MediaCommandType.Play)
         {
         }
 
@@ -20,13 +20,14 @@
         /// </summary>
         protected override void Execute()
         {
-            if (MediaElement.IsOpen == false) return;
+            var m = Manager.MediaElement;
+            if (m.IsOpen == false) return;
 
-            foreach (var renderer in MediaElement.Renderers.Values)
+            foreach (var renderer in m.Renderers.Values)
                 renderer.Play();
 
-            MediaElement.Clock.Play();
-            MediaElement.MediaState = System.Windows.Controls.MediaState.Play;
+            m.Clock.Play();
+            m.MediaState = System.Windows.Controls.MediaState.Play;
         }
     }
 }

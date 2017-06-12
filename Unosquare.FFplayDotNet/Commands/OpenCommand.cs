@@ -18,12 +18,12 @@
         public Uri Source { get; private set; }
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="OpenCommand"/> class.
+        /// Initializes a new instance of the <see cref="OpenCommand" /> class.
         /// </summary>
-        /// <param name="mediaElement">The media element.</param>
+        /// <param name="manager">The manager.</param>
         /// <param name="source">The source.</param>
-        public OpenCommand(MediaElement mediaElement, Uri source)
-            : base(mediaElement, MediaCommandType.Open)
+        public OpenCommand(MediaCommandManager manager, Uri source)
+            : base(manager, MediaCommandType.Open)
         {
             Source = source;
         }
@@ -36,9 +36,10 @@
         /// <exception cref="System.ArgumentException"></exception>
         private IRenderer CreateRenderer(MediaType mediaType)
         {
-            if (mediaType == MediaType.Audio) return new AudioRenderer(MediaElement);
-            else if (mediaType == MediaType.Video) return new VideoRenderer(MediaElement);
-            else if (mediaType == MediaType.Subtitle) return new SubtitleRenderer(MediaElement);
+            var m = Manager.MediaElement;
+            if (mediaType == MediaType.Audio) return new AudioRenderer(m);
+            else if (mediaType == MediaType.Video) return new VideoRenderer(m);
+            else if (mediaType == MediaType.Subtitle) return new SubtitleRenderer(m);
 
             throw new ArgumentException($"No suitable renderer for Media Type '{mediaType}'");
         }
@@ -48,7 +49,7 @@
         /// </summary>
         protected override void Execute()
         {
-            var m = MediaElement;
+            var m = Manager.MediaElement;
 
             try
             {

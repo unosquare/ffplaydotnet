@@ -10,7 +10,7 @@
 
         private readonly object SyncLock = new object();
         private readonly List<MediaCommand> Commands = new List<MediaCommand>();
-        private readonly MediaElement MediaElement;
+        private readonly MediaElement m_MediaElement;
         private MediaCommand m_ExecutingCommand = null;
 
         #endregion
@@ -23,7 +23,7 @@
         /// <param name="mediaElement">The media element.</param>
         public MediaCommandManager(MediaElement mediaElement)
         {
-            MediaElement = mediaElement;
+            m_MediaElement = mediaElement;
         }
 
         #endregion
@@ -45,6 +45,16 @@
             set { lock (SyncLock) { m_ExecutingCommand = value; } }
         }
 
+        /// <summary>
+        /// Gets a value indicating whether the last executed command was a seek command.
+        /// </summary>
+        public bool HasSeeked { get; internal set; }
+
+        /// <summary>
+        /// Gets the parent media element.
+        /// </summary>
+        public MediaElement MediaElement { get { return m_MediaElement; } }
+
         #endregion
 
         #region Methods
@@ -59,7 +69,7 @@
             lock (SyncLock)
             {
                 Commands.Clear();
-                var command = new OpenCommand(MediaElement, uri);
+                var command = new OpenCommand(this, uri);
                 var task = command.ExecuteAsync();
                 return task;
             }
@@ -69,7 +79,7 @@
         {
             lock (SyncLock)
             {
-                var command = new PlayCommand(MediaElement);
+                var command = new PlayCommand(this);
                 Commands.Add(command);
                 return command.Promise;
             }
@@ -79,7 +89,7 @@
         {
             lock (SyncLock)
             {
-                var command = new PauseCommand(MediaElement);
+                var command = new PauseCommand(this);
                 Commands.Add(command);
                 return command.Promise;
             }
@@ -90,7 +100,7 @@
             lock (SyncLock)
             {
                 Commands.Clear();
-                var command = new StopCommand(MediaElement);
+                var command = new StopCommand(this);
                 Commands.Add(command);
                 return command.Promise;
             }
@@ -108,7 +118,7 @@
                         Commands.Remove(seek);
                 }
 
-                var command = new SeekCommand(MediaElement, position);
+                var command = new SeekCommand(this, position);
                 Commands.Add(command);
                 return command.Promise;
             }
@@ -119,7 +129,7 @@
             lock (SyncLock)
             {
                 Commands.Clear();
-                var command = new CloseCommand(MediaElement);
+                var command = new CloseCommand(this);
                 var task = command.ExecuteAsync();
                 return task;
             }

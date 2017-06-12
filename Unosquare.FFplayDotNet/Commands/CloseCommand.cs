@@ -11,9 +11,9 @@
         /// <summary>
         /// Initializes a new instance of the <see cref="CloseCommand"/> class.
         /// </summary>
-        /// <param name="mediaElement">The media element.</param>
-        public CloseCommand(MediaElement mediaElement)
-            : base(mediaElement, MediaCommandType.Close)
+        /// <param name="manager">The media element.</param>
+        public CloseCommand(MediaCommandManager manager)
+            : base(manager, MediaCommandType.Close)
         {
             // placeholder
         }
@@ -23,7 +23,7 @@
         /// </summary>
         protected override void Execute()
         {
-            var m = MediaElement;
+            var m = Manager.MediaElement;
 
             if (m.IsOpen == false || m.IsOpening) return;
 
@@ -77,7 +77,7 @@
             // Update notification properties
             m.InvokeOnUI(() =>
             {
-                MediaElement.NotifyPropertyChanges();
+                m.NotifyPropertyChanges();
             });
 
             m.MediaState = System.Windows.Controls.MediaState.Close;

@@ -13,12 +13,12 @@
         public TimeSpan TargetPosition = TimeSpan.Zero;
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="SeekCommand"/> class.
+        /// Initializes a new instance of the <see cref="SeekCommand" /> class.
         /// </summary>
-        /// <param name="mediaElement">The media element.</param>
+        /// <param name="manager">The media element.</param>
         /// <param name="targetPosition">The target position.</param>
-        public SeekCommand(MediaElement mediaElement, TimeSpan targetPosition)
-            : base(mediaElement, MediaCommandType.Seek)
+        public SeekCommand(MediaCommandManager manager, TimeSpan targetPosition)
+            : base(manager, MediaCommandType.Seek)
         {
             TargetPosition = targetPosition;
         }
@@ -28,7 +28,7 @@
         /// </summary>
         protected override void Execute()
         {
-            var m = MediaElement;
+            var m = Manager.MediaElement;
 
             m.SeekingDone.Reset();
             var startTime = DateTime.UtcNow;
@@ -38,6 +38,13 @@
             try
             {
                 var main = m.Container.Components.Main.MediaType;
+                var blocks = m.Blocks[main];
+                var isInRange = blocks.IsInRange(TargetPosition);
+                var renderIndex = blocks.IndexOf(TargetPosition);
+
+
+                // 1. Check if we already have the block. If we do, simply set the clock position to the target position
+                // we don't need anything 
                 if (m.Blocks[main].IsInRange(TargetPosition))
                 {
                     m.Clock.Position = TargetPosition;

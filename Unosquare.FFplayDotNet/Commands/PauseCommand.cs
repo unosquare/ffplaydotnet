@@ -7,11 +7,11 @@
     internal sealed class PauseCommand : MediaCommand
     {
         /// <summary>
-        /// Initializes a new instance of the <see cref="PauseCommand"/> class.
+        /// Initializes a new instance of the <see cref="PauseCommand" /> class.
         /// </summary>
-        /// <param name="mediaElement">The media element.</param>
-        public PauseCommand(MediaElement mediaElement)
-            : base(mediaElement, MediaCommandType.Pause)
+        /// <param name="manager">The manager.</param>
+        public PauseCommand(MediaCommandManager manager)
+            : base(manager, MediaCommandType.Pause)
         {
         }
 
@@ -20,16 +20,17 @@
         /// </summary>
         protected override void Execute()
         {
-            if (MediaElement.IsOpen == false) return;
-            if (MediaElement.CanPause == false) return;
+            var m = Manager.MediaElement;
+            if (m.IsOpen == false) return;
+            if (m.CanPause == false) return;
 
-            MediaElement.Clock.Pause();
+            m.Clock.Pause();
 
-            foreach (var renderer in MediaElement.Renderers.Values)
+            foreach (var renderer in m.Renderers.Values)
                 renderer.Pause();
 
-            if (MediaElement.MediaState != System.Windows.Controls.MediaState.Stop)
-                MediaElement.MediaState = System.Windows.Controls.MediaState.Pause;
+            if (m.MediaState != System.Windows.Controls.MediaState.Stop)
+                m.MediaState = System.Windows.Controls.MediaState.Pause;
         }
     }
 }

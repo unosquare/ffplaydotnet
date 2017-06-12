@@ -13,11 +13,11 @@ namespace Unosquare.FFplayDotNet.Commands
     internal sealed class StopCommand : MediaCommand
     {
         /// <summary>
-        /// Initializes a new instance of the <see cref="StopCommand"/> class.
+        /// Initializes a new instance of the <see cref="StopCommand" /> class.
         /// </summary>
-        /// <param name="mediaElement">The media element.</param>
-        public StopCommand(MediaElement mediaElement) 
-            : base(mediaElement, MediaCommandType.Stop)
+        /// <param name="manager">The media element.</param>
+        public StopCommand(MediaCommandManager manager) 
+            : base(manager, MediaCommandType.Stop)
         {
 
         }
@@ -27,11 +27,12 @@ namespace Unosquare.FFplayDotNet.Commands
         /// </summary>
         protected override void Execute()
         {
-            foreach (var renderer in MediaElement.Renderers.Values)
+            var m = Manager.MediaElement;
+            foreach (var renderer in m.Renderers.Values)
                 renderer.Stop();
 
-            MediaElement.Clock.Reset();
-            MediaElement.Commands.Seek(TimeSpan.Zero);
+            m.Clock.Reset();
+            m.Commands.Seek(TimeSpan.Zero);
             
         }
     }

@@ -10,13 +10,13 @@
         #region Constructor
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="MediaCommand"/> class.
+        /// Initializes a new instance of the <see cref="MediaCommand" /> class.
         /// </summary>
-        /// <param name="mediaElement">The media element.</param>
+        /// <param name="manager">The command manager.</param>
         /// <param name="commandType">Type of the command.</param>
-        protected MediaCommand(MediaElement mediaElement, MediaCommandType commandType)
+        protected MediaCommand(MediaCommandManager manager, MediaCommandType commandType)
         {
-            MediaElement = mediaElement;
+            Manager = manager;
             CommandType = commandType;
             Promise = new Task(Execute);
         }
@@ -26,9 +26,9 @@
         #region Properties
 
         /// <summary>
-        /// Gets the associated media element.
+        /// Gets the associated parent command manager
         /// </summary>
-        public MediaElement MediaElement { get; private set; }
+        public MediaCommandManager Manager { get; private set; }
 
         /// <summary>
         /// Gets the type of the command.
@@ -51,13 +51,15 @@
         /// <returns></returns>
         public async Task ExecuteAsync()
         {
-            if (MediaElement.Commands.ExecutingCommand != null)
-                await MediaElement.Commands.ExecutingCommand.Promise;
+            var m = Manager.MediaElement;
+            if (m.Commands.ExecutingCommand != null)
+                await m.Commands.ExecutingCommand.Promise;
 
-            MediaElement.Commands.ExecutingCommand = this;
+            m.Commands.ExecutingCommand = this;
             Promise.Start();
             await Promise;
-            MediaElement.Commands.ExecutingCommand = null;
+            m.Commands.HasSeeked = true;
+            m.Commands.ExecutingCommand = null;
         }
 
         /// <summary>

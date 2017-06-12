@@ -24,7 +24,7 @@ namespace Unosquare.FFplayDotNet.Rendering.Wave
         protected short extraSize;
 
         /// <summary>
-        /// Creates a new PCM 44.1Khz stereo 16 bit format
+        /// Creates a new PCM 48Khz stereo 16 bit signed, interleaved, 2-channel format
         /// </summary>
         public WaveFormat() : this(44100, 16, 2)
         {
@@ -43,22 +43,6 @@ namespace Unosquare.FFplayDotNet.Rendering.Wave
         }
 
         /// <summary>
-        /// Gets the size of a wave buffer equivalent to the latency in milliseconds.
-        /// </summary>
-        /// <param name="milliseconds">The milliseconds.</param>
-        /// <returns></returns>
-        public int ConvertLatencyToByteSize(int milliseconds)
-        {
-            int bytes = (int)((AverageBytesPerSecond / 1000.0) * milliseconds);
-            if ((bytes % BlockAlign) != 0)
-            {
-                // Return the upper BlockAligned
-                bytes = bytes + BlockAlign - (bytes % BlockAlign);
-            }
-            return bytes;
-        }
-
-        /// <summary>
         /// Creates a new PCM format with the specified sample rate, bit depth and channels
         /// </summary>
         public WaveFormat(int rate, int bits, int channels)
@@ -73,7 +57,23 @@ namespace Unosquare.FFplayDotNet.Rendering.Wave
             extraSize = 0;
 
             blockAlign = (short)(channels * (bits / 8));
-            averageBytesPerSecond = this.sampleRate * this.blockAlign;
+            averageBytesPerSecond = sampleRate * blockAlign;
+        }
+
+        /// <summary>
+        /// Gets the size of a wave buffer equivalent to the latency in milliseconds.
+        /// </summary>
+        /// <param name="milliseconds">The milliseconds.</param>
+        /// <returns></returns>
+        public int ConvertLatencyToByteSize(int milliseconds)
+        {
+            int bytes = (int)((AverageBytesPerSecond / 1000.0) * milliseconds);
+            if ((bytes % BlockAlign) != 0)
+            {
+                // Return the upper BlockAligned
+                bytes = bytes + BlockAlign - (bytes % BlockAlign);
+            }
+            return bytes;
         }
 
         /// <summary>
@@ -119,6 +119,8 @@ namespace Unosquare.FFplayDotNet.Rendering.Wave
                 bitsPerSample;
         }
 
+        #region Properties
+
         /// <summary>
         /// Returns the number of channels (1=mono,2=stereo etc)
         /// </summary>
@@ -150,5 +152,7 @@ namespace Unosquare.FFplayDotNet.Rendering.Wave
         /// except for compressed formats which store extra data after the WAVEFORMATEX header
         /// </summary>
         public int ExtraSize => extraSize;
+
+        #endregion
     }
 }

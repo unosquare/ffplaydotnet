@@ -319,11 +319,11 @@
                         && renderIndex[t] >= blocks.Count - 1
                         && CanReadMoreBlocksOf(t))
                     {
-                        LastRenderTime[t] = TimeSpan.MinValue;
                         if (AddNextBlock(t) == null)
                             break;
-                        else
-                            renderIndex[t] = blocks.IndexOf(clockPosition);
+
+                        renderIndex[t] = blocks.IndexOf(clockPosition);
+                        LastRenderTime[t] = TimeSpan.MinValue;
                     }
 
                     // Skip to next stream component if we have nothing left to do here :(
@@ -373,7 +373,7 @@
                     {
                         // Rendered all and nothing else to read
                         Clock.Pause();
-                        Clock.Position = NaturalDuration.HasTimeSpan ? 
+                        Clock.Position = NaturalDuration.HasTimeSpan ?
                             NaturalDuration.TimeSpan : Blocks[main].RangeEndTime;
                         MediaState = MediaState.Pause;
                         UpdatePosition(Clock.Position);

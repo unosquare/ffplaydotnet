@@ -265,6 +265,7 @@
         {
             var main = Container.Components.Main.MediaType;
 
+            // Create and reset all the tracking variables
             var hasRendered = new MediaTypeDictionary<bool>();
             var renderIndex = new MediaTypeDictionary<int>();
             var renderBlock = new MediaTypeDictionary<MediaBlock>();
@@ -288,18 +289,14 @@
                 if (IsTaskCancellationPending)
                     break;
 
-                SeekingDone.Wait();
-                BlockRenderingCycle.Reset();
-
                 // Capture current time and render index
+                BlockRenderingCycle.Reset();
                 clockPosition = Clock.Position;
                 renderIndex[main] = Blocks[main].IndexOf(clockPosition);
 
-                // Check for out-of sync issues (i.e. after seeking)
-                // TODO: this is buggy with sine.wav or short files. It gets triggered even when we have reached the end of file.
-                // Maybe we should check EOF conditions before anything else?
-                // or maybe try to sync after we've checked for EOF. This needs more carful studying.
-                if (Blocks[main].IsInRange(clockPosition) == false || renderIndex[main] < 0)
+                // Check for out-of sync issues (i.e. after seeking), being cautious about EOF/media ended scenarios
+                // in which more blocks cannot be read. (The clock is on or beyond the Duration)
+                if (CanReadMoreBlocksOf(main) && (Blocks[main].IsInRange(clockPosition) == false || renderIndex[main] < 0))
                 {
                     BufferBlocks(BufferCacheLength);
                     Clock.Position = Blocks[main].RangeStartTime;
@@ -310,6 +307,7 @@
                     renderIndex[main] = Blocks[main].IndexOf(clockPosition);
                 }
 
+                // Render each of the Media Types if it is time to do so.
                 foreach (var t in Container.Components.MediaTypes)
                 {
                     var blocks = Blocks[t];
@@ -338,13 +336,17 @@
 
                     // render the frame if we have not rendered
                     if ((renderBlock[t].StartTime != LastRenderTime[t] || LastRenderTime[t] == TimeSpan.MinValue)
-                        && renderBlock[t].StartTime.Ticks <= clockPosition.Ticks)
+                        && clockPosition.Ticks >= renderBlock[t].StartTime.Ticks)
                     {
+                        // Record the render time
                         LastRenderTime[t] = renderBlock[t].StartTime;
-                        hasRendered[t] = true;
+
                         // Update the position;
-                        if (t == main) UpdatePosition(clockPosition);
+                        if (t == main)
+                            UpdatePosition(clockPosition);
+
                         RenderBlock(renderBlock[t], clockPosition, renderIndex[t]);
+                        hasRendered[t] = true;
                     }
 
                     // Add the next block if the conditions require us to do so:
@@ -367,7 +369,7 @@
                 // Detect end of block rendering
                 if (CanReadMoreBlocksOf(main) == false && renderIndex[main] == Blocks[main].Count - 1)
                 {
-                    if (MediaState != MediaState.Pause)
+                    if (HasMediaEnded == false)
                     {
                         // Rendered all and nothing else to read
                         Clock.Pause();

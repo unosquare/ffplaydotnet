@@ -1,3 +1,7 @@
+# PLEASE DO NOT USE THIS REPO
+The codebase has been moved to: https://github.com/unosquare/ffmediaelement
+I will continue development there.
+
 # ffplaydotnet
 An attempt to port FFmpeg's FFplay.c
 
